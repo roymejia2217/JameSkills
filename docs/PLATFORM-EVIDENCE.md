@@ -10,12 +10,12 @@ para una máquina Windows. Un requisito documentado no equivale a un smoke test.
 |---|---|---|
 | OS de ejecución | Debian GNU/Linux 13 (trixie), contenedor Linux x86_64 | observado |
 | Target Rust host | `x86_64-unknown-linux-gnu` | observado |
-| Rust | `rustc 1.92.0 (ded5c06cf 2025-12-08)` | instalado y ejecutado |
-| Cargo | `cargo 1.92.0 (344c4567c 2025-10-21)` | instalado y ejecutado |
+| Rust fijado | `rustc 1.95.0 (59807616e 2026-04-14)` | instalado y ejecutado |
+| Cargo fijado | Cargo 1.95.0 | instalado y ejecutado |
 | Git | `git version 2.52.0` | observado |
 | GPUI Kit | `gpui-kit 0.7.0`, Apache-2.0, edición 2024 | descargado con `cargo info`; no yanked en índice crates.io local |
 | GPUI facade | dependencia `gpui = "=0.3.7"` en Cargo.toml normalizado del crate | inspeccionada |
-| MSRV publicado del Kit | crates.io/Cargo informa `rust-version: unknown` | no declarado; la compilación resolverá compatibilidad efectiva |
+| MSRV publicado del Kit | crates.io/Cargo informa `rust-version: unknown` | no declarado; fuentes GPUI requieren como mínimo las APIs estables hasta 1.95 |
 | Hash del crate | `8edb2a8eafdb6e65ad1a80625347b93f8e54cbf3fac82a584e4924cda674d5c2` | local; Cargo.lock fijará la entrada antes de compilar el workspace |
 
 El índice consultado reporta `gpui-kit 0.7.0 yanked=false` y `0.6.5
@@ -23,6 +23,18 @@ yanked=true`. El tag upstream `v0.7.0` resuelve a
 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`. En su `src/lib.rs` se verificaron
 `application`, `init`, `open_window`, los reexports de GPUI/assets y la
 creación de `base::Root` dentro de `open_window`.
+
+La primera resolución con Rust1.92.0 falló en `gpui-pre-util 0.3.7` porque
+`slice::as_array` todavía no era estable. Rust1.93.0 pasó ese crate, pero
+`gpui-pre 0.3.7` usa `std::hint::cold_path`, que el compilador rechazó en 1.93 y
+1.94. El código fuente oficial de Rust fija `slice::as_array` desde 1.93.0 y
+`cold_path` desde 1.95.0. Por ello `rust-toolchain.toml` y `rust-version`
+subieron conjuntamente a 1.95.0. Comando GREEN:
+`RUST_FONTCONFIG_DLOPEN=1 cargo +1.95.0 check -p jameskills-desktop --locked`;
+terminó correctamente. El override solo habilita el dlopen que el crate upstream
+`yeslogic-fontconfig-sys` documenta para compilar sin `fontconfig.pc`; la
+biblioteca runtime sí está instalada. Compilación normal requiere paquete de
+desarrollo según `docs/OPERATIONS.md`.
 
 ## Linux observado
 

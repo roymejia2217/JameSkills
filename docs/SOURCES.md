@@ -22,8 +22,14 @@ fija `gpui = "=0.3.7"`, edición 2024, y su `src/lib.rs` exporta
 `application`, `init`, `open_window`, `assets` y `component`; `open_window`
 envuelve el contenido con `base::Root`. Tag v0.7.0 resuelto a
 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`. Evidencia detallada y límites de
-plataforma en `docs/PLATFORM-EVIDENCE.md`. El MSRV efectivo y la resolución
-completa se comprobarán al generar Cargo.lock y compilar T003/T005.
+plataforma en `docs/PLATFORM-EVIDENCE.md`. La prueba inicial de toolchain cambió
+el baseline de 1.92 a 1.95. Rust oficial documenta
+[`slice::as_array`](https://doc.rust-lang.org/1.95.0/std/primitive.slice.html#method.as_array)
+estable desde 1.93.0 y
+[`std::hint::cold_path`](https://doc.rust-lang.org/1.95.0/std/hint/fn.cold_path.html)
+desde 1.95.0; `gpui-pre 0.3.7` llama a esta última. Pruebas de compilación
+negativas en 1.92 y 1.94, positiva de `jameskills-desktop` en 1.95 con el modo
+dlopen upstream de fontconfig están detalladas en `docs/PLATFORM-EVIDENCE.md`.
 
 Discrepancia resuelta: la página installation aún describe 0.6.5 y ejemplos versionados 0.6.0; el registro y el release ofrecen 0.7.0. Las URLs /versions/v0.7.0/docs/... devolvieron 404. El ejecutor debe usar fuente tag v0.7.0/docs.rs versión específica para firmas de código. No convertir 0.6.5 en dependencia por copiar esa página.
 

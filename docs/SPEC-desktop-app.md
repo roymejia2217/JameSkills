@@ -4,7 +4,7 @@ Native desktop Rust + GPUI Kit =0.7.0, Windows/Linux x86_64. Core/infrastructure
 
 ## Inicio y plataforma
 
-Rust1.92.0 baseline, edición2024, Kit facade. T001/Tspike confirma Cargo.lock sin paquetes que requieran más Rust; si MSRV mayor evidenciado actualizar rust-toolchain+docs+CI junto, nunca stable flotante. Windows MSVC VS2022+CMake; Linux Wayland/X11 + Vulkan y dependencias oficiales (OPERATIONS).
+Rust1.95.0 baseline, edición2024, Kit facade. Cargo.lock se valida con el toolchain fijado; GPUI snapshot 0.3.7 usa `std::hint::cold_path`, estable desde Rust1.95.0. El experimento con 1.92/1.94 falló por APIs inestables, por lo que no se conserva el baseline inicialmente propuesto. No usar stable flotante. Windows MSVC VS2022+CMake; Linux Wayland/X11 + Vulkan y dependencias oficiales (OPERATIONS).
 GUI GPU incompatible/headless -> mensaje diagnóstico CLI/archivo redacted, no esconder crash ni cambiar stack de producto sin decisión.
 Native app solo llama system browser para OAuth/enlaces y system file picker mediante API compatible Kit; nunca webview para main GUI.
 
