@@ -474,7 +474,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T011 — Modelar políticas y requisitos de herramientas
 
-- [ ] **T011 completada y verificada**
+- [x] **T011 completada y verificada**
 
 **Módulo:** `skill-format`. **Dependencias:** T010. **Estado:** pendiente.
 
@@ -492,17 +492,17 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `docs/SPEC-policy-engine.md`
 
 **Descomposición verificada:**
-- [x] **T011.contract — Contrato del schema**: separar firma/tipos compartidos de la implementación para mantener cada incremento en <=5 archivos. Commits y evidencia se registran al cerrar.
-- [ ] **T011.schema — Parser y fixture tipados** (5 archivos): module/scope, parser, tests y fixture. No shell strings ni comandos importados.
+- [x] **T011.contract — Contrato del schema**: tipos/signatura común en `docs/CONTRACTS.md` y registro de enum/tool/check en `docs/SPEC-policy-engine.md`. Commit `2c9d60c`.
+- [x] **T011.schema — Parser y fixture tipados** (5 archivos): `policy.rs`, `scope.rs`, `domain/mod.rs`, `policy_schema.rs` y fixture. Sin shell strings ni comandos importados. Commit `f32f55c`.
 
 **Aceptación:**
-- [ ] Formato expresa commits/README/gitignore/secrets/main/PR/CI/tests/releases y dependencias de entorno.
-- [ ] Políticas se enlazan mediante IDs/referencias válidas sin ciclo de guía.
-- [ ] La suite describe acciones registradas, nunca código que se ejecuta al importar.
+- [x] Formato expresa commits/README/gitignore/secrets/main/PR/CI/tests/releases y dependencias de entorno.
+- [x] Políticas se enlazan mediante IDs/referencias válidas sin ciclo de guía.
+- [x] La suite describe acciones registradas, nunca código que se ejecuta al importar.
 
 **Verificación:** cargo test -p jameskills-core --locked policy_schema; fixture representa todas las categorías v1 con ejemplos verificables, sin promesas de enforcement absoluto.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED `cargo test -p jameskills-core --test policy_schema --locked --offline` falló porque `parse_policy` devolvía `policy.unsupported`; GREEN focal 5/5. Suite core/infra/CLI 47/47; Clippy all-targets `-D warnings`; fmt y `git diff --check`. Linux Debian 13, parser puro, sin ejecutar herramientas declaradas. Implementación `f32f55c`; contrato `2c9d60c`.
 
 <a id="t012"></a>
 
