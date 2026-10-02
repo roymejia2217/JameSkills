@@ -1,0 +1,116 @@
+schema_version = 1
+
+[[plans]]
+id = "git-setup"
+requirement_ids = ["git-ready"]
+[[plans.steps]]
+id = "verify-git"
+prompt_es = "Instala Git desde la fuente oficial de tu SO y selecciona el repositorio; vuelve a verificar."
+requires = []
+verification_requirement_ids = ["git-ready"]
+[plans.steps.action]
+kind = "open-official-url"
+source_id = "git-install"
+
+[[plans]]
+id = "readme-setup"
+requirement_ids = ["readme-structure"]
+[[plans.steps]]
+id = "review-readme"
+prompt_es = "Añade las secciones requeridas mediante el diff de la plantilla y vuelve a verificar."
+requires = []
+verification_requirement_ids = ["readme-structure"]
+[plans.steps.action]
+kind = "manual-instruction"
+
+[[plans]]
+id = "ignore-setup"
+requirement_ids = ["ignored-sensitive-files"]
+[[plans.steps]]
+id = "check-ignore"
+prompt_es = "Revisa los patrones del stack y aplica solo el diff necesario. El check probará rutas sensibles."
+requires = []
+verification_requirement_ids = ["ignored-sensitive-files"]
+[plans.steps.action]
+kind = "manual-instruction"
+
+[[plans]]
+id = "secret-scan"
+requirement_ids = ["no-tracked-secrets"]
+[[plans.steps]]
+id = "scanner"
+prompt_es = "Configura Gitleaks en una versión compatible. Si hay secretos, retíralos y rota credenciales expuestas fuera de la skill."
+requires = []
+verification_requirement_ids = ["no-tracked-secrets"]
+[plans.steps.action]
+kind = "open-official-url"
+source_id = "gitleaks"
+
+[[plans]]
+id = "commit-setup"
+requirement_ids = ["commit-format"]
+[[plans.steps]]
+id = "message"
+prompt_es = "Configura commitlint del proyecto y usa un mensaje Conventional Commits; verificar el mensaje real."
+requires = []
+verification_requirement_ids = ["commit-format"]
+[plans.steps.action]
+kind = "open-official-url"
+source_id = "conventional-commits"
+
+[[plans]]
+id = "github-access-setup"
+requirement_ids = ["github-access"]
+[[plans.steps]]
+id = "auth"
+prompt_es = "Autoriza gh en tu equipo y comprueba que puedes leer este repositorio. No pegues tokens en la skill."
+requires = []
+verification_requirement_ids = ["github-access"]
+[plans.steps.action]
+kind = "open-official-url"
+source_id = "github-cli"
+
+[[plans]]
+id = "github-protection"
+requirement_ids = ["main-protected"]
+[[plans.steps]]
+id = "rules"
+prompt_es = "Configura o solicita al administrador reglas efectivas para main: PR, quality y bypass permitido. Volver a leer los ajustes del host."
+requires = []
+verification_requirement_ids = ["main-protected"]
+[plans.steps.action]
+kind = "open-official-url"
+source_id = "github-rulesets"
+
+[[plans]]
+id = "ci-setup"
+requirement_ids = ["ci-contract"]
+[[plans.steps]]
+id = "pipeline"
+prompt_es = "Usa el perfil real del stack y configura quality. Revisa el diff y las referencias fijadas antes de aplicar."
+requires = []
+verification_requirement_ids = ["ci-contract"]
+[plans.steps.action]
+kind = "manual-instruction"
+
+[[plans]]
+id = "ci-current-setup"
+requirement_ids = ["ci-current"]
+[[plans.steps]]
+id = "wait-ci"
+prompt_es = "Ejecuta CI en el SHA que quieres publicar y vuelve a comprobar sus checks; un SHA anterior no cuenta."
+requires = []
+verification_requirement_ids = ["ci-current"]
+[plans.steps.action]
+kind = "recheck"
+
+[[plans]]
+id = "release-setup"
+requirement_ids = ["release-ready"]
+[[plans.steps]]
+id = "release"
+prompt_es = "Prepara versión SemVer, changelog y checksums de artefactos tras pasar gates. Publicar requiere la autorización correspondiente."
+requires = []
+verification_requirement_ids = ["release-ready"]
+[plans.steps.action]
+kind = "manual-instruction"

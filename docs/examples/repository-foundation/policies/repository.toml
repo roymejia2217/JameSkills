@@ -1,0 +1,139 @@
+schema_version = 1
+profile = "repository-foundation"
+
+[[requirements]]
+id = "git-ready"
+description = "El contexto seleccionado es un repositorio Git válido."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = []
+guidance_id = "git-setup"
+[requirements.check]
+kind = "git-repository"
+
+[[requirements]]
+id = "readme-structure"
+description = "README explica inicio, arquitectura y contribución."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = ["git-ready"]
+guidance_id = "readme-setup"
+[requirements.check]
+kind = "readme-sections"
+path = "README.md"
+headings = ["Inicio rápido", "Arquitectura", "Contribuir"]
+
+[[requirements]]
+id = "ignored-sensitive-files"
+description = "El gitignore evita secretos y archivos de ejecución."
+severity = "error"
+required = true
+phase = "commit"
+enforcement = "local-check"
+depends_on = ["git-ready"]
+guidance_id = "ignore-setup"
+[requirements.check]
+kind = "gitignore-patterns"
+paths = [".env", ".env.local", "credentials.json", "target/generated-fixture"]
+
+[[requirements]]
+id = "no-tracked-secrets"
+description = "El scanner estándar no detecta secretos en cambios."
+severity = "error"
+required = true
+phase = "commit"
+enforcement = "local-check"
+depends_on = ["git-ready"]
+guidance_id = "secret-scan"
+[requirements.check]
+kind = "tracked-secrets"
+tool_id = "gitleaks"
+scan_scope = "staged"
+
+[[requirements]]
+id = "commit-format"
+description = "El mensaje respeta Conventional Commits."
+severity = "error"
+required = true
+phase = "commit"
+enforcement = "local-hook"
+depends_on = ["git-ready"]
+guidance_id = "commit-setup"
+[requirements.check]
+kind = "conventional-commit"
+tool_id = "commitlint"
+
+[[requirements]]
+id = "github-access"
+description = "Se puede leer la configuración del repositorio GitHub."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "local-check"
+depends_on = ["git-ready"]
+guidance_id = "github-access-setup"
+[requirements.check]
+kind = "github-access"
+
+[[requirements]]
+id = "main-protected"
+description = "Main requiere PR, quality y carece de bypass no permitido."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "host-rule"
+depends_on = ["github-access"]
+guidance_id = "github-protection"
+[requirements.check]
+kind = "github-branch-policy"
+branch = "main"
+require_pull_request = true
+required_checks = ["quality"]
+require_no_bypass = true
+
+[[requirements]]
+id = "ci-contract"
+description = "CI tiene el quality job y permisos mínimos."
+severity = "error"
+required = true
+phase = "ci"
+enforcement = "local-check"
+depends_on = ["git-ready"]
+guidance_id = "ci-setup"
+[requirements.check]
+kind = "ci-contract"
+workflow = ".github/workflows/ci.yml"
+required_job = "quality"
+profile = "rust"
+
+[[requirements]]
+id = "ci-current"
+description = "El SHA actual ha superado los checks requeridos."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "required-ci"
+depends_on = ["github-access", "ci-contract"]
+guidance_id = "ci-current-setup"
+[requirements.check]
+kind = "ci-evidence"
+required_checks = ["quality"]
+
+[[requirements]]
+id = "release-ready"
+description = "La release tiene SemVer, changelog y checksum de artefactos."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "local-check"
+depends_on = ["main-protected", "ci-current"]
+guidance_id = "release-setup"
+[requirements.check]
+kind = "release-contract"
+versioning = "semver"
+changelog = "CHANGELOG.md"
+require_checksums = true

@@ -1,0 +1,11 @@
+# Propuesta a adaptar; no sobrescribir .gitignore existente.
+target/
+node_modules/
+.env
+.env.*
+!.env.example
+credentials.json
+*.p12
+*.pfx
+*.key
+# No ignorar Cargo.lock ni fixtures seguros.
