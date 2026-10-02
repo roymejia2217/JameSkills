@@ -438,7 +438,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T010 — Modelar y parsear manifest de suite portable
 
-- [ ] **T010 completada y verificada**
+- [x] **T010 completada y verificada**
 
 **Módulo:** `skill-format`. **Dependencias:** T007. **Estado:** pendiente.
 
@@ -457,18 +457,18 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - [x] **T010.a — Reutilizar IDs validados** (0 archivos nuevos): provistos por T007.a en `crates/jameskills-core/src/domain/ids.rs` y `crates/jameskills-core/tests/common_types.rs`; SkillId UUID privado, `parse` rechaza valores arbitrarios. Evidencia: common types 8/8, commit `b97f744`.
 - [x] **T010.dep — Fijar parsers y versionado** (5 archivos): `crates/jameskills-core/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `docs/CONTRACTS.md`; `tasks/todo.md`. Pins exactos `toml`, `semver` serde y `serde-saphyr`; budget YAML limita profundidad, eventos y escalares, sin aliases/anchors/tags custom/merge.
 - Evidencia T010.dep: `yaml-rust2` inicial tenía parser recursivo sin quota de depth; cambiada selección antes del commit de T010.b. `serde-saphyr1.3.0` ya existe en lock como transitiva; APIs/options verificadas en source y sus budgets/MSRV1.89 documentados. GREEN: `cargo check -p jameskills-core --locked --offline` compiló con el lock fijado. Commit `1a354e5` deja el primer pin; el nuevo parser queda en T010.b.
-- [ ] **T010.b — Manifest y frontmatter** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tests/fixtures/valid-suite/jameskills.toml`; `tests/fixtures/valid-suite/SKILL.md`. Implementar parser mantenido/restringido y tests bundle_manifest con golden/negative fixtures.
+- [x] **T010.b — Manifest y frontmatter** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tests/fixtures/valid-suite/jameskills.toml`; `tests/fixtures/valid-suite/SKILL.md`. Parser TOML/YAML tipado con unknown fields/duplicate keys estrictos, límites, validaciones y fixture portable. Commit `521ea0e`.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Parseo preserva SKILL.md portable y metadata JameSkills separada.
-- [ ] Schema v1 tiene errores localizables; campos/extensiones siguen contrato, no pérdida silenciosa.
-- [ ] ID estable independiente del slug/directorio y límites de strings/contenido aplicados.
+- [x] Parseo preserva SKILL.md portable y metadata JameSkills separada.
+- [x] Schema v1 tiene errores localizables; campos/extensiones siguen contrato, no pérdida silenciosa.
+- [x] ID estable independiente del slug/directorio y límites de strings/contenido aplicados.
 
 **Verificación:** cargo test -p jameskills-core --locked bundle_manifest; revisar fixture con docs/SPEC-skill-format.md. Core no lee disco directamente.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Linux Debian 13, parser core sin IO; fixture golden + negativos. `cargo test -p jameskills-core --test bundle_manifest --locked --offline`: 13/13. Acumulado `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked --offline`: 42/42. Clippy `--all-targets -- -D warnings` y `cargo fmt --all -- --check` pasan. Commits `17cfaeb` (parser budget), `521ea0e` (implementación). Windows build y smoke GPUI nativo siguen bloqueados por ambiente sin Windows/display; no aplican al parser puro.
 
 <a id="t011"></a>
 

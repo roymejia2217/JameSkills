@@ -37,7 +37,7 @@ Semver version parse estricto; UUID estable al editar/cambiar display, nuevo al 
 ## Validación
 
 - YAML frontmatter solo string scalars y metadata string map; sin tags custom, alias/anchors, merge keys; parser restringido, límite frontmatter 16KiB.
-- Usar parser YAML mantenido seleccionado T001 y lock; no serde_yaml sin evaluar mantenimiento. yaml-rust2+conversión tipada es candidato; no fórmulas parseadas por regex.
+- Usar parser YAML mantenido seleccionado T010 y lock. `serde-saphyr` deserializa a DTO cerrado y configura budget de profundidad/eventos/documentos/bytes, aliases y anchors cero, duplicados/merge como error, tags custom rechazadas y snippets desactivados; no parsear fórmulas por regex.
 - name ASCII regex ^[a-z0-9]+(?:-[a-z0-9]+)*$, 1–64; description Unicode longitud chars <=1024, no blanco; compatibility <=500 si presente.
 - Schema futuro -> UnsupportedVersion; no abrir/escribir como schema1 ni descartar keys. Para schema1 manifest/policy unknown fields error salvo [extensions] metadata de strings inerte.
 - Bundle máximo 20MiB, 2.000 archivos, cada texto máximo 2MiB, SKILL.md máximo 256KiB, Markdown render sin HTML activo. Advertir >500 líneas, sin rechazo si no excede bytes.
