@@ -1,0 +1,174 @@
+schema_version = 1
+profile = "repository-foundation"
+
+[[tool_requirements]]
+tool_id = "git"
+operation = "repository-root"
+version = ">=2.0.0"
+
+[[tool_requirements]]
+tool_id = "git"
+operation = "ignore-check"
+version = ">=2.0.0"
+
+[[tool_requirements]]
+tool_id = "gitleaks"
+operation = "scan-tracked"
+version = ">=8.0.0"
+
+[[tool_requirements]]
+tool_id = "commitlint"
+operation = "lint-message"
+version = ">=19.0.0"
+
+[[tool_requirements]]
+tool_id = "gh"
+operation = "branch-rules"
+version = ">=2.0.0"
+
+[[tool_requirements]]
+tool_id = "gh"
+operation = "check-runs"
+version = ">=2.0.0"
+
+[[tool_requirements]]
+tool_id = "cargo"
+operation = "quality-suite"
+version = ">=1.80.0"
+
+[[requirements]]
+id = "repo.readme"
+description = "El README explica el inicio, la arquitectura y la contribución."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = []
+guidance_id = "readme-setup"
+[requirements.check]
+kind = "readme-sections"
+path = "README.md"
+headings = ["Inicio rápido", "Arquitectura", "Contribuir"]
+
+[[requirements]]
+id = "repo.git"
+description = "El proyecto pertenece a un repositorio Git válido."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = []
+guidance_id = "git-install"
+[requirements.check]
+kind = "git-repository"
+
+[[requirements]]
+id = "repo.gitignore"
+description = "Los patrones ignoran secretos y artefactos locales."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = ["repo.readme"]
+guidance_id = "gitignore-setup"
+[requirements.check]
+kind = "gitignore-patterns"
+path = ".gitignore"
+patterns = [".env", "*.key", "target/"]
+
+[[requirements]]
+id = "repo.secrets"
+description = "No hay secretos en archivos versionados."
+severity = "error"
+required = true
+phase = "pull-request"
+enforcement = "required-ci"
+depends_on = ["repo.gitignore"]
+guidance_id = "secrets-remediation"
+[requirements.check]
+kind = "tracked-secrets"
+include_history = false
+
+[[requirements]]
+id = "repo.commit-format"
+description = "Los commits siguen Conventional Commits."
+severity = "warning"
+required = false
+phase = "commit"
+enforcement = "local-check"
+depends_on = ["repo.readme"]
+guidance_id = "commit-format-setup"
+[requirements.check]
+kind = "conventional-commit"
+
+[[requirements]]
+id = "repo.main-protection"
+description = "El branch principal exige PR y checks."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "host-rule"
+depends_on = ["repo.ci-contract"]
+guidance_id = "github-protection"
+[requirements.check]
+kind = "github-branch-policy"
+branch = "main"
+require_pull_request = true
+required_checks = ["quality"]
+require_no_bypass = true
+
+[[requirements]]
+id = "repo.ci-contract"
+description = "El CI ejecuta fmt, check, clippy y tests."
+severity = "error"
+required = true
+phase = "pull-request"
+enforcement = "local-check"
+depends_on = ["repo.secrets"]
+guidance_id = "ci-setup"
+[requirements.check]
+kind = "ci-contract"
+workflow_paths = [".github/workflows/ci.yml"]
+required_jobs = ["fmt", "clippy", "test"]
+
+[[requirements]]
+id = "repo.ci-evidence"
+description = "El SHA actual tiene CI aprobado."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "required-ci"
+depends_on = ["repo.ci-contract"]
+guidance_id = "ci-evidence"
+[requirements.check]
+kind = "ci-evidence"
+required_checks = ["quality"]
+
+[[requirements]]
+id = "repo.release"
+description = "Las releases tienen changelog y checksums."
+severity = "error"
+required = true
+phase = "pre-release"
+enforcement = "required-ci"
+depends_on = ["repo.ci-evidence"]
+guidance_id = "release-setup"
+[requirements.check]
+kind = "release-contract"
+require_changelog = true
+require_checksums = true
+require_signature = false
+
+[[requirements]]
+id = "repo.toolchain"
+description = "La toolchain declarada cumple el rango soportado."
+severity = "info"
+required = false
+phase = "ci"
+enforcement = "local-check"
+depends_on = ["repo.readme"]
+guidance_id = "toolchain-setup"
+[requirements.check]
+kind = "toolchain-version"
+tool_id = "cargo"
+version_range = ">=1.80.0"

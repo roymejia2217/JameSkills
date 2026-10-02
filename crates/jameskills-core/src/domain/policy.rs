@@ -1,0 +1,800 @@
+use super::{PortablePath, Scope};
+use crate::{Diagnostic, DiagnosticSeverity};
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
+
+const MAX_POLICY_BYTES: usize = 256 * 1024;
+const MAX_REQUIREMENTS: usize = 512;
+const MAX_TOOL_REQUIREMENTS: usize = 64;
+const MAX_LIST_ITEMS: usize = 128;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    PreInstall,
+    Commit,
+    PullRequest,
+    Ci,
+    PreRelease,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Enforcement {
+    Instruction,
+    LocalCheck,
+    LocalHook,
+    RequiredCi,
+    HostRule,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolId {
+    Git,
+    Gitleaks,
+    Commitlint,
+    Gh,
+    Cargo,
+    Npm,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolOperation {
+    RepositoryRoot,
+    IgnoreCheck,
+    ScanTracked,
+    LintMessage,
+    BranchRules,
+    CheckRuns,
+    QualitySuite,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Policy {
+    schema_version: u32,
+    profile: String,
+    scope: Scope,
+    requirements: Vec<Requirement>,
+    tool_requirements: Vec<ToolRequirement>,
+}
+
+impl Policy {
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+    pub fn profile(&self) -> &str {
+        &self.profile
+    }
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+    pub fn requirements(&self) -> &[Requirement] {
+        &self.requirements
+    }
+    pub fn tool_requirements(&self) -> &[ToolRequirement] {
+        &self.tool_requirements
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Requirement {
+    id: String,
+    description: String,
+    severity: Severity,
+    required: bool,
+    phase: Phase,
+    enforcement: Enforcement,
+    depends_on: Vec<String>,
+    guidance_id: Option<String>,
+    check: Check,
+}
+
+impl Requirement {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
+    pub fn required(&self) -> bool {
+        self.required
+    }
+    pub fn phase(&self) -> Phase {
+        self.phase
+    }
+    pub fn enforcement(&self) -> Enforcement {
+        self.enforcement
+    }
+    pub fn depends_on(&self) -> &[String] {
+        &self.depends_on
+    }
+    pub fn guidance_id(&self) -> Option<&str> {
+        self.guidance_id.as_deref()
+    }
+    pub fn check(&self) -> &Check {
+        &self.check
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ToolRequirement {
+    tool_id: ToolId,
+    operation: ToolOperation,
+    version: semver::VersionReq,
+}
+
+impl ToolRequirement {
+    pub fn tool_id(&self) -> ToolId {
+        self.tool_id
+    }
+    pub fn operation(&self) -> ToolOperation {
+        self.operation
+    }
+    pub fn version(&self) -> &semver::VersionReq {
+        &self.version
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum Check {
+    GitRepository,
+    GitignorePatterns {
+        path: PortablePath,
+        patterns: Vec<String>,
+    },
+    TrackedSecrets {
+        include_history: bool,
+    },
+    ReadmeSections {
+        path: PortablePath,
+        headings: Vec<String>,
+    },
+    ConventionalCommit,
+    ProtectedMainLocal {
+        branch: String,
+    },
+    GithubBranchPolicy {
+        branch: String,
+        require_pull_request: bool,
+        required_checks: Vec<String>,
+        require_no_bypass: bool,
+    },
+    CiContract {
+        workflow_paths: Vec<PortablePath>,
+        required_jobs: Vec<String>,
+    },
+    CiEvidence {
+        required_checks: Vec<String>,
+    },
+    ReleaseContract {
+        require_changelog: bool,
+        require_checksums: bool,
+        require_signature: bool,
+    },
+    ToolchainVersion {
+        tool_id: ToolId,
+        version_range: semver::VersionReq,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPolicy {
+    schema_version: u32,
+    profile: String,
+    #[serde(default = "project_scope")]
+    scope: String,
+    #[serde(default)]
+    tool_requirements: Vec<RawToolRequirement>,
+    requirements: Vec<RawRequirement>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawToolRequirement {
+    tool_id: String,
+    operation: String,
+    version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRequirement {
+    id: String,
+    description: String,
+    severity: String,
+    required: bool,
+    phase: String,
+    enforcement: String,
+    #[serde(default)]
+    depends_on: Vec<String>,
+    #[serde(default)]
+    guidance_id: Option<String>,
+    check: RawCheck,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum RawCheck {
+    GitRepository,
+    GitignorePatterns {
+        path: PortablePath,
+        patterns: Vec<String>,
+    },
+    TrackedSecrets {
+        #[serde(default)]
+        include_history: bool,
+    },
+    ReadmeSections {
+        path: PortablePath,
+        headings: Vec<String>,
+    },
+    ConventionalCommit,
+    ProtectedMainLocal {
+        branch: String,
+    },
+    GithubBranchPolicy {
+        branch: String,
+        require_pull_request: bool,
+        required_checks: Vec<String>,
+        require_no_bypass: bool,
+    },
+    CiContract {
+        workflow_paths: Vec<PortablePath>,
+        required_jobs: Vec<String>,
+    },
+    CiEvidence {
+        required_checks: Vec<String>,
+    },
+    ReleaseContract {
+        require_changelog: bool,
+        require_checksums: bool,
+        require_signature: bool,
+    },
+    ToolchainVersion {
+        tool_id: String,
+        version_range: String,
+    },
+}
+
+pub fn parse_policy(source: &[u8]) -> Result<Policy, Vec<Diagnostic>> {
+    if source.len() > MAX_POLICY_BYTES {
+        return Err(vec![diagnostic(
+            "policy.too_large",
+            "Policy exceeds the size limit.",
+        )]);
+    }
+    let source = std::str::from_utf8(source)
+        .map_err(|_| vec![diagnostic("policy.invalid_utf8", "Policy must be UTF-8.")])?;
+    let raw: RawPolicy = toml::from_str(source).map_err(|error: toml::de::Error| {
+        let location = error.span().map(|span| line_column(source, span.start));
+        vec![located_diagnostic(
+            "policy.invalid",
+            location,
+            "Policy is invalid or contains an unsupported field.",
+        )]
+    })?;
+    if raw.schema_version != 1 {
+        return Err(vec![diagnostic(
+            "policy.unsupported_schema",
+            "Policy schema version is not supported.",
+        )]);
+    }
+    validate_profile(&raw.profile)?;
+    let scope = parse_scope(&raw.scope)?;
+    if raw.requirements.is_empty() || raw.requirements.len() > MAX_REQUIREMENTS {
+        return Err(vec![diagnostic(
+            "policy.requirement_limit",
+            "Policy must contain a bounded non-empty requirement list.",
+        )]);
+    }
+    if raw.tool_requirements.len() > MAX_TOOL_REQUIREMENTS {
+        return Err(vec![diagnostic(
+            "policy.tool_limit",
+            "Policy contains too many tool requirements.",
+        )]);
+    }
+
+    let mut tool_requirements = Vec::with_capacity(raw.tool_requirements.len());
+    let mut tool_pairs = BTreeSet::new();
+    for item in raw.tool_requirements {
+        let tool_id = parse_tool_id(&item.tool_id)?;
+        let operation = parse_tool_operation(&item.operation)?;
+        if !operation_allowed(tool_id, operation) {
+            return Err(vec![diagnostic(
+                "policy.operation.invalid",
+                "Tool operation is not registered for this tool.",
+            )]);
+        }
+        if !tool_pairs.insert((tool_id, operation)) {
+            return Err(vec![diagnostic(
+                "policy.tool.duplicate",
+                "Policy contains a duplicate tool operation.",
+            )]);
+        }
+        let version = semver::VersionReq::parse(&item.version).map_err(|_| {
+            vec![diagnostic(
+                "policy.tool.version.invalid",
+                "Tool version range must be valid SemVer.",
+            )]
+        })?;
+        tool_requirements.push(ToolRequirement {
+            tool_id,
+            operation,
+            version,
+        });
+    }
+
+    let mut requirements = Vec::with_capacity(raw.requirements.len());
+    let mut requirement_ids = BTreeSet::new();
+    for item in raw.requirements {
+        if !valid_namespaced_id(&item.id) {
+            return Err(vec![diagnostic(
+                "policy.requirement_id.invalid",
+                "Requirement identifier is invalid.",
+            )]);
+        }
+        if !requirement_ids.insert(item.id.clone()) {
+            return Err(vec![diagnostic(
+                "policy.requirement.duplicate",
+                "Policy contains a duplicate requirement.",
+            )]);
+        }
+        validate_text(&item.description, 1024, "policy.description.invalid")?;
+        let severity = parse_severity(&item.severity)?;
+        let phase = parse_phase(&item.phase)?;
+        let enforcement = parse_enforcement(&item.enforcement)?;
+        validate_id_list(&item.depends_on, "policy.requirement_reference.invalid")?;
+        if item
+            .guidance_id
+            .as_deref()
+            .is_some_and(|id| !valid_namespaced_id(id))
+        {
+            return Err(vec![diagnostic(
+                "policy.guidance_id.invalid",
+                "Guidance identifier is invalid.",
+            )]);
+        }
+        let check = parse_check(item.check)?;
+        requirements.push(Requirement {
+            id: item.id,
+            description: item.description,
+            severity,
+            required: item.required,
+            phase,
+            enforcement,
+            depends_on: item.depends_on,
+            guidance_id: item.guidance_id,
+            check,
+        });
+    }
+
+    validate_requirement_graph(&requirements)?;
+    validate_registered_tools(&requirements, &tool_pairs)?;
+    Ok(Policy {
+        schema_version: 1,
+        profile: raw.profile,
+        scope,
+        requirements,
+        tool_requirements,
+    })
+}
+
+fn project_scope() -> String {
+    "project".to_owned()
+}
+
+fn parse_scope(value: &str) -> Result<Scope, Vec<Diagnostic>> {
+    match value {
+        "user" => Ok(Scope::User),
+        "project" => Ok(Scope::Project),
+        _ => Err(vec![diagnostic(
+            "policy.scope.invalid",
+            "Policy scope is invalid.",
+        )]),
+    }
+}
+
+fn parse_severity(value: &str) -> Result<Severity, Vec<Diagnostic>> {
+    match value {
+        "info" => Ok(Severity::Info),
+        "warning" => Ok(Severity::Warning),
+        "error" => Ok(Severity::Error),
+        _ => Err(vec![diagnostic(
+            "policy.severity.invalid",
+            "Requirement severity is invalid.",
+        )]),
+    }
+}
+
+fn parse_phase(value: &str) -> Result<Phase, Vec<Diagnostic>> {
+    match value {
+        "pre-install" => Ok(Phase::PreInstall),
+        "commit" => Ok(Phase::Commit),
+        "pull-request" => Ok(Phase::PullRequest),
+        "ci" => Ok(Phase::Ci),
+        "pre-release" => Ok(Phase::PreRelease),
+        _ => Err(vec![diagnostic(
+            "policy.phase.invalid",
+            "Requirement phase is invalid.",
+        )]),
+    }
+}
+
+fn parse_enforcement(value: &str) -> Result<Enforcement, Vec<Diagnostic>> {
+    match value {
+        "instruction" => Ok(Enforcement::Instruction),
+        "local-check" => Ok(Enforcement::LocalCheck),
+        "local-hook" => Ok(Enforcement::LocalHook),
+        "required-ci" => Ok(Enforcement::RequiredCi),
+        "host-rule" => Ok(Enforcement::HostRule),
+        _ => Err(vec![diagnostic(
+            "policy.enforcement.invalid",
+            "Requirement enforcement is invalid.",
+        )]),
+    }
+}
+
+fn parse_tool_id(value: &str) -> Result<ToolId, Vec<Diagnostic>> {
+    match value {
+        "git" => Ok(ToolId::Git),
+        "gitleaks" => Ok(ToolId::Gitleaks),
+        "commitlint" => Ok(ToolId::Commitlint),
+        "gh" => Ok(ToolId::Gh),
+        "cargo" => Ok(ToolId::Cargo),
+        "npm" => Ok(ToolId::Npm),
+        _ => Err(vec![diagnostic(
+            "policy.tool.invalid",
+            "Tool ID is not registered.",
+        )]),
+    }
+}
+
+fn parse_tool_operation(value: &str) -> Result<ToolOperation, Vec<Diagnostic>> {
+    match value {
+        "repository-root" => Ok(ToolOperation::RepositoryRoot),
+        "ignore-check" => Ok(ToolOperation::IgnoreCheck),
+        "scan-tracked" => Ok(ToolOperation::ScanTracked),
+        "lint-message" => Ok(ToolOperation::LintMessage),
+        "branch-rules" => Ok(ToolOperation::BranchRules),
+        "check-runs" => Ok(ToolOperation::CheckRuns),
+        "quality-suite" => Ok(ToolOperation::QualitySuite),
+        _ => Err(vec![diagnostic(
+            "policy.operation.invalid",
+            "Tool operation is not registered.",
+        )]),
+    }
+}
+
+fn operation_allowed(tool: ToolId, operation: ToolOperation) -> bool {
+    matches!(
+        (tool, operation),
+        (
+            ToolId::Git,
+            ToolOperation::RepositoryRoot | ToolOperation::IgnoreCheck
+        ) | (ToolId::Gitleaks, ToolOperation::ScanTracked)
+            | (ToolId::Commitlint, ToolOperation::LintMessage)
+            | (
+                ToolId::Gh,
+                ToolOperation::BranchRules | ToolOperation::CheckRuns
+            )
+            | (ToolId::Cargo | ToolId::Npm, ToolOperation::QualitySuite)
+    )
+}
+
+fn parse_check(raw: RawCheck) -> Result<Check, Vec<Diagnostic>> {
+    match raw {
+        RawCheck::GitRepository => Ok(Check::GitRepository),
+        RawCheck::GitignorePatterns { path, patterns } => {
+            validate_string_list(&patterns, "policy.check.invalid")?;
+            Ok(Check::GitignorePatterns { path, patterns })
+        }
+        RawCheck::TrackedSecrets { include_history } => {
+            Ok(Check::TrackedSecrets { include_history })
+        }
+        RawCheck::ReadmeSections { path, headings } => {
+            validate_string_list(&headings, "policy.check.invalid")?;
+            Ok(Check::ReadmeSections { path, headings })
+        }
+        RawCheck::ConventionalCommit => Ok(Check::ConventionalCommit),
+        RawCheck::ProtectedMainLocal { branch } => {
+            validate_text(&branch, 128, "policy.check.invalid")?;
+            Ok(Check::ProtectedMainLocal { branch })
+        }
+        RawCheck::GithubBranchPolicy {
+            branch,
+            require_pull_request,
+            required_checks,
+            require_no_bypass,
+        } => {
+            validate_text(&branch, 128, "policy.check.invalid")?;
+            validate_string_list(&required_checks, "policy.check.invalid")?;
+            Ok(Check::GithubBranchPolicy {
+                branch,
+                require_pull_request,
+                required_checks,
+                require_no_bypass,
+            })
+        }
+        RawCheck::CiContract {
+            workflow_paths,
+            required_jobs,
+        } => {
+            validate_bounded_len(workflow_paths.len(), "policy.check.invalid")?;
+            validate_string_list(&required_jobs, "policy.check.invalid")?;
+            Ok(Check::CiContract {
+                workflow_paths,
+                required_jobs,
+            })
+        }
+        RawCheck::CiEvidence { required_checks } => {
+            validate_string_list(&required_checks, "policy.check.invalid")?;
+            Ok(Check::CiEvidence { required_checks })
+        }
+        RawCheck::ReleaseContract {
+            require_changelog,
+            require_checksums,
+            require_signature,
+        } => Ok(Check::ReleaseContract {
+            require_changelog,
+            require_checksums,
+            require_signature,
+        }),
+        RawCheck::ToolchainVersion {
+            tool_id,
+            version_range,
+        } => {
+            let tool_id = parse_tool_id(&tool_id)?;
+            let version_range = semver::VersionReq::parse(&version_range).map_err(|_| {
+                vec![diagnostic(
+                    "policy.tool.version.invalid",
+                    "Tool version range must be valid SemVer.",
+                )]
+            })?;
+            Ok(Check::ToolchainVersion {
+                tool_id,
+                version_range,
+            })
+        }
+    }
+}
+
+fn validate_requirement_graph(requirements: &[Requirement]) -> Result<(), Vec<Diagnostic>> {
+    let known: BTreeSet<&str> = requirements.iter().map(|item| item.id.as_str()).collect();
+    let mut edges = BTreeMap::new();
+    for item in requirements {
+        let mut dependencies = BTreeSet::new();
+        for dependency in &item.depends_on {
+            if !known.contains(dependency.as_str()) || dependency == &item.id {
+                return Err(vec![diagnostic(
+                    "policy.requirement_reference.invalid",
+                    "Requirement references an ID outside this policy.",
+                )]);
+            }
+            if !dependencies.insert(dependency.as_str()) {
+                return Err(vec![diagnostic(
+                    "policy.requirement_reference.duplicate",
+                    "Requirement contains a duplicate dependency.",
+                )]);
+            }
+        }
+        edges.insert(item.id.as_str(), dependencies);
+    }
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    for id in edges.keys().copied() {
+        if has_cycle(id, &edges, &mut visiting, &mut visited) {
+            return Err(vec![diagnostic(
+                "policy.requirement_cycle",
+                "Requirement dependency graph contains a cycle.",
+            )]);
+        }
+    }
+    Ok(())
+}
+
+fn has_cycle<'a>(
+    id: &'a str,
+    edges: &BTreeMap<&'a str, BTreeSet<&'a str>>,
+    visiting: &mut BTreeSet<&'a str>,
+    visited: &mut BTreeSet<&'a str>,
+) -> bool {
+    if visited.contains(id) {
+        return false;
+    }
+    if !visiting.insert(id) {
+        return true;
+    }
+    if edges.get(id).is_some_and(|dependencies| {
+        dependencies
+            .iter()
+            .any(|dependency| has_cycle(dependency, edges, visiting, visited))
+    }) {
+        return true;
+    }
+    visiting.remove(id);
+    visited.insert(id);
+    false
+}
+
+fn validate_registered_tools(
+    requirements: &[Requirement],
+    available: &BTreeSet<(ToolId, ToolOperation)>,
+) -> Result<(), Vec<Diagnostic>> {
+    let required: &[ToolOperation] = &[];
+    for requirement in requirements {
+        let operations: &[ToolOperation] = match requirement.check {
+            Check::GitRepository => &[ToolOperation::RepositoryRoot],
+            Check::GitignorePatterns { .. } => &[ToolOperation::IgnoreCheck],
+            Check::TrackedSecrets { .. } => &[ToolOperation::ScanTracked],
+            Check::ConventionalCommit => &[ToolOperation::LintMessage],
+            Check::GithubBranchPolicy { .. } => &[ToolOperation::BranchRules],
+            Check::CiEvidence { .. } => &[ToolOperation::CheckRuns],
+            Check::ToolchainVersion { tool_id, .. } => {
+                if !available
+                    .iter()
+                    .any(|(available_tool, _)| *available_tool == tool_id)
+                {
+                    return Err(vec![diagnostic(
+                        "policy.tool_reference.invalid",
+                        "Check references a tool absent from the registry.",
+                    )]);
+                }
+                required
+            }
+            _ => required,
+        };
+        for operation in operations {
+            let tool = match operation {
+                ToolOperation::RepositoryRoot | ToolOperation::IgnoreCheck => ToolId::Git,
+                ToolOperation::ScanTracked => ToolId::Gitleaks,
+                ToolOperation::LintMessage => ToolId::Commitlint,
+                ToolOperation::BranchRules | ToolOperation::CheckRuns => ToolId::Gh,
+                ToolOperation::QualitySuite => ToolId::Cargo,
+            };
+            if !available.contains(&(tool, *operation)) {
+                return Err(vec![diagnostic(
+                    "policy.tool_reference.invalid",
+                    "Check references a tool operation absent from the registry.",
+                )]);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_profile(value: &str) -> Result<(), Vec<Diagnostic>> {
+    if valid_slug(value) {
+        Ok(())
+    } else {
+        Err(vec![diagnostic(
+            "policy.profile.invalid",
+            "Policy profile is invalid.",
+        )])
+    }
+}
+
+fn validate_text(value: &str, max_chars: usize, code: &'static str) -> Result<(), Vec<Diagnostic>> {
+    if value.trim().is_empty()
+        || value.chars().count() > max_chars
+        || value.chars().any(char::is_control)
+    {
+        Err(vec![diagnostic(
+            code,
+            "Policy text is empty or exceeds its size limit.",
+        )])
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_id_list(values: &[String], code: &'static str) -> Result<(), Vec<Diagnostic>> {
+    validate_bounded_len(values.len(), code)?;
+    let mut ids = BTreeSet::new();
+    if values
+        .iter()
+        .any(|value| !valid_namespaced_id(value) || !ids.insert(value))
+    {
+        return Err(vec![diagnostic(
+            code,
+            "Policy contains an invalid or duplicate reference.",
+        )]);
+    }
+    Ok(())
+}
+
+fn validate_string_list(values: &[String], code: &'static str) -> Result<(), Vec<Diagnostic>> {
+    validate_bounded_len(values.len(), code)?;
+    let mut seen = BTreeSet::new();
+    if values.iter().any(|value| {
+        value.trim().is_empty()
+            || value.chars().count() > 256
+            || value.chars().any(char::is_control)
+            || !seen.insert(value)
+    }) {
+        return Err(vec![diagnostic(
+            code,
+            "Policy list contains an empty, oversized, or duplicate value.",
+        )]);
+    }
+    Ok(())
+}
+
+fn validate_bounded_len(length: usize, code: &'static str) -> Result<(), Vec<Diagnostic>> {
+    if length > MAX_LIST_ITEMS {
+        Err(vec![diagnostic(
+            code,
+            "Policy list exceeds its size limit.",
+        )])
+    } else {
+        Ok(())
+    }
+}
+
+fn valid_namespaced_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 128 && value.split('.').all(valid_slug)
+}
+
+fn valid_slug(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > 64
+        || !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit()
+    {
+        return false;
+    }
+    let mut prior_hyphen = false;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if byte == b'-' {
+            if index == 0 || index + 1 == bytes.len() || prior_hyphen {
+                return false;
+            }
+            prior_hyphen = true;
+        } else if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            prior_hyphen = false;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn diagnostic(code: &'static str, message: &'static str) -> Diagnostic {
+    Diagnostic::new(code, None, None, None, message, DiagnosticSeverity::Error)
+}
+
+fn located_diagnostic(
+    code: &'static str,
+    location: Option<(u32, u32)>,
+    message: &'static str,
+) -> Diagnostic {
+    Diagnostic::new(
+        code,
+        None,
+        location.map(|value| value.0),
+        location.map(|value| value.1),
+        message,
+        DiagnosticSeverity::Error,
+    )
+}
+
+fn line_column(source: &str, index: usize) -> (u32, u32) {
+    let prefix = &source[..index.min(source.len())];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
+    let column = prefix
+        .rsplit('\n')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .count() as u32
+        + 1;
+    (line, column)
+}
