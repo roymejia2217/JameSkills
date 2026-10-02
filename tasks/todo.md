@@ -116,7 +116,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 - [x] **T001 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** Ninguna. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** Ninguna. **Estado:** completada.
 
 **Implementación y funciones:** Verificar registry y source v0.7.0; registrar renderer, MSRV, licencia y dependencias por target, sin escribir app. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -128,9 +128,9 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 - `docs/SOURCES.md`
 
 **Aceptación:**
-- [ ] Pin exacto gpui-kit =0.7.0 y baseline Rust 1.92.0; cualquier incremento de MSRV tiene evidencia del resolver.
-- [ ] Matriz Linux y Windows registra versión OS/target/display/GPU y prerequisitos con fuentes.
-- [ ] No mezclar gpui-kit con gpui-ui-kit; usar reexports compatibles de GPUI snapshot 0.3.7.
+- [x] Pin exacto gpui-kit =0.7.0 y baseline Rust 1.92.0; cualquier incremento de MSRV tiene evidencia del resolver.
+- [x] Matriz Linux y Windows registra versión OS/target/display/GPU y prerequisitos con fuentes, incluidos estados no observados.
+- [x] No mezclar gpui-kit con gpui-ui-kit; usar reexports compatibles de GPUI snapshot 0.3.7.
 
 **Verificación:** rustup toolchain install 1.92.0 --profile minimal --component rustfmt --component clippy; rustup run 1.92.0 rustc --version. Revisar registry/release/source oficiales de SOURCES. No compilar app en esta tarea documental inicial.
 
@@ -142,7 +142,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 - [x] **T002 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T001. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T001. **Estado:** completada.
 
 **Implementación y funciones:** Definir workspace resolver y packages jameskills-core/jameskills-infra; el segundo depende del primero, nunca al revés. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados. Workspace members=["crates/*"] explícito; glob abarca solo packages realmente presentes.
 
@@ -156,9 +156,9 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 - `crates/jameskills-infra/src/lib.rs`
 
 **Aceptación:**
-- [ ] cargo metadata reconoce ambos packages y mantiene core sin dependencias de plataforma.
-- [ ] Edición/MSRV/lints y nombre de crate coinciden con arquitectura.
-- [ ] No introducir mocks de servicios en compilación release.
+- [x] cargo metadata reconoce ambos packages y mantiene core sin dependencias de plataforma.
+- [x] Edición/MSRV/lints y nombre de crate coinciden con arquitectura.
+- [x] No introducir mocks de servicios en compilación release.
 
 **Verificación:** cargo metadata --format-version 1 --no-deps; cargo check -p jameskills-core -p jameskills-infra. Lockfile inicial todavía no obligatorio; T003 lo registra.
 
