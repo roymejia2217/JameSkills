@@ -186,6 +186,13 @@ Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+
 
 ## Servicios
 
+El primer wiring de infraestructura publica `RuntimeServices { facts,
+directories, clock }` mediante `infra::composition::build_services(dirs)`.
+Valida que config/data/cache sean absolutas, distintas y no solapadas; no crea
+directorios. Su `SystemClock` entrega UTC RFC3339 y elapsed monotonic local. El
+factory se amplía con providers reales en sus tareas; todavía no promete ni
+registra servicios de biblioteca, políticas, instalación o sync.
+
 ApplicationServices conserva Arc<LibraryService>, Arc<PolicyService>, Arc<InstallService>, Arc<SyncService>, Arc<GuidanceService>. Para tests constructor recibe ports fake, sin init de SQLite/GPU/keyring.
 
 Funciones públicas previstas:
