@@ -1,8 +1,12 @@
+pub mod bundle;
 mod ids;
 pub mod policy;
 mod scope;
 pub mod skill;
 
+pub use bundle::{
+    BundleEntry, EntryKind, ValidatedFile, ValidatedInventory, validate_bundle_inventory,
+};
 pub use ids::{
     ContentHash, IdValidationError, OperationId, PathValidationError, PortablePath, RevisionId,
     SkillId,
