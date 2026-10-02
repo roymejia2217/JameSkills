@@ -6,10 +6,13 @@ rust-version.workspace = true
 
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
+semver = { version = "=1.0.28", features = ["serde"] }
 sha2 = "=0.10.9"
 thiserror = "=2.0.21"
+toml = "=1.1.6"
 unicode-normalization = "=0.1.25"
 uuid = { version = "=1.26.1", features = ["serde", "v4"] }
+yaml-rust2 = { version = "=0.13.0", default-features = false }
 
 [lints]
 workspace = true

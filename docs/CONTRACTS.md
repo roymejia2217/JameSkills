@@ -94,6 +94,18 @@ observación ausente no demuestra ausencia global de hardware ni de sesión, y
 
 `PortablePath` tiene campo privado y constructor `PortablePath::new(String) -> Result<Self, PathValidationError>`; expone `as_str()`. No implementa `From<String>` sin validación. Su algoritmo se define en SPEC-skill-format: NFC, separador `/`, componentes relativos no vacíos, sin `.`/`..`, backslash, colon, prefijos de unidad, nombres de dispositivo Windows ni trailing dot/space, máximo 240 bytes UTF-8. Deserialize vuelve a validar.
 
+`SkillManifest` y `SkillFrontmatter` solo se construyen mediante los parsers
+validados de `domain::skill`; tienen getters de solo lectura. `SkillManifest`
+incluye schema_version, SkillId, slug/display_name/description/license,
+`semver::Version` app y suite, PortablePath de policy/guidance, tags,
+CapabilityDeclaration y extensions string-map. `SkillFrontmatter` retiene
+source/body UTF-8 sin reserializar, el header estándar name/description,
+compatibility y metadata string-map. `parse_manifest(&str)` y
+`parse_frontmatter(&[u8])` devuelven `Result<T, Vec<Diagnostic>>` con códigos
+propios y línea/columna cuando el parser provee span. `validate_skill_pair`
+verifica slug/name, description y metadata JameSkills opcional. Entradas
+externas no se convierten directamente a estos tipos por Deserialize.
+
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
 RevisionRecord { id, skill_id, bundle_hash, parents: Vec<RevisionId>, kind: RevisionKind, semantic_version }.

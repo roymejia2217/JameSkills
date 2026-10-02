@@ -442,7 +442,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Módulo:** `skill-format`. **Dependencias:** T007. **Estado:** pendiente.
 
-**Implementación y funciones:** SkillId, SkillManifest, CapabilityDeclaration, parse_manifest, parse_frontmatter; validación de UUID/schema_version/semver y Agent Skills. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** SkillManifest, CapabilityDeclaration, parse_manifest, parse_frontmatter y validate_skill_pair; validación de UUID/schema_version/semver y Agent Skills. SkillId ya está implementado y validado por T007.a. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** bundle_manifest rechaza schema desconocido, ID inválido, semver inválida, frontmatter ausente e incompatible; acepta fixture estándar.
 
@@ -454,7 +454,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `tests/fixtures/valid-suite/SKILL.md`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T010.a — IDs validados** (3 archivos): `crates/jameskills-core/src/domain/ids.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/validated_ids.rs`. SkillId/RevisionId/OperationId con constructores validados; validated_ids rechaza IDs arbitrarios.
+- [x] **T010.a — Reutilizar IDs validados** (0 archivos nuevos): provistos por T007.a en `crates/jameskills-core/src/domain/ids.rs` y `crates/jameskills-core/tests/common_types.rs`; SkillId UUID privado, `parse` rechaza valores arbitrarios. Evidencia: common types 8/8, commit `b97f744`.
+- [x] **T010.dep — Fijar parsers y versionado** (5 archivos): `crates/jameskills-core/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `docs/CONTRACTS.md`; `tasks/todo.md`. Pins exactos `toml`, `semver` serde y `yaml-rust2`; parser YAML debe rechazar aliases/anchors/tags.
+- Evidencia T010.dep: RED `cargo check -p jameskills-core --locked` rechazó lock pendiente; GREEN `cargo check -p jameskills-core` resolvió `toml1.1.6+spec`, `semver1.0.28`, `yaml-rust2 0.13.0` y compiló. MSRV parser1.85 <= toolchain1.95. Commit pendiente.
 - [ ] **T010.b — Manifest y frontmatter** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tests/fixtures/valid-suite/jameskills.toml`; `tests/fixtures/valid-suite/SKILL.md`. Implementar parser mantenido/restringido y tests bundle_manifest con golden/negative fixtures.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
