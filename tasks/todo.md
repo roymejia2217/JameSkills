@@ -128,13 +128,13 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 - `docs/SOURCES.md`
 
 **Aceptación:**
-- [x] Pin exacto gpui-kit =0.7.0 y baseline Rust 1.92.0; cualquier incremento de MSRV tiene evidencia del resolver.
+- [x] Pin exacto gpui-kit =0.7.0 y baseline Rust 1.95.0; incremento desde1.92 queda justificado por source+compile.
 - [x] Matriz Linux y Windows registra versión OS/target/display/GPU y prerequisitos con fuentes, incluidos estados no observados.
 - [x] No mezclar gpui-kit con gpui-ui-kit; usar reexports compatibles de GPUI snapshot 0.3.7.
 
-**Verificación:** rustup toolchain install 1.92.0 --profile minimal --component rustfmt --component clippy; rustup run 1.92.0 rustc --version. Revisar registry/release/source oficiales de SOURCES. No compilar app en esta tarea documental inicial.
+**Verificación:** rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy; `RUST_FONTCONFIG_DLOPEN=1 cargo check -p jameskills-desktop --locked`. Revisar registry/release/source oficiales de SOURCES. Build enlazado y ventana requieren prerrequisitos/runner nativo.
 
-**Evidencia al ejecutar:** RED: `rustc --version`, `cargo --version`, `rustup show active-toolchain` no estaban disponibles antes del bootstrap. GREEN: instalador oficial rustup validado con SHA-256; `rustup toolchain install 1.92.0 --profile minimal --component rustfmt --component clippy`; versiones Rust/Cargo/Git registradas en `docs/PLATFORM-EVIDENCE.md`. `cargo info gpui-kit@0.7.0`, índice sparse, crate fuente y tag v0.7.0 comprobados. Host Debian 13 x86_64 en contenedor; no hay display, `/dev/dri`, ni host Windows. No se afirma smoke nativo. commit de tarea: ver historial `feat: pin Rust 1.92 and record platform evidence`.
+**Evidencia al ejecutar:** RED: Rust1.92 falla porque `gpui-pre-util 0.3.7` usa `slice::as_array`; 1.93/1.94 fallan por `std::hint::cold_path`. GREEN: Rust/Cargo1.95 instalados; fuente Rust oficial declara `cold_path` estable desde1.95; desktop `cargo check --locked` pasa con modo dlopen upstream. Kit index/tag/API/hash verificados. Debian13 container sin display/GPU; linker carece `xcb`, `xkbcommon`, `xkbcommon-x11`; Windows sin runner. Evidencia en `docs/PLATFORM-EVIDENCE.md`; commit `414be62`.
 
 <a id="t002"></a>
 
@@ -162,15 +162,15 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 **Verificación:** cargo metadata --format-version 1 --no-deps; cargo check -p jameskills-core -p jameskills-infra. Lockfile inicial todavía no obligatorio; T003 lo registra.
 
-**Evidencia al ejecutar:** RED: `cargo metadata --format-version 1 --no-deps` falló porque no había `Cargo.toml` en `/workspace`. GREEN: metadatos con exactamente `jameskills-core` y `jameskills-infra`; core no tiene dependencias; infra depende solo de core. `cargo check -p jameskills-core -p jameskills-infra` y `cargo fmt --all -- --check` pasaron en Rust 1.92.0. Sin tests de comportamiento aún porque no existe lógica; grafo estructural validado. commit de implementación: `7bf2bd3`.
+**Evidencia al ejecutar:** RED: `cargo metadata --format-version 1 --no-deps` falló porque no había `Cargo.toml` en `/workspace`. GREEN: metadatos con exactamente `jameskills-core` y `jameskills-infra`; core no tiene dependencias; infra depende solo de core. `cargo check -p jameskills-core -p jameskills-infra` y `cargo fmt --all -- --check` pasaron; ahora workspace fija MSRV1.95. Sin tests de comportamiento aún; grafo estructural validado. commit de implementación: `7bf2bd3`.
 
 <a id="t003"></a>
 
 ## T003 — Añadir targets desktop y CLI con lockfile
 
-- [ ] **T003 completada y verificada**
+- [x] **T003 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T002. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T002. **Estado:** completada.
 
 **Implementación y funciones:** Registrar members mediante autodiscovery del workspace definido en T002; configurar gpui-kit =0.7.0 solo en desktop y main CLI independiente. Manifest desktop define feature test-support=["gpui-kit/test-support"] desde el inicio, según source0.7.0; no activarla en release normal. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -184,19 +184,19 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 - `Cargo.lock`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T003.a — Registrar members reales** (1 archivos): `Cargo.toml`. Adaptar members al árbol real; no registrar packages inexistentes. cargo metadata muestra targets previstos tras b.
-- [ ] **T003.b — Targets, test-support y lockfile** (5 archivos): `crates/jameskills-desktop/Cargo.toml`; `crates/jameskills-desktop/src/main.rs`; `crates/jameskills-cli/Cargo.toml`; `crates/jameskills-cli/src/main.rs`; `Cargo.lock`. Crear dos manifests/main y lock; desktop feature test-support forwards Kit ahora; CLI sin display/GPU. Compatibilidad real source0.7.0.
+- [x] **T003.a — Registrar members reales** (1 archivos): `Cargo.toml` ya declara `crates/*`; metadata reconoce exactamente los cuatro paquetes al aparecer, sin stubs.
+- [x] **T003.b — Targets, test-support y lockfile** (5 archivos): manifests/main de desktop+CLI y `Cargo.lock`. Kit feature test-support forward; CLI sin display/GPU. Compatibilidad con source0.7.0 verificada.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Cuatro packages reales; Cargo.lock resuelve dependencias exactas sin forzar GPUI incompatible.
-- [ ] CLI arranca sin display/GPU y su --help no inicializa desktop.
-- [ ] Desktop referencia assets y licencia del kit real; baseline MSRV se verifica con resolver.
+- [x] Cuatro packages reales; Cargo.lock fija Kit0.7.0 (checksum) y 862 crates bajo el resolver Rust1.95.
+- [x] CLI arranca sin display/GPU y su --help no inicializa desktop; árbol normal es core+infra.
+- [x] Desktop referencia GPUI Kit con assets Apache-2.0; `cargo check` pasa en MSRV1.95.
 
 **Verificación:** cargo metadata --format-version 1 --no-deps; cargo check -p jameskills-core -p jameskills-infra -p jameskills-cli --locked. Si editar Cargo.toml requiere sexto archivo, separar T003.a member registration y T003.b targets+lock.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED `cargo run -p jameskills-cli -- --help` fallaba porque paquete no existía; el primer CLI build corrigió el patrón de argumentos. GREEN metadata cuatro paquetes; CLI test1/1, --help, CLI release build; core/infra/CLI check+clippy; desktop check+clippy Rust1.95 con `RUST_FONTCONFIG_DLOPEN=1`; fmt clean. `cargo build` desktop no pudo linkar por `-lxcb`, `-lxkbcommon`, `-lxkbcommon-x11`; no hay ventana real. Implementación `ddd67ec`; ajuste MSRV `414be62`.
 
 ## C001 — Checkpoint tras T001–T003
 
@@ -206,7 +206,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Registry/pins, manifests y cuatro targets definidos; CLI independiente de GPU.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia parcial:** metadata cuatro packages; `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked` (1 passed); CLI release build/--help; desktop check+clippy; `cargo fmt --all -- --check`; clippy core/infra/CLI sin warnings. Lock Kit0.7.0 y checksum inspeccionado. C001 permanece sin marcar: desktop link requiere development libs xcb/xkbcommon y no existe display/GPU; Windows/MSVC runner no disponible. Seguir T004 independiente según DAG y revalidar native gates en T005/C001.
 
 <a id="t004"></a>
 

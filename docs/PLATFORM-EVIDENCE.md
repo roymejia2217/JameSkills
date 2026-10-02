@@ -44,8 +44,9 @@ desarrollo según `docs/OPERATIONS.md`.
 | Display | `DISPLAY`, `WAYLAND_DISPLAY` y `XDG_SESSION_TYPE` vacíos |
 | GPU | `/dev/dri` no existe en el contenedor; renderer no comprobable |
 | Compilador nativo | GCC/G++ 14.2 instalados |
-| Dependencias detectadas | `libssl-dev`, `libzstd-dev`, `libvulkan1` instalados; `pkg-config`, CMake, fontconfig/Wayland/X11 dev y driver/render no verificados como disponibles |
-| Compilación de ventana | no ejecutada; no hay sesión gráfica/GPU |
+| Dependencias detectadas | runtime `fontconfig`, `freetype`, Wayland y XKB presentes; faltan development libs `xcb`, `xkbcommon` y `xkbcommon-x11` para enlazar. `RUST_FONTCONFIG_DLOPEN=1` evita necesitar `fontconfig.pc` durante check |
+| Compilación | `cargo check -p jameskills-desktop --locked` pasó con `RUST_FONTCONFIG_DLOPEN=1`; `cargo build` llegó al linker y falló por `-lxcb`, `-lxkbcommon`, `-lxkbcommon-x11` ausentes |
+| Ventana visible | no probada; no hay sesión gráfica ni `/dev/dri` |
 
 El contenedor sirve para crates de dominio y CLI. No demuestra que la aplicación
 nativa abra ni que el renderer Vulkan funcione. Debian 13 no se convertirá en
@@ -68,8 +69,9 @@ Los requisitos son una guía para preparar el runner, no evidencia de instalaci�
 
 ## Resultado T001
 
-Pin exacto y toolchain quedan registrados. La ausencia de display/GPU en Linux y
-de un host Windows es una limitación observada y explícita. Esos recorridos
-nativos deben quedar pendientes en las tareas de spike/QA correspondientes;
+Pin exacto y toolchain quedan registrados. La ausencia de display/GPU y libs de
+desarrollo de enlace en Linux, así como la ausencia de host Windows, son
+limitaciones observadas y explícitas. Esos recorridos nativos deben quedar
+pendientes en las tareas de spike/QA correspondientes;
 ningún check del producto podrá presentar esas plataformas como `Pass` por esta
 tabla documental.

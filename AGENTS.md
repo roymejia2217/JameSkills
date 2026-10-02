@@ -15,7 +15,7 @@ El usuario encargó el plan completo sin aprobaciones documentales entre fases. 
 - <=5 archivos por incremento; subtareas incluyen wiring/Cargo/module/factory/fixtures. Si falta presupuesto subdividir explícito.
 - Contratos finales se incorporan progresivamente con proveedores reales; no success stubs ni módulos declarados inexistentes.
 - Mantener core sin GPUI/HTTP/SQLite; desktop/CLI comparten services, no IO en render.
-- Rust1.92.0 baseline, Kit=0.7.0/source tag; lock real y MSRV comprobado. No cambiar GUI nativa por web.
+- Rust1.95.0 baseline por GPUI `cold_path`, Kit=0.7.0/source tag; lock real y MSRV comprobado en `docs/PLATFORM-EVIDENCE.md`. No cambiar GUI nativa por web.
 - Funcionalidad incompatible muestra Unsupported/Unknown/Blocked; no etiquetar Pass por un tick o documento.
 - Cada2–3 tareas checkpoint y RESUME con branch/commit/tests/nextaction/blocked evidence saneada.
 - No marcar tarea hasta AC/evidence; preservar cambios ajenos y source types/tests previos.

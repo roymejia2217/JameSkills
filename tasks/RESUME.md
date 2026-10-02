@@ -1,15 +1,15 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-02
-Rama / commit: `feat/bootstrap-toolchain` / `9ea9749`, `7bf2bd3`, `f4eb1b3`
-Última tarea / checkpoint completo: T002. C001 pendiente hasta T003.
-Tarea activa y estado: iniciar T003.a/T003.b, desktop y CLI.
-Prueba roja y resultado: `cargo metadata --format-version 1 --no-deps` falló sin `Cargo.toml`; toolchain Rust/Cargo no estaba instalada.
-Último comando verde y resultado: metadata estructural con core sin deps e infra -> core; `cargo check -p jameskills-core -p jameskills-infra`; `cargo fmt --all -- --check`.
-Archivos modificados: workspace y crates core/infra; evidencia toolchain/plataforma.
-Contratos modificados y documento: ninguno. T001 mantiene el pin de Kit 0.7.0 y baseline Rust 1.92.0.
-Bloqueos con fuente/evidencia saneada: Linux es contenedor sin display ni `/dev/dri`; no hay host Windows. Evidencia y requisitos publicados separados en `docs/PLATFORM-EVIDENCE.md`. No declarar smoke nativo hasta runner real.
-Próximas tareas elegibles: T003.a/T003.b (T002 completada).
-Próxima acción exacta: comprobar que aún no existe CLI ejecutable ni separación GUI; crear los dos targets, con GPUI solo en desktop, y generar Cargo.lock.
-Lecturas mínimas: `AGENTS.md`, sección T003 de `tasks/todo.md`, `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, fuente de GPUI Kit v0.7.0.
+Rama / commit: `feat/bootstrap-toolchain` / `a636782`, `414be62`, `ddd67ec`, `ea6ad4b`, `9ea9749`, `7bf2bd3`, `f4eb1b3`, `d329cae`
+Última tarea / checkpoint completo: T003; C001 registrado parcialmente y pendiente por enlace nativo/Windows.
+Tarea activa y estado: iniciar T004, diagnóstico del entorno por OS.
+Prueba roja y resultado: CLI no existía al inicio. Desktop compile falló con Rust1.92/1.94 por APIs inestables; desktop build linker no encuentra `xcb`, `xkbcommon`, `xkbcommon-x11` en este contenedor.
+Último comando verde y resultado: `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked` (1 test); CLI release build; `RUST_FONTCONFIG_DLOPEN=1 cargo check -p jameskills-desktop --locked`; fmt y clippy core/infra/CLI/desktop.
+Archivos modificados: workspace, toolchain, cuatro crates/targets y Cargo.lock; evidencia en `docs/PLATFORM-EVIDENCE.md`.
+Contratos modificados y documento: baseline subió a Rust1.95.0 por requisito fuente `std::hint::cold_path`; docs/SOURCES, SPEC-desktop-app, OPERATIONS, plan y handoff actualizados.
+Bloqueos con fuente/evidencia saneada: Debian13 headless carece development libs `xcb`, `xkbcommon`, `xkbcommon-x11`; sin display/GPU. No hay Windows runner. No declarar smoke nativo.
+Próximas tareas elegibles: T004 (T003 completada).
+Próxima acción exacta: implementar `PlatformFacts::detect`/resolución de directorios y `doctor --json`/plan de instalación sin ejecutar sudo, primero con pruebas de estados Unknown y paths seguros.
+Lecturas mínimas: `AGENTS.md`, sección T004 de `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SPEC-desktop-app.md`, `docs/OPERATIONS.md`, `docs/PLATFORM-EVIDENCE.md`.
 Evidencia manual Linux / Windows pendiente: ventana GPUI real en Linux con display/GPU; build y recorrido GPUI real en Windows/MSVC.
