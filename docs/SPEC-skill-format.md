@@ -41,7 +41,7 @@ Semver version parse estricto; UUID estable al editar/cambiar display, nuevo al 
 - name ASCII regex ^[a-z0-9]+(?:-[a-z0-9]+)*$, 1–64; description Unicode longitud chars <=1024, no blanco; compatibility <=500 si presente.
 - Schema futuro -> UnsupportedVersion; no abrir/escribir como schema1 ni descartar keys. Para schema1 manifest/policy unknown fields error salvo [extensions] metadata de strings inerte.
 - Bundle máximo 20MiB, 2.000 archivos, cada texto máximo 2MiB, SKILL.md máximo 256KiB, Markdown render sin HTML activo. Advertir >500 líneas, sin rechazo si no excede bytes.
-- Names/path: UTF8 NFC obligatorio; separador /; componentes no vacíos, ., ..; no absolute, backslash, drive prefixes, colon, UNC, trailing dot/space, control chars, NUL. Rechazar CON/PRN/AUX/NUL/COM1–9/LPT1–9 incluso con extensión; longitud portable <=240 bytes.
+- Names/path: UTF-8 NFC obligatorio; separador `/`; componentes no vacíos, `.` ni `..`; rutas relativas solamente; rechazar backslash, prefijos de unidad, colon, caracteres no válidos en Win32 (`< > : " / \\ | ? *`), UNC, trailing dot/space, controles y NUL. Rechazar CON/PRN/AUX/NUL/COM1–9/LPT1–9 incluso con extensión; longitud portable <=240 bytes.
 - Detectar colisiones tras case-fold Unicode; Windows no se resuelve sobrescribiendo. Symlink/hardlink/reparse point rechazados en import/export/target.
 - Assets SVG sin script/event/foreignObject/external href; render usar selección vetted icons, no SVG arbitrary dentro privileged GUI. Import conserva bytes en cuarentena.
 - policies/guidance deben existir, referencias validadas y DAG sin ciclos.
