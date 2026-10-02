@@ -207,7 +207,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Registry/pins, manifests y cuatro targets definidos; CLI independiente de GPU.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia parcial:** metadata cuatro packages; `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked` (1 passed); CLI release build/--help; desktop check+clippy; `cargo fmt --all -- --check`; clippy core/infra/CLI sin warnings. Lock Kit0.7.0 y checksum inspeccionado. C001 permanece sin marcar: desktop link requiere development libs xcb/xkbcommon y no existe display/GPU; Windows/MSVC runner no disponible. Seguir T004 independiente según DAG y revalidar native gates en T005/C001.
+**Evidencia parcial:** metadata cuatro packages; suite core/infra/CLI 53/53 en Windows MSVC; desktop Windows `cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked` pasó; fmt y Clippy/check Linux previos registrados arriba. Lock Kit0.7.0 y checksum inspeccionado. C001 permanece sin marcar: el build/link Linux sigue requiriendo development libs `xcb`, `xkbcommon`, `xkbcommon-x11`; en Windows display/GPU siguen `unknown` y no hubo smoke de ventana/renderer. T004 ya está completo; revalidar los native gates en T005/C001.
 
 <a id="t004"></a>
 
