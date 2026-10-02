@@ -75,3 +75,26 @@ limitaciones observadas y explícitas. Esos recorridos nativos deben quedar
 pendientes en las tareas de spike/QA correspondientes;
 ningún check del producto podrá presentar esas plataformas como `Pass` por esta
 tabla documental.
+
+## Diagnóstico T004 en Debian 13
+
+`setup-linux.sh --check` es de solo lectura y emite JSON con estados separados
+para toolchain, módulos pkg-config, display y device GPU. `--print-install-plan`
+solo imprime los paquetes propuestos y sus fuentes; no ejecuta apt ni sudo. El
+plan Debian/Ubuntu enumera los development packages que el linker pidió
+(`xcb`, `xkbcommon`, `xkbcommon-x11`) además de fontconfig/freetype/Wayland.
+
+`setup-windows.ps1` comprueba Rust MSVC, CMake, Visual Studio C++ y Windows SDK
+con salida JSON; el plan es textual y no llama a winget/Chocolatey. Su sintaxis
+PowerShell/Windows todavía requiere runner Windows; no se reporta como
+ejecutado. Las observaciones de display/GPU continúan `unknown` hasta smoke
+nativo.
+
+Verificación ejecutada: `bash -n scripts/setup-linux.sh` pasó; `--check` emitió
+JSON y código1 por CMake/Clang y módulos pkg-config de desarrollo ausentes,
+marcando Vulkan loader `pass` y display/GPU `unknown`; `--print-install-plan`
+emitió JSON apt con 14 paquetes sin ejecutar comandos privilegiados. PowerShell
+7.6.6 oficial (SHA-256 validado contra `hashes.sha256`) parseó
+`setup-windows.ps1`; `-PrintInstallPlan` emitió JSON y `-Check` en Linux devolvió
+`unsupported`. Esto valida parser y rutas de ayuda, no la detección nativa de
+Windows.
