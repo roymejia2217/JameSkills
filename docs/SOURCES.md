@@ -21,6 +21,18 @@ usa XDG y la home estándar en Linux y Known Folder API en Windows. Se eligió
 este proveedor para `config_dir`, `data_local_dir`, `cache_dir`; JameSkills solo
 agrega su nombre de aplicación, no construye `C:\\Users` ni concatena `$HOME`.
 
+Tipos compartidos T007: pines exactos `serde = 1.0.229` (derive y DTOs),
+`thiserror = 2.0.21` (errores tipados), `uuid = 1.26.1` (IDs UUID v4),
+`sha2 = 0.10.9` (digest SHA-256), `unicode-normalization = 0.1.25` (NFC), y
+`chrono = 0.4.45` (reloj UTC del host). Referencias versionadas:
+[`serde`](https://docs.rs/serde/1.0.229/serde/),
+[`thiserror`](https://docs.rs/thiserror/2.0.21/thiserror/),
+[`uuid`](https://docs.rs/uuid/1.26.1/uuid/),
+[`sha2`](https://docs.rs/sha2/0.10.9/sha2/),
+[`unicode-normalization`](https://docs.rs/unicode-normalization/0.1.25/unicode_normalization/),
+[`chrono`](https://docs.rs/chrono/0.4.45/chrono/). Cargo.lock fija los checksums
+resueltos. `PortablePath` exige NFC antes de aceptar, no normaliza bytes importados.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado

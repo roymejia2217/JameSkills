@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "=6.0.0"
 jameskills-core = { path = "../jameskills-core" }
 

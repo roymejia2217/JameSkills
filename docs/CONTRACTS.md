@@ -11,11 +11,13 @@ use uuid::Uuid;
 
 pub type AppResult<T> = Result<T, AppError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SkillId(pub Uuid);
+pub struct SkillId(Uuid); // private; parse UUID or generate explicitly
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RevisionId(pub String); // validated sha256 lowercase, never arbitrary
+pub struct RevisionId(String); // private; exactly 64 lowercase SHA-256 hex
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct OperationId(pub Uuid);
+pub struct OperationId(Uuid); // private; parse UUID or generate explicitly
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ContentHash(String); // private; exactly 64 lowercase SHA-256 hex
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentId { Codex, OpenCode, Pi, Antigravity, Grok }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +61,7 @@ pub enum AppError {
 }
 ~~~
 
-AppError tiene implementación thiserror; Display redacted estable, source interno no serializable a logs. Diagnostic {code, path:PortablePath?, line?, column?, message, severity}. Nunca incluir contenido del secreto.
+AppError tiene implementación thiserror; Display estable y redactado; no deriva Serialize ni incluye errores de proveedor. Diagnostic {code, path:Option<PortablePath>, line:Option<u32>, column:Option<u32>, message, severity} es DTO serializable, con mensaje app-owned y bounded; nunca incluye contenido del secreto.
 
 ## Facts de plataforma e inicialización
 
@@ -88,7 +90,9 @@ observación ausente no demuestra ausencia global de hardware ni de sesión, y
 
 ## Archivos portables, revisiones e instalación
 
-PortablePath(String) constructor valida en SPEC-skill-format. No implementa From<String> sin validación.
+`SkillId` y `OperationId` exponen `new()`, `parse(&str)` y `as_uuid()`; campos privados. `RevisionId` y `ContentHash` exponen `from_digest([u8; 32])`, `parse_hex(&str)` y `as_str()`; campos privados, lowercase exacto. Deserializar siempre pasa por los constructores validados.
+
+`PortablePath` tiene campo privado y constructor `PortablePath::new(String) -> Result<Self, PathValidationError>`; expone `as_str()`. No implementa `From<String>` sin validación. Su algoritmo se define en SPEC-skill-format: NFC, separador `/`, componentes relativos no vacíos, sin `.`/`..`, backslash, colon, prefijos de unidad, nombres de dispositivo Windows ni trailing dot/space, máximo 240 bytes UTF-8. Deserialize vuelve a validar.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
