@@ -409,6 +409,11 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-cli/tests/cli_contract.rs`
 - `crates/jameskills-cli/Cargo.toml`
 
+**Descomposición obligatoria:**
+- [x] **T009.dep — Fijar parser y serialización JSON** (4 archivos): `crates/jameskills-cli/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`. Pin exacto Clap+derive y serde_json; registrar fuente/licencia/MSRV.
+- Evidencia T009.dep: `cargo check -p jameskills-cli --offline` identificó crates ausentes del caché; tras resolución/crates.io `cargo check -p jameskills-cli` generó lock y compiló correctamente. Pins/source/licencias registrados. Commit pendiente.
+- [ ] **T009.a — Parser, dispatch y salida contractual** (5 archivos): los cinco archivos listados arriba. `doctor` reporta solo facts observados; comandos sin backend devuelven Unsupported/exit3; parse errors JSON tienen wrapper redacted.
+
 **Aceptación:**
 - [ ] Ayuda enumera comandos/flags reales y check admite --json --strict.
 - [ ] JSON estable y códigos distinguen fallos de checks, auth/entorno y errores operativos según spec.

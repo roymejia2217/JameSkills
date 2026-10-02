@@ -33,6 +33,12 @@ Tipos compartidos T007: pines exactos `serde = 1.0.229` (derive y DTOs),
 [`chrono`](https://docs.rs/chrono/0.4.45/chrono/). Cargo.lock fija los checksums
 resueltos. `PortablePath` exige NFC antes de aceptar, no normaliza bytes importados.
 
+CLI T009: `clap = 4.5.60` (MIT OR Apache-2.0; derive parser/help con MSRV1.74)
+y `serde_json = 1.0.149` (MIT OR Apache-2.0; wrapper JSON con schema explícito).
+Referencias versionadas: [`clap`](https://docs.rs/clap/4.5.60/clap/),
+[`serde_json`](https://docs.rs/serde_json/1.0.149/serde_json/). Las versiones
+exactas y checksums están registradas en Cargo manifests y lockfile.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
