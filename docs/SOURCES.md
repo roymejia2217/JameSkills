@@ -11,7 +11,7 @@ Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UT
 | https://github.com/longbridge/gpui-kit/blob/v0.7.0/crates/kit/Cargo.toml | Default features component y assets; test-support opcional | Un solo facade de GUI; pruebas UI activan test-support |
 | https://github.com/longbridge/gpui-kit/blob/v0.7.0/crates/kit/src/lib.rs | application(), init(), open_window(); open_window añade base::Root | Inicializar Kit una vez y crear contenido sin un segundo Root |
 | https://github.com/longbridge/gpui-kit/blob/v0.7.0/Cargo.toml | GPUI snapshots fijados =0.3.7 y edición 2024 | Conservar alineación del facade; no añadir un GPUI independiente |
-| https://gpui-kit.com/docs/installation | Windows 10+, MSVC/VS2022+CMake; Ubuntu24.04 packages; Vulkan+sesión gráfica; baseline Rust1.92 | Spike nativo en ambos OS y Rust1.92.0 inicial sujeto a resolver comprobado |
+| https://gpui-kit.com/docs/installation | Windows 10+, MSVC/VS2022+CMake; Ubuntu24.04 packages; Vulkan+sesión gráfica; la página indica baseline Rust1.92 | La página refleja un baseline insuficiente para source v0.7.0; T001 verificó compilación con Rust1.95 por `cold_path` |
 | https://gpui-kit.com/docs/assets/ | Assets debe registrarse; catálogo e iconos separados de componentes | Usar Assets del Kit y verificar nombres del catálogo fijado |
 | https://github.com/longbridge/gpui-kit/tree/v0.7.0/examples/ai_recipes | Recetas compilables y tests retained state | Modelo de entidades/subscriptions y UI tests desde fuentes fijadas |
 

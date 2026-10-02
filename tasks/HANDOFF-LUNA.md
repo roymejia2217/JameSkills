@@ -16,7 +16,7 @@ No hay aprobación humana obligatoria entre fases del plan: el encargo documenta
 
 ## Contratos que debes conservar
 
-- Rust nativo, GPUI y **GPUI Kit** (`gpui-kit = "=0.7.0"` oficial; 0.6.5 está yanked); toolchain Rust 1.92.0 baseline y GPUI snapshot 0.3.7 vía reexports; verificar en T001. No cambiar el proyecto a web ni a otro kit por una compilación difícil.
+- Rust nativo, GPUI y **GPUI Kit** (`gpui-kit = "=0.7.0"` oficial; 0.6.5 está yanked); toolchain Rust 1.95.0 baseline y GPUI snapshot 0.3.7 vía reexports. La página del Kit cita 1.92, pero el source real usa `cold_path` estable en 1.95; ver `docs/PLATFORM-EVIDENCE.md`. No cambiar el proyecto a web ni a otro kit por una compilación difícil.
 - Crates `jameskills-core`, `jameskills-infra`, `jameskills-desktop`, `jameskills-cli`. Casos de uso y puertos compartidos; UI/CLI son consumidores. CLI no inicializa GPU.
 - `SKILL.md` portable + `jameskills.toml` v1 + políticas TOML tipadas. Importar no ejecuta contenido. Herramientas registradas usan argv y executable absoluto aprobado.
 - Los cinco agentes usan fuentes y versiones comprobadas. Antigravity usa `agy plugin` y plugin.json; Grok usa `grok version`/`grok inspect --json` y `.grok/skills`/GROK_HOME. Cada capacidad particular no demostrada permanece bloqueada; no confundir Antigravity CLI con rutas del IDE.

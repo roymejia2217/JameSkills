@@ -5,7 +5,7 @@ Runbook FUTURO. /workspace de planificación no tiene Rust ni repoGit inicial; s
 ## Arranque desarrollo
 
 1. Conservar docs; inspeccionar si repo apareció antes git init; crear workspace4 crates y branch bootstrap/jameskills.
-2. Rust1.92.0 baseline/edición2024, version0.1.0, Kit=0.7.0. Lockfile registra resolver real; MSRV mayor evidenciado se actualiza junto toolchain/CI/evidence. Sin latest/*/patch arbitrario.
+2. Rust1.95.0 baseline/edición2024, version0.1.0, Kit=0.7.0. GPUI snapshot0.3.7 usa `std::hint::cold_path`, estable desde1.95; evidencia en `docs/PLATFORM-EVIDENCE.md`. Lockfile registra resolver real. Sin latest/*/patch arbitrario.
 3. Instalar prereqs fuente y spike ShellView+Button+Assets nativo ambosOS. CLI doctor independiente GPU.
 4. Registro exact dependency/tool versions docs/evidence/T001.md; factory storage+recovery->shell.
 5. Importar golden suite, validar/publicar/detectar agentes, instalación user scope.
@@ -18,8 +18,8 @@ Ubuntu24.04 x86_64 referencia, sesión gráfica y GPU Vulkan:
 ~~~
 sudo apt update
 sudo apt install -y gcc g++ clang pkg-config cmake libfontconfig-dev libwayland-dev libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev vulkan-validationlayers libvulkan1
-rustup toolchain install 1.92.0 --component rustfmt clippy
-rustup override set 1.92.0
+rustup toolchain install 1.95.0 --component rustfmt clippy
+rustup override set 1.95.0
 cargo build -p jameskills-desktop --locked
 cargo run -p jameskills-desktop --locked
 ~~~
@@ -30,8 +30,8 @@ Rust mediante instalador oficial usuario; no pipes remotos silenciosos ni cambia
 
 Framework Windows10+, QA release Windows11 x86_64. VS2022 Build Tools DesktopC++/WindowsSDK, CMake PATH y Rust MSVC, no GNU. PowerShell5.1 suficiente si scripts compatible, pwsh7 si tarea documenta prereq.
 ~~~
-rustup toolchain install 1.92.0-x86_64-pc-windows-msvc --component rustfmt clippy
-rustup override set 1.92.0-x86_64-pc-windows-msvc
+rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --component rustfmt clippy
+rustup override set 1.95.0-x86_64-pc-windows-msvc
 rustup show active-toolchain
 cmake --version
 cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked
