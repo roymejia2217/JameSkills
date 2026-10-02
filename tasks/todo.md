@@ -140,7 +140,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 ## T002 — Crear workspace de dominio e infraestructura
 
-- [ ] **T002 completada y verificada**
+- [x] **T002 completada y verificada**
 
 **Módulo:** `desktop-app`. **Dependencias:** T001. **Estado:** pendiente.
 
@@ -162,7 +162,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 **Verificación:** cargo metadata --format-version 1 --no-deps; cargo check -p jameskills-core -p jameskills-infra. Lockfile inicial todavía no obligatorio; T003 lo registra.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED: `cargo metadata --format-version 1 --no-deps` falló porque no había `Cargo.toml` en `/workspace`. GREEN: metadatos con exactamente `jameskills-core` y `jameskills-infra`; core no tiene dependencias; infra depende solo de core. `cargo check -p jameskills-core -p jameskills-infra` y `cargo fmt --all -- --check` pasaron en Rust 1.92.0. Sin tests de comportamiento aún porque no existe lógica; grafo estructural validado. commit de implementación: `7bf2bd3`.
 
 <a id="t003"></a>
 
