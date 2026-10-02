@@ -394,9 +394,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T009 — Exponer parser CLI y contrato de salida
 
-- [ ] **T009 completada y verificada**
+- [x] **T009 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T003, T007. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T003, T007. **Estado:** completada.
 
 **Implementación y funciones:** Cli::parse, dispatch_cli, render_text, render_json, map_exit_code; subcommands doctor/validate/check/library/agents/install/backup/sync. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -411,17 +411,18 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Descomposición obligatoria:**
 - [x] **T009.dep — Fijar parser y serialización JSON** (4 archivos): `crates/jameskills-cli/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`. Pin exacto Clap+derive y serde_json; registrar fuente/licencia/MSRV.
-- Evidencia T009.dep: `cargo check -p jameskills-cli --offline` identificó crates ausentes del caché; tras resolución/crates.io `cargo check -p jameskills-cli` generó lock y compiló correctamente. Pins/source/licencias registrados. Commit pendiente.
-- [ ] **T009.a — Parser, dispatch y salida contractual** (5 archivos): los cinco archivos listados arriba. `doctor` reporta solo facts observados; comandos sin backend devuelven Unsupported/exit3; parse errors JSON tienen wrapper redacted.
+- Evidencia T009.dep: `cargo check -p jameskills-cli --offline` identificó crates ausentes del caché; tras resolución/crates.io `cargo check -p jameskills-cli` generó lock y compiló correctamente. Pins/source/licencias registrados. Commit `765abba`.
+- [x] **T009.a — Parser, dispatch y salida contractual** (5 archivos): los cinco archivos listados arriba. `doctor` reporta solo facts observados; comandos sin backend devuelven Unsupported/exit3; parse errors JSON tienen wrapper redacted.
+- Evidencia T009.a: RED CLI temporal produjo cinco fallas de contrato; otro RED mostró que Clap imprimía un valor inválido y se corrigió a diagnóstico genérico redacted. GREEN `cargo test -p jameskills-cli --locked --offline` (3 unit + 8 integration); Clippy combinado all-targets `-D warnings`, suite core/infra completa, `cargo run ... --help`, `doctor --json`, check flags y build release. `check` y otros comandos sin proveedor devuelven `Unsupported`, código3. Commit `ad2b662`.
 
 **Aceptación:**
-- [ ] Ayuda enumera comandos/flags reales y check admite --json --strict.
-- [ ] JSON estable y códigos distinguen fallos de checks, auth/entorno y errores operativos según spec.
-- [ ] No passphrases/tokens por argumentos; secrets por prompt seguro o puerto configurado.
+- [x] Ayuda enumera comandos/flags reales y check admite --json --strict.
+- [x] JSON estable y códigos distinguen fallos de checks (1), argumentos (2), auth/capacidad (3), operaciones (4) y cancelación (130). El motor check aún no está cableado y devuelve Unsupported.
+- [x] No passphrases/tokens por argumentos; parser rechaza flags secretas y oculta valores inválidos también en stderr.
 
 **Verificación:** cargo test -p jameskills-cli --locked cli_contract; cargo run -p jameskills-cli --locked -- --help. Registrar comandos existentes y todavía no conectados.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Linux Debian13 x86_64. Suite final core/infra/CLI: 29 tests pasan (18 core+infra, 11 CLI); cargo clippy all-targets `-D warnings`; fmt; CLI release build. `doctor --json` da observations sin directorios; `check --strict --json` se acepta y responde capability.unsupported/3 hasta T018/T028. Sin secretos por argv.
 
 ## C003 — Checkpoint tras T007–T009
 
