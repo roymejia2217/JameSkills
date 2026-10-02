@@ -114,7 +114,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 ## T001 — Fijar GPUI Kit, toolchain y evidencia de plataformas
 
-- [ ] **T001 completada y verificada**
+- [x] **T001 completada y verificada**
 
 **Módulo:** `desktop-app`. **Dependencias:** Ninguna. **Estado:** pendiente.
 
@@ -134,7 +134,7 @@ Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de
 
 **Verificación:** rustup toolchain install 1.92.0 --profile minimal --component rustfmt --component clippy; rustup run 1.92.0 rustc --version. Revisar registry/release/source oficiales de SOURCES. No compilar app en esta tarea documental inicial.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED: `rustc --version`, `cargo --version`, `rustup show active-toolchain` no estaban disponibles antes del bootstrap. GREEN: instalador oficial rustup validado con SHA-256; `rustup toolchain install 1.92.0 --profile minimal --component rustfmt --component clippy`; versiones Rust/Cargo/Git registradas en `docs/PLATFORM-EVIDENCE.md`. `cargo info gpui-kit@0.7.0`, índice sparse, crate fuente y tag v0.7.0 comprobados. Host Debian 13 x86_64 en contenedor; no hay display, `/dev/dri`, ni host Windows. No se afirma smoke nativo. commit de tarea: ver historial `feat: pin Rust 1.92 and record platform evidence`.
 
 <a id="t002"></a>
 

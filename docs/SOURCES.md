@@ -1,6 +1,6 @@
 # Fuentes y decisiones verificadas — JameSkills
 
-Consulta: 2026-10-02 UTC. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. No se ha compilado una aplicación durante la elaboración de este plan.
+Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UTC en Linux x86_64. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. Aún no se ha compilado el workspace ni se ha abierto una ventana de aplicación.
 
 ## Plataforma nativa
 
@@ -14,6 +14,16 @@ Consulta: 2026-10-02 UTC. Estas fuentes describen contratos externos; la especif
 | https://gpui-kit.com/docs/installation | Windows 10+, MSVC/VS2022+CMake; Ubuntu24.04 packages; Vulkan+sesión gráfica; baseline Rust1.92 | Spike nativo en ambos OS y Rust1.92.0 inicial sujeto a resolver comprobado |
 | https://gpui-kit.com/docs/assets/ | Assets debe registrarse; catálogo e iconos separados de componentes | Usar Assets del Kit y verificar nombres del catálogo fijado |
 | https://github.com/longbridge/gpui-kit/tree/v0.7.0/examples/ai_recipes | Recetas compilables y tests retained state | Modelo de entidades/subscriptions y UI tests desde fuentes fijadas |
+
+Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
+licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
+Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
+fija `gpui = "=0.3.7"`, edición 2024, y su `src/lib.rs` exporta
+`application`, `init`, `open_window`, `assets` y `component`; `open_window`
+envuelve el contenido con `base::Root`. Tag v0.7.0 resuelto a
+`0c830f4d257e69fdd17200650533ab4ca9a40cc0`. Evidencia detallada y límites de
+plataforma en `docs/PLATFORM-EVIDENCE.md`. El MSRV efectivo y la resolución
+completa se comprobarán al generar Cargo.lock y compilar T003/T005.
 
 Discrepancia resuelta: la página installation aún describe 0.6.5 y ejemplos versionados 0.6.0; el registro y el release ofrecen 0.7.0. Las URLs /versions/v0.7.0/docs/... devolvieron 404. El ejecutor debe usar fuente tag v0.7.0/docs.rs versión específica para firmas de código. No convertir 0.6.5 en dependencia por copiar esa página.
 
