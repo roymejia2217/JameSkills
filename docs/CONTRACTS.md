@@ -124,6 +124,7 @@ La existencia de policy/guidance paths y las referencias cruzadas entre archivos
 se validan al ensamblar el bundle, no al parsear una policy aislada.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
+`BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
 RevisionRecord { id, skill_id, bundle_hash, parents: Vec<RevisionId>, kind: RevisionKind, semantic_version }.
 RevisionKind = Content | Tombstone { observed_heads: Vec<RevisionId> }.
@@ -206,6 +207,12 @@ pub trait ClockPort: Send + Sync {
     fn monotonic_ms(&self) -> u64;
 }
 ~~~
+
+`FileSystemPort::inspect_bundle` y `stage_bundle` implementan la capa OS real por
+encima del inventario puro: canonical root + relative handles no-follow, chain de
+ancestros, sin symlinks/hardlinks/reparse points, contabilización streaming de ZIP
+central+entries, límites antes de reservar/extractar y staging privado. Cualquier
+entrada inválida detiene la operación sin escribir destino.
 
 ApprovedRoot, ApprovedExecutable y SecretInput tienen constructores controlados; SecretInput implementa zeroize/zeroize_on_drop y Debug = "[REDACTED]". No serializar SecretInput ni pasarlo como argv.
 ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission }.

@@ -43,9 +43,10 @@ Semver version parse estricto; UUID estable al editar/cambiar display, nuevo al 
 - Bundle máximo 20MiB, 2.000 archivos, cada texto máximo 2MiB, SKILL.md máximo 256KiB, Markdown render sin HTML activo. Advertir >500 líneas, sin rechazo si no excede bytes.
 - Names/path: UTF-8 NFC obligatorio; separador `/`; componentes no vacíos, `.` ni `..`; rutas relativas solamente; rechazar backslash, prefijos de unidad, colon, caracteres no válidos en Win32 (`< > : " / \\ | ? *`), UNC, trailing dot/space, controles y NUL. Rechazar CON/PRN/AUX/NUL/COM1–9/LPT1–9 incluso con extensión; longitud portable <=240 bytes.
 - Detectar colisiones tras case-fold Unicode; Windows no se resuelve sobrescribiendo. Symlink/hardlink/reparse point rechazados en import/export/target.
+- Validar primero un inventario lógico independiente de IO: máximo 2.000 archivos, 20MiB descomprimidos, 2MiB por archivo de texto y 256KiB para SKILL.md; cada path es PortablePath, colisiones usan full case-fold Unicode vigente normalizado a NFC, y solo se aceptan entradas de archivos regulares. Directory archive entries se convierten a paths padres implícitos, nunca a archivos publicados.
 - Assets SVG sin script/event/foreignObject/external href; render usar selección vetted icons, no SVG arbitrary dentro privileged GUI. Import conserva bytes en cuarentena.
 - policies/guidance deben existir, referencias validadas y DAG sin ciclos.
-- Safe import archive .jskill ZIP: comprobar central+entry real, tamaño/límites streaming, sin nested archives automáticos, ZIP symlink bit, rutas por PortablePath; extraer staging privado.
+- Safe import archive .jskill ZIP: comprobar central+entry real, tamaño/límites streaming, sin nested archives automáticos, ZIP symlink bit, rutas por PortablePath; extraer staging privado. Este paso requiere verificación nativa no-follow/reparse en cada OS.
 - Trust review muestra scripts, remote links, security-sensitive templates. Nunca instala desde una carpeta temporal proporcionada por archivo externo sin valida completo.
 
 ## Canonical hashing

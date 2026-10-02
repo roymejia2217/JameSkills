@@ -17,6 +17,7 @@
 | [T009](#t009) | Exponer parser CLI y contrato de salida | `desktop-app` | T003, T007 |
 | [T010](#t010) | Modelar y parsear manifest de suite portable | `skill-format` | T007 |
 | [T011](#t011) | Modelar políticas y requisitos de herramientas | `skill-format` | T010 |
+| [T012.a](#t012-a) | Validar inventario portable sin IO | `skill-format` | T010, T011 |
 | [T012](#t012) | Validar árboles e importaciones con límites portables | `skill-format` | T010, T011, T004 |
 | [T013](#t013) | Canonicalizar bundle y calcular hash de contenido | `skill-format` | T010, T011, T012 |
 | [T014](#t014) | Crear codec seguro para import/export portable | `skill-format` | T012, T013 |
@@ -106,7 +107,7 @@ Los anchors del índice son estables. Las dependencias de la tabla y de cada fic
 
 ## Orden de ejecución topológico concreto
 
-T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008 → T009 → T010 → T011 → T012 → T013 → T014 → T016 → T017 → T018 → T019 → T020 → T021 → T022 → T023 → T024 → T029 → T030 → T031 → T032 → T033 → T034 → T037 → T015 → T025 → T026 → T027 → T038 → T035 → T036 → T039 → T040 → T041 → T042 → T028 → T043 → T044 → T045 → T046 → T047 → T048 → T049 → T050 → T051 → T052 → T053 → T054 → T055 → T056 → T057 → T058 → T059 → T060 → T061 → T062 → T063 → T064 → T065 → T066 → T067 → T068 → T069 → T070 → T071 → T072 → T073 → T074 → T075 → T076 → T077 → T078 → T079 → T080 → T081 → T082 → T083 → T084
+T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008 → T009 → T010 → T011 → T012.a → T012 → T013 → T014 → T016 → T017 → T018 → T019 → T020 → T021 → T022 → T023 → T024 → T029 → T030 → T031 → T032 → T033 → T034 → T037 → T015 → T025 → T026 → T027 → T038 → T035 → T036 → T039 → T040 → T041 → T042 → T028 → T043 → T044 → T045 → T046 → T047 → T048 → T049 → T050 → T051 → T052 → T053 → T054 → T055 → T056 → T057 → T058 → T059 → T060 → T061 → T062 → T063 → T064 → T065 → T066 → T067 → T068 → T069 → T070 → T071 → T072 → T073 → T074 → T075 → T076 → T077 → T078 → T079 → T080 → T081 → T082 → T083 → T084
 
 Este orden respeta deps adicionales de factory SQLite, receipts y lookup UUID de CLI. T015 espera T037; T035 espera T037/T038; T028 espera T039/T042. Los IDs permanecen estables. Cada tres unidades implementadas en este orden ejecutar checkpoint acumulado y registrar RESUME; cerrar además C001–C028 cuando sus tres tareas/facts estén verificados. No esperar una agrupación numérica futura para verificar trabajo actual.
 
@@ -531,6 +532,17 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 **Verificación:** cargo test -p jameskills-infra --locked safe_bundle_paths en Linux y Windows con temporales; confirmar archivos exteriores intactos y no ejecución de scripts.
 
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+
+**Descomposición por dependencia nativa:**
+- [ ] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, lock y `docs/SOURCES.md`/`tasks/todo.md`. Pin de `icu_casemap`. `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política; no usarlo.
+
+<a id="t012-a"></a>
+
+- [ ] **T012.a — Inventario portable puro** (3 archivos): `crates/jameskills-core/src/domain/bundle.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/portable_bundle_inventory.rs`. Depende T010/T011, nunca abre/extracta archivos. Límite de número/tamaño, entries de solo fichero regular, PortablePath y colisiones tras ICU full case-fold + NFC.
+- [ ] **T012.contract — Contrato de FileSystemPort y límites** (3 archivos): `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `tasks/todo.md`.
+- [ ] **T012.b — Filesystem/ZIP real** (5 archivos): ports Filesystem, infra fs/lib, test safe_bundle_paths. Depende T012.a y T004; valida no-follow/ancestor/symlink/reparse, entry ZIP real, bomb y staging sin escritura antes de validar.
+
+El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Linux y Windows reales.
 
 ## C004 — Checkpoint tras T010–T012
 
