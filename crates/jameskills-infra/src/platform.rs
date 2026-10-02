@@ -50,10 +50,17 @@ fn namespace_directories(platform: HostPlatform, bases: DirectoryBases) -> UserD
         HostPlatform::Windows => "JameSkills",
         HostPlatform::Linux | HostPlatform::Other => "jameskills",
     };
-    UserDirectories {
-        config: bases.config.join(product_directory),
-        data: bases.data.join(product_directory),
-        cache: bases.cache.join(product_directory),
+    match platform {
+        HostPlatform::Windows => UserDirectories {
+            config: bases.config.join(product_directory),
+            data: bases.data.join(product_directory).join("Data"),
+            cache: bases.cache.join(product_directory).join("Cache"),
+        },
+        HostPlatform::Linux | HostPlatform::Other => UserDirectories {
+            config: bases.config.join(product_directory),
+            data: bases.data.join(product_directory),
+            cache: bases.cache.join(product_directory),
+        },
     }
 }
 
@@ -169,12 +176,27 @@ mod tests {
         );
 
         assert!(dirs.config.ends_with("JameSkills"));
-        assert!(dirs.data.ends_with("JameSkills"));
-        assert!(dirs.cache.ends_with("JameSkills"));
+        assert!(dirs.data.ends_with("JameSkills/Data"));
+        assert!(dirs.cache.ends_with("JameSkills/Cache"));
         assert_ne!(
             dirs.config,
             PathBuf::from("/home/example/.config/JameSkills")
         );
+    }
+
+    #[test]
+    fn windows_local_data_and_cache_are_separate_children_of_local_app_data() {
+        let dirs = namespace_directories(
+            HostPlatform::Windows,
+            DirectoryBases {
+                config: PathBuf::from("known-roaming"),
+                data: PathBuf::from("known-local"),
+                cache: PathBuf::from("known-local"),
+            },
+        );
+
+        assert_eq!(dirs.data, PathBuf::from("known-local/JameSkills/Data"));
+        assert_eq!(dirs.cache, PathBuf::from("known-local/JameSkills/Cache"));
     }
 
     #[test]
@@ -222,7 +244,18 @@ mod tests {
         };
 
         assert!(dirs.config.ends_with(application_dir));
-        assert!(dirs.data.ends_with(application_dir));
-        assert!(dirs.cache.ends_with(application_dir));
+        if cfg!(target_os = "windows") {
+            assert!(
+                dirs.data
+                    .ends_with(PathBuf::from(application_dir).join("Data"))
+            );
+            assert!(
+                dirs.cache
+                    .ends_with(PathBuf::from(application_dir).join("Cache"))
+            );
+        } else {
+            assert!(dirs.data.ends_with(application_dir));
+            assert!(dirs.cache.ends_with(application_dir));
+        }
     }
 }

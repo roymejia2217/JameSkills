@@ -89,7 +89,7 @@ Un módulo puede subdividirse al crecer; mantener reexports y tests. El catálog
 
 AppPaths via directorios de SO:
 - Linux: XDG_DATA_HOME/jameskills o ~/.local/share/jameskills; XDG_CONFIG_HOME/jameskills o ~/.config/jameskills; XDG_CACHE_HOME/jameskills o ~/.cache/jameskills.
-- Windows: Known Folders RoamingAppData/JameSkills para configuración; LocalAppData/JameSkills para datos/cache. Resolver API/directories, no interpolar C:\\Users literal.
+- Windows: Known Folders RoamingAppData/JameSkills para configuración; LocalAppData/JameSkills/Data para datos y LocalAppData/JameSkills/Cache para caché. Resolver API/directories, no interpolar C:\\Users literal.
 - Datos: library.sqlite3; blobs/<sha256-prefix>/<sha256>.bundle; staging/<op-uuid>/; recovery/<op-uuid>/; operations/ solo journal no secretos.
 - Settings públicos: settings.toml con theme, language, tool-paths autorizadas, sync schedule, OAuth client_id; nunca refresh token/passphrase.
 - UUID dispositivo y receipts: solo locale, excluidos de sync.

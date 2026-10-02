@@ -84,9 +84,11 @@ pub fn resolve_user_dirs() -> Result<UserDirectories, PlatformError>;
 ~~~
 
 `directories::BaseDirs` es la autoridad para XDG en Linux y Known Folders en
-Windows; JameSkills agrega `jameskills` o `JameSkills` sin crear carpetas. Una
-observación ausente no demuestra ausencia global de hardware ni de sesión, y
-`Unknown` jamás se transforma en `Present` por defecto.
+Windows. Linux agrega `jameskills` a cada base; Windows usa RoamingAppData/
+`JameSkills` para config y LocalAppData/`JameSkills/{Data,Cache}` para separar
+datos y caché, aunque ambas bases Known Folder sean iguales. Resolver no crea
+carpetas. Una observación ausente no demuestra ausencia global de hardware ni
+de sesión, y `Unknown` jamás se transforma en `Present` por defecto.
 
 ## Archivos portables, revisiones e instalación
 
