@@ -534,13 +534,13 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
 **Descomposición por dependencia nativa:**
-- [x] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, `Cargo.lock`, `docs/SOURCES.md` y `tasks/todo.md`. Pin exacto `icu_casemap=2.3.0`; `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política, se descartó.
-- Evidencia T012.dep: API oficial docs.rs 2.3.0 documenta `CaseMapper::new().fold_string` como full case-fold locale independiente; se normaliza el resultado NFC. `cargo check -p jameskills-core` resolvió/descargó y compiló 2.3.0 bajo Rust 1.95; lock contiene `icu_casemap` y `icu_casemap_data`. Commit pendiente.
+- [x] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, `Cargo.lock`, `docs/SOURCES.md` y `tasks/todo.md`. Pin exacto `icu_casemap=2.3.0`; `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política, se descartó. Commit `48d8ebf`.
+- Evidencia T012.dep: API oficial docs.rs 2.3.0 documenta `CaseMapper::new().fold_string` como full case-fold locale independiente; se normaliza el resultado NFC. `cargo check -p jameskills-core` resolvió/descargó y compiló 2.3.0 bajo Rust 1.95; `cargo check -p jameskills-core --locked --offline` pasa. Lock contiene `icu_casemap` y `icu_casemap_data`.
 
 <a id="t012-a"></a>
 
-- [ ] **T012.a — Inventario portable puro** (3 archivos): `crates/jameskills-core/src/domain/bundle.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/portable_bundle_inventory.rs`. Depende T010/T011, nunca abre/extracta archivos. Límite de número/tamaño, entries de solo fichero regular, PortablePath y colisiones tras ICU full case-fold + NFC.
-- [ ] **T012.contract — Contrato de FileSystemPort y límites** (3 archivos): `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `tasks/todo.md`.
+- [x] **T012.a — Inventario portable puro** (3 archivos): `crates/jameskills-core/src/domain/bundle.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/portable_bundle_inventory.rs`. Depende T010/T011, nunca abre/extracta archivos. Límite de número/tamaño, entries de solo fichero regular, PortablePath y colisiones tras ICU full case-fold + NFC. RED identificó colisión por prefijo de directorio (`Docs/...`/`docs/...`), GREEN focused 5/5; commit `56a28e3`.
+- [x] **T012.contract — Contrato de FileSystemPort y límites** (3 archivos): `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `tasks/todo.md`. Separó la validación de inventario puro de la capa OS, sin cambiar la interfaz existente del port. Commit `ed801a9`.
 - [ ] **T012.b — Filesystem/ZIP real** (5 archivos): ports Filesystem, infra fs/lib, test safe_bundle_paths. Depende T012.a y T004; valida no-follow/ancestor/symlink/reparse, entry ZIP real, bomb y staging sin escritura antes de validar.
 
 El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Linux y Windows reales.
