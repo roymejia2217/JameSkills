@@ -484,9 +484,16 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/domain/policy.rs`
+- `crates/jameskills-core/src/domain/scope.rs`
 - `crates/jameskills-core/src/domain/mod.rs`
 - `crates/jameskills-core/tests/policy_schema.rs`
 - `tests/fixtures/valid-suite/policies/repository.toml`
+- `docs/CONTRACTS.md`
+- `docs/SPEC-policy-engine.md`
+
+**Descomposición verificada:**
+- [x] **T011.contract — Contrato del schema**: separar firma/tipos compartidos de la implementación para mantener cada incremento en <=5 archivos. Commits y evidencia se registran al cerrar.
+- [ ] **T011.schema — Parser y fixture tipados** (5 archivos): module/scope, parser, tests y fixture. No shell strings ni comandos importados.
 
 **Aceptación:**
 - [ ] Formato expresa commits/README/gitignore/secrets/main/PR/CI/tests/releases y dependencias de entorno.

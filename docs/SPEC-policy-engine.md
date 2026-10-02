@@ -7,6 +7,12 @@ El motor verifica y explica requisitos; ejecuta drivers de herramientas estánda
 ~~~
 schema_version = 1
 profile = "repository-foundation"
+scope = "project"
+
+[[tool_requirements]]
+tool_id = "git"
+operation = "repository-root"
+version = ">=2.0.0"
 
 [[requirements]]
 id = "readme-structure"
@@ -29,7 +35,7 @@ severity = "error"
 required = true
 phase = "pre-release"
 enforcement = "host-rule"
-depends_on = ["github-access"]
+depends_on = []
 guidance_id = "github-protection"
 [requirements.check]
 kind = "github-branch-policy"
@@ -40,6 +46,13 @@ require_no_bypass = true
 ~~~
 
 Enums phase = pre-install | commit | pull-request | ci | pre-release; severity info/warning/error. Checks AND internos; IDs únicos. depends_on apunta requisito mismo suite; ciclo rechaza. required y severity independientes: strict bloquea cualquier required no cumplido. NotApplicable solo applies_when con fact typed OS/stack/host/capability, un check nunca escoge NotApplicable al fallar.
+
+Policy schema se parsea desde UTF-8 TOML, `schema_version=1`, scope `user|project`,
+profile slug y requisitos no vacíos. tool_id/operation pertenecen al registry
+estático y tienen rangos SemVer; cada check tiene DTO y campos permitidos propios.
+Unknown fields, línea shell, dependencia ajena/duplicada/cíclica, path no portable,
+enum o check desconocido se rechazan. Referencias a documentos de guía se validan
+contra el bundle completo durante su ensamblado.
 
 ## Catálogo obligatorio v1
 

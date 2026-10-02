@@ -109,6 +109,20 @@ El parser YAML usa `serde-saphyr` con budget estricto de profundidad, eventos,
 documentos y bytes escalares; alias/anchor limitados a cero, duplicate keys y
 merge keys como error, tags custom rechazadas y snippets desactivados.
 
+`Policy` se construye con `domain::policy::parse_policy(&[u8])`; el DTO y sus
+campos se exponen mediante getters. `Scope` es el tipo común `User | Project`.
+Cada `Requirement` tiene id, descripción, `Severity`, required, `Phase`,
+`Enforcement`, depends_on, guidance_id opcional y un `Check` tipado. Check v1
+admite git-repository, gitignore-patterns, tracked-secrets, readme-sections,
+conventional-commit, protected-main-local, github-branch-policy, ci-contract,
+ci-evidence, release-contract y toolchain-version. Los tool requirements usan
+`ToolId` y `ToolOperation` de registry cerrado, con `semver::VersionReq`; no
+existe campo argv o shell en datos importados. El parser limita bytes/cantidades,
+rechaza schema/campos/enums desconocidos, IDs duplicados, referencias de
+dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
+La existencia de policy/guidance paths y las referencias cruzadas entre archivos
+se validan al ensamblar el bundle, no al parsear una policy aislada.
+
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
 RevisionRecord { id, skill_id, bundle_hash, parents: Vec<RevisionId>, kind: RevisionKind, semantic_version }.
