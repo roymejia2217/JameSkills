@@ -228,8 +228,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `docs/PLATFORM-EVIDENCE.md`
 
 **Descomposición para mantener <=5 archivos por incremento:**
-- [x] **T004.a — Contrato y prueba de aislamiento de rutas** (3 archivos): `docs/CONTRACTS.md`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/src/lib.rs`. Publicar tipos platform/user dirs y test first para que cada directorio se namespace bajo el directorio de aplicación.
-- [ ] **T004.b — Resolver directorios y facts del host** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/platform.rs`; `docs/SOURCES.md`. Pin `directories` tras revisar API oficial; usar Known Folders/XDG del proveedor, no concatenar `$HOME` manualmente; agregar detección acotada y tests.
+- [x] **T004.a — Contrato y prueba de aislamiento de rutas** (3 archivos): `docs/CONTRACTS.md`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/src/lib.rs`. RED falló porque Linux path se devolvía sin namespace; GREEN 2/2 tests Linux/Windows. Commit `966caff`.
+- [x] **T004.b — Resolver directorios y facts del host** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/platform.rs`; `docs/SOURCES.md`. Pin `directories=6.0.0`; `BaseDirs` usa Known Folders/XDG, nunca se concatena `$HOME`.
+- Evidencia T004.b: RED detect facts devolvió Unknown aunque el fixture observó Wayland+GPU; GREEN `cargo test -p jameskills-infra --locked platform::tests` 6/6, `cargo clippy ... -D warnings`, fmt. Commit `4db2885`.
 - [ ] **T004.c — Doctor previo y planes de paquetes** (3 archivos): `scripts/setup-linux.sh`; `scripts/setup-windows.ps1`; `docs/PLATFORM-EVIDENCE.md`. Salidas estructuradas para check/plan, no mutación de sistema; probar Linux en host y reportar Windows sin runner como no observado.
 
 Cada incremento tiene su propio test/evidencia/commit. T004 no cierra mientras la comprobación PowerShell/Windows no sea ejercitada o su limitación quede representada según alcance de aceptación.
