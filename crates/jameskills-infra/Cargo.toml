@@ -1,0 +1,11 @@
+[package]
+name = "jameskills-infra"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jameskills-core = { path = "../jameskills-core" }
+
+[lints]
+workspace = true
