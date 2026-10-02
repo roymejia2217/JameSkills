@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+directories = "=6.0.0"
 jameskills-core = { path = "../jameskills-core" }
 
 [lints]

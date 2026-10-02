@@ -15,6 +15,12 @@ Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UT
 | https://gpui-kit.com/docs/assets/ | Assets debe registrarse; catálogo e iconos separados de componentes | Usar Assets del Kit y verificar nombres del catálogo fijado |
 | https://github.com/longbridge/gpui-kit/tree/v0.7.0/examples/ai_recipes | Recetas compilables y tests retained state | Modelo de entidades/subscriptions y UI tests desde fuentes fijadas |
 
+Directorios nativos: crate `directories = "=6.0.0"`, MIT OR Apache-2.0,
+[`BaseDirs`](https://docs.rs/directories/6.0.0/directories/struct.BaseDirs.html)
+usa XDG y la home estándar en Linux y Known Folder API en Windows. Se eligió
+este proveedor para `config_dir`, `data_local_dir`, `cache_dir`; JameSkills solo
+agrega su nombre de aplicación, no construye `C:\\Users` ni concatena `$HOME`.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
