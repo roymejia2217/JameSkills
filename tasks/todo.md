@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 49353)
-Total output lines: 2907
-
 # Checklist ejecutable: JameSkills v1
 
 **Estado inicial:** 84 tareas principales y 28 checkpoints pendientes. Subtareas obligatorias mantienen <=5 archivos por incremento. No hay implementación completada. Leer `tasks/plan.md` y `docs/CONTRACTS.md` antes de ejecutar.
@@ -257,401 +254,404 @@ Cada incremento tiene su propio test/evidencia/commit. T004 cierra con diagnóst
 
 - [ ] **T005 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T003, …37353 tokens truncated…n checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Módulo:** `desktop-app`. **Dependencias:** T003, T004. **Estado:** pendiente.
 
-<a id="t073"></a>
+**Implementación y funciones:** bootstrap_desktop, render_platform_probe; Application.with_assets(assets::Assets), init(cx), gpui_kit::open_window sin doble Root. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
-## T073 — Recuperar operaciones y coordinar instancias de app
-
-- [ ] **T073 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T035, T037, T063, T069, T072. **Estado:** pendiente.
-
-**Implementación y funciones:** acquire_app_instance, recover_operations, startup_health, graceful_shutdown; lock por data root y journals antes aceptar commands. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** startup_recovery dos procesos/misma library, kill durante install/save/restore/sync y crash luego commit recuperan receipts/head sin duplicar writes.
+**Red primero:** Primero abrir fixture de ventana y comprobar foco/click/icono; si faltan init/assets, la prueba visual debe mostrar el fallo concreto antes de corregirlo.
 
 **Archivos del incremento:**
-- `crates/jameskills-infra/src/composition.rs`
-- `crates/jameskills-infra/src/platform.rs`
-- `crates/jameskills-infra/src/sqlite.rs`
 - `crates/jameskills-desktop/src/main.rs`
-- `crates/jameskills-infra/tests/startup_recovery.rs`
+- `crates/jameskills-desktop/src/theme.rs`
+- `crates/jameskills-desktop/src/views/platform_probe.rs`
+- `crates/jameskills-desktop/src/composition.rs`
+- `docs/PLATFORM-EVIDENCE.md`
 
 **Aceptación:**
-- [ ] Segunda instancia tiene comportamiento explícito seguro; profile distinto funciona separado.
-- [ ] Mutaciones serializadas por destination/vault y recovery previa a UI active.
-- [ ] Reparación visible con causa/estado; no eliminar DB/journals ni rehacer operaciones destructivas automáticamente.
+- [ ] Ventana renderiza Button/Input/Icon del kit e inicia tema sin wrappers Root duplicados.
+- [ ] Linux y Windows tienen build/smoke registrados por separado.
+- [ ] Backend incompatible queda como bloqueo del target; no se sustituye por web ni se afirma éxito sin ventana.
 
-**Verificación:** cargo test -p jameskills-infra --locked startup_recovery; procesos nativos reales por OS con fault flags solo tests/dev; confirmar release no expone fault injection.
+**Verificación:** cargo build -p jameskills-desktop --locked; cargo run -p jameskills-desktop --locked en Linux y Windows con sesión gráfica. Screenshot y cierre limpio; actualizar matriz.
 
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
-<a id="t074"></a>
+<a id="t006"></a>
 
-## T074 — Ejecutar corpus adverso y revisión de invariantes
+## T006 — Establecer CI mínima reproducible
 
-- [ ] **T074 completada y verificada**
+- [ ] **T006 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T073, T052, T061, T063, T072. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T003, T004. **Estado:** pendiente.
 
-**Implementación y funciones:** Corpus de safe paths/KDF/header/process/JSON/snapshot; property tests IDs/hash/merge commutativo-idempotente-asociativo en dominio aplicable. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** Jobs de fmt, clippy/core tests y builds de targets disponibles; cache por Cargo.lock; main/PR triggers y documented commands. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
-**Red primero:** security_regressions cada entrada maliciosa enumera rechazo/effect esperado; domain_properties detecta pérdida de revisión por permutación o clock skew.
-
-**Archivos del incremento:**
-- `tests/fixtures/archives/manifest.json`
-- `tests/fixtures/snapshots/manifest.json`
-- `crates/jameskills-infra/tests/security_regressions.rs`
-- `crates/jameskills-core/tests/domain_properties.rs`
-- `docs/SECURITY-EVIDENCE.md`
-
-**Aceptación:**
-- [ ] I01–I10 tienen tests/evidence mapped; SSRF/tool injection/archive bomb/secrets/tamper cubiertos.
-- [ ] Revisión usa superficies reales, deps y trust boundaries; no declarar librerías auditadas por inventario.
-- [ ] Regresiones conservan efectos exteriores/DB; hallazgos se corrigen en subtarea antes cerrar checkpoint.
-
-**Verificación:** cargo test -p jameskills-infra --locked security_regressions; cargo test -p jameskills-core --locked domain_properties; cargo audit/cargo deny se instalan/pinnean en T077, no invocar tools ficticios.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-<a id="t075"></a>
-
-## T075 — Probar flujos completos headless/CLI con dependencias reales
-
-- [ ] **T075 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T028, T036, T043, T064, T065, T074. **Estado:** pendiente.
-
-**Implementación y funciones:** Binario real validate --path/check --skill UUID (import previo)/doctor/library/import/export/install plan/apply/remove/backup/sync; infra SQLite/FS/crypto reales, network/gh ProcessPort fakes explícitos. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** cli_e2e crate binary isolated data/profile y errores de scope; ci_guard requirement failure/Unknown strict no retorna0.
-
-**Archivos del incremento:**
-- `crates/jameskills-cli/tests/cli.rs`
-- `crates/jameskills-cli/tests/ci_guard.rs`
-- `crates/jameskills-infra/tests/end_to_end_library.rs`
-- `tests/fixtures/skills/e2e/jameskills.toml`
-- `docs/TEST-EVIDENCE.md`
-
-**Aceptación:**
-- [ ] Ciclo canonical create/edit/validate/install/export/backup/restore compara hashes/revisiones y exit codes.
-- [ ] Tests aíslan user dirs/env y no escriben config/skills reales por defecto.
-- [ ] Contrato fake y contrato agent/Drive real se reportan distinto; traces/artifacts no secrets.
-
-**Verificación:** cargo test -p jameskills-cli -p jameskills-infra --locked cli_e2e; cargo test -p jameskills-cli --locked ci_guard; revisar que filtros ejecutaron tests reales.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-## C025 — Checkpoint tras T073–T075
-
-- [ ] **C025 verificado**
-
-- Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
-- Startup recovery, corpus adverso y CLI E2E conectan ports/infra reales.
-- Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
-
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
-
-<a id="t076"></a>
-
-## T076 — Validar todos los recorridos GPUI en Linux y Windows
-
-- [ ] **T076 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T070, T073, T075. **Estado:** pendiente.
-
-**Implementación y funciones:** Harness headless view models + runbook GUI real con display/GPUI renderer; screenshots por ruta/estado y actions UI→service→infra. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** Antes de registrar aceptación comprobar cada CTA/tab/modal/shortcut del GUI inventory y estados error/empty/blocked; cualquier botón sin wiring deja flow rojo.
-
-**Archivos del incremento:**
-- `crates/jameskills-desktop/tests/routing.rs`
-- `crates/jameskills-desktop/tests/library_flow.rs`
-- `crates/jameskills-desktop/tests/install_flow.rs`
-- `crates/jameskills-desktop/tests/sync_flow.rs`
-- `docs/GUI-EVIDENCE.md`
-
-**Descomposición obligatoria y wiring adicional:**
-- [ ] **T076.a — Validar/expandir harness ya configurado** (3 archivos): `crates/jameskills-desktop/Cargo.toml`; `crates/jameskills-desktop/src/lib.rs`; `crates/jameskills-desktop/tests/routing.rs`. Feature test-support existe desde T003.b; validar forwards Kit/test-support y extender #[gpui_kit::test] pointer/keyboard real headless. No introducir feature recién al final.
-- [ ] **T076.b — Matriz GUI real** (4 archivos): `crates/jameskills-desktop/tests/library_flow.rs`; `crates/jameskills-desktop/tests/install_flow.rs`; `crates/jameskills-desktop/tests/sync_flow.rs`; `docs/GUI-EVIDENCE.md`. Native display por OS, screenshots y model states sin fake success. No browser testing para GPUI.
-
-Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
-
-**Aceptación:**
-- [ ] Todos flujos GUI obligatorios ejercitados en ambos OS nativos, no solo compilados.
-- [ ] Keyboard/focus/DPI/loading/cancel/error/offline/conflicts/recovery verificados con artifacts.
-- [ ] Tests no afirman que un reducer test es una GUI real; integración account/agent ausente permanece pendiente.
-
-**Verificación:** cargo test -p jameskills-desktop --features test-support --locked; cargo run -p jameskills-desktop --locked en ambos OS nativos. Matriz GUI/TESTING con screenshots/versions; headless no reemplaza display.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-<a id="t077"></a>
-
-## T077 — Completar CI, seguridad de dependencias y convenciones
-
-- [ ] **T077 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T006, T074, T075, T076. **Estado:** pendiente.
-
-**Implementación y funciones:** CI Linux/Windows native fmt/clippy/tests/build/coverage/security; herramientas cargo-audit/cargo-deny pin exacto y checks requeridos stable names. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** Config negative test rompe gate por failing test/secreto sintético/license deny/dependency vulnerable fixture segura; pipeline no ignora salida ni tests cero.
+**Red primero:** Introducir fixture/config inválida que el check de fmt o metadata detecte; comprobar que job no usa continue-on-error para quality gates.
 
 **Archivos del incremento:**
 - `.github/workflows/ci.yml`
-- `.github/workflows/security.yml`
-- `deny.toml`
+- `.gitignore`
+- `.gitattributes`
+- `README.md`
 - `scripts/check-workspace.sh`
-- `docs/CI-EVIDENCE.md`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T077.a — Commit/release tooling** (5 archivos): `commitlint.config.cjs`; `package.json`; `package-lock.json`; `cliff.toml`; `.github/pull_request_template.md`. Node solo commitlint, no frontend; pin tooling, commitlint test rechaza bad subject/acepta convencional.
-- [ ] **T077.b — Ownership y dependency updates** (3 archivos): `.github/CODEOWNERS`; `.github/dependabot.yml`; `THIRD-PARTY-NOTICES.md`. Revisar owners reales; ningún username ficticio; inventario licencias runtime para packages.
-- [ ] **T077.c — Gates CI y supply chain** (5 archivos): `.github/workflows/ci.yml`; `.github/workflows/security.yml`; `deny.toml`; `scripts/check-workspace.sh`; `docs/CI-EVIDENCE.md`. Pin audit/deny tools y acciones; nombres stable; native Windows/Linux build/test, artifacts saneados.
+- [ ] **T006.a — Convenciones de repo y licencia** (4 archivos): `.gitignore`; `.gitattributes`; `README.md`; `LICENSE`. Añadir reglas/Apache-2.0 propia o licencia elegida en requisitos; verificar ignore y comandos.
+- [ ] **T006.b — Workflow y script de checks** (2 archivos): `.github/workflows/ci.yml`; `scripts/check-workspace.sh`. Quality gates reales, sin continue-on-error ni secrets en artifacts.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Actions SHA/min permissions/cache lock/artifacts sin secretos y matrix en runners aptos.
-- [ ] Conventional Commits/PR/main/release checks se conectan sin node frontend; setup tooling separado T077.a.
-- [ ] GitHub required checks/protection guiados/verificados con permisos reales; no etiquetar host protegido por YAML.
+- [ ] CI corre ante pull_request y push con nombres estables de checks.
+- [ ] Tokens mínimos, actions por SHA revisado y secrets fuera de logs/caches/artifacts.
+- [ ] Gitignore excluye tokens, llaves, vault dumps, backups temporales y outputs sin excluir código/fixtures legítimos.
 
-**Verificación:** cargo fmt --all -- --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --features jameskills-desktop/test-support --locked; cargo audit --file Cargo.lock; cargo deny --locked check. Tools pin y help oficiales, runs de workflows documentados.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-<a id="t078"></a>
-
-## T078 — Empaquetar e instalar release Linux
-
-- [ ] **T078 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T071, T076, T077. **Estado:** pendiente.
-
-**Implementación y funciones:** Linux release tar.gz x86_64 + .desktop/icon/installer user ~/.local/bin, runtime/glibc floor y licencias según OPERATIONS. deb/AppImage opcionales solo nueva tarea; no son requisito v1. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** Primero probar paquete en máquina limpia: missing runtime lib/icon/permissions/entrypoint debe detectarse; install/remove no borra biblioteca por defecto.
-
-**Archivos del incremento:**
-- `scripts/package-linux.sh`
-- `packaging/linux/jameskills.desktop`
-- `packaging/linux/README.md`
-- `packaging/assets/app.png`
-- `docs/LINUX-PACKAGE-EVIDENCE.md`
-
-**Aceptación:**
-- [ ] Bundle nativo tar.gz contiene binarios release/assets/licenses y launcher GPUI Kit real; no promete .deb/AppImage ni todas distros.
-- [ ] Install/upgrade/uninstall con data conservada y dependencias distro documentadas.
-- [ ] Checksums/versión/arch y build provenance trazables; no presentar build developer como paquete probado.
-
-**Verificación:** bash scripts/package-linux.sh --target x86_64-unknown-linux-gnu; probar artifact en Ubuntu referencia/entorno limpio con renderer, documentar distro coverage y rutas.
+**Verificación:** bash scripts/check-workspace.sh; revisar workflow contra documentación oficial GitHub Actions y ejecutar en repo autorizado cuando exista. Un YAML escrito no equivale a CI verde.
 
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
-## C026 — Checkpoint tras T076–T078
+## C002 — Checkpoint tras T004–T006
 
-- [ ] **C026 verificado**
+- [ ] **C002 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
-- GUI nativa ambos OS, full CI y paquete Linux tienen evidencia; gaps permanecen pendientes.
+- Entorno por OS, ventana GPUI Kit real y CI mínima verificadas; bloqueos target registrados.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
 **Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
 
-<a id="t079"></a>
+<a id="t007"></a>
 
-## T079 — Empaquetar e instalar release Windows
+## T007 — Definir errores, servicios y puertos comunes
 
-- [ ] **T079 completada y verificada**
+- [x] **T007 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T071, T076, T077. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T002, T003. **Estado:** completada.
 
-**Implementación y funciones:** Package MSI con WiX versión documentada/pinneada y target x86_64-pc-windows-msvc; icon/resources/runtime dependencies oficiales. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** AppError/AppResult, ClockPort, SystemClock y build_services; registro de módulos reales según subtareas. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
-**Red primero:** Primero instalar artifact en Windows limpio y comprobar launcher/paths/SDK-runtime requirements; upgrade no fuerza schema downgrade ni uninstall borra library.
+**Red primero:** common_errors distingue Validation/Conflict/CapabilityUnavailable/AuthenticationRequired/PermissionDenied/Cancelled sin exponer payload secreto.
 
 **Archivos del incremento:**
-- `scripts/package-windows.ps1`
-- `packaging/windows/jameskills.wxs`
-- `packaging/windows/README.md`
-- `packaging/assets/app.ico`
-- `docs/WINDOWS-PACKAGE-EVIDENCE.md`
+- `crates/jameskills-core/src/error.rs`
+- `crates/jameskills-core/src/lib.rs`
+- `crates/jameskills-core/src/domain/mod.rs`
+- `crates/jameskills-core/src/ports/mod.rs`
+
+**Descomposición obligatoria y wiring adicional:**
+- [x] **T007.dep — Dependencias tipadas y contratos ajustados** (5 archivos): `crates/jameskills-core/Cargo.toml`; `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `docs/CONTRACTS.md`. Pins exactos `serde`, `uuid`, `sha2`, `thiserror`, `unicode-normalization`, `chrono`; `RevisionId` y `PortablePath` no se construyen por tuple pública y sus Deserialize valida.
+- Evidencia T007.dep: RED `cargo check -p jameskills-core --locked` rechazó cambios pendientes al lock; GREEN `cargo check -p jameskills-core -p jameskills-infra --locked --offline`, metadata y `cargo fmt --all -- --check` pasan. Dependencias y APIs citadas por versión. Commit `048039a`.
+- [x] **T007.a — Errores e IDs públicos reales** (5 archivos): `crates/jameskills-core/src/error.rs`; `crates/jameskills-core/src/domain/ids.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/common_types.rs`. AppError/Diagnostic + UUID/hash/PortablePath validados; registrar solo domain+error. Tests common_errors y invalid IDs/paths. No DTO secretos ni source serializable.
+- Evidencia T007.a: RED `cargo test -p jameskills-core --locked --offline common_types` falló porque faltaban los tipos/reexports públicos. GREEN `cargo test -p jameskills-core --locked --offline` 8/8; `cargo clippy -p jameskills-core --all-targets --locked --offline -- -D warnings`; fmt. Commit `b97f744`.
+- [x] **T007.b — ClockPort y registro ports** (4 archivos): `crates/jameskills-core/src/ports/clock.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/clock_contract.rs`. ClockPort object-safe y fake determinista; core sin SystemClock de infraestructura.
+- Evidencia T007.b: RED `cargo test -p jameskills-core --locked --offline --test clock_contract` no encontró `ports`; GREEN contrato object-safe 1/1 y suite core 9/9; Clippy all-targets `-D warnings`, fmt. Commit `f057d6a`.
+- [x] **T007.c — Config/factory disponible** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/service_factory.rs`; `docs/CONTRACTS.md`. SystemClock y validación config/paths; factory contiene únicamente runtime facts, dirs y reloj real. No instanciar servicios sin tipos/implementación ni renderizar acciones operativas sin backend.
+- Evidencia T007.c: RED `cargo test -p jameskills-infra --locked --offline --test service_factory` falló al no existir el módulo composition. GREEN suite core+infra completa 18/18 tests, incluidos 2 del factory y 1 de rutas Windows insensibles a mayúsculas; Clippy all-targets `-D warnings`, fmt. Factory no crea carpetas y requiere rutas absolutas, distintas y no solapadas. Commit `2ff5483`.
+
+La secuencia termina en T007.c. `ApplicationServices` de dominio se declara al existir sus servicios reales; no crear `application/mod.rs` vacío en este corte. Cerrar cada subtarea con prueba/evidencia/commit. Esta descomposición contiene el presupuesto/wiring real.
 
 **Aceptación:**
-- [ ] Installer y binario x64 verificados nativamente; scope/permisos/shortcut/uninstall documentados.
-- [ ] Firma si identidad disponible se valida; unsigned artifact local se etiqueta y no afirma firma.
-- [ ] Upgrade/migración/recovery/offline funcionan con data conservada y userprofile con espacios.
+- [x] AppError Display/source quedan saneados; DTO error UI/CLI es serializable, jamás una cadena source con secretos.
+- [x] ClockPort permite reloj determinista y no decide causalidad por timestamp.
+- [x] Factory comparte únicamente servicios de plataforma disponibles y rechaza config inválida, sin defaults inventados.
 
-**Verificación:** pwsh -File scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc; usar herramientas WiX reales de versión fijada; smoke Windows y firma/checksum según OPERATIONS.
+**Verificación:** cargo test -p jameskills-core --locked common_errors; cargo check -p jameskills-infra --locked. Si añadir ApplicationServices exige módulo nuevo extra, formalizar subtarea y registrar su wiring.
+
+**Evidencia al ejecutar:** T007.dep RED lock desactualizado con `--locked`; GREEN core/infra checks offline y versioned source pins, commit `048039a`. T007.a RED faltaban API imports; core tests 8/8, clippy `-D warnings`, commit `b97f744`. T007.b RED faltaba `ports`; contract fake object-safe 1/1 y suite acumulada, commit `f057d6a`. T007.c RED módulo composition ausente; core/infra 18/18, clippy `-D warnings`, commit `2ff5483`. Sin smoke GUI en este slice.
+
+<a id="t008"></a>
+
+## T008 — Construir shell, rutas y bridge de UI
+
+- [ ] **T008 completada y verificada**
+
+**Módulo:** `desktop-app`. **Dependencias:** T005, T007. **Estado:** pendiente.
+
+**Implementación y funciones:** AppState, Route, UiCommand, UiEvent, dispatch_command, apply_event; sidebar Library/Policies/Agents/Backup/Settings y panel de estados. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** ui_bridge ignora request_id antiguo, preserva ruta seleccionada y representa loading/error/blocked/cancelled sin convertirlos en success.
+
+**Archivos del incremento:**
+- `crates/jameskills-desktop/src/state.rs`
+- `crates/jameskills-desktop/src/routes.rs`
+- `crates/jameskills-desktop/src/bridge.rs`
+- `crates/jameskills-desktop/src/views/shell.rs`
+- `crates/jameskills-desktop/src/composition.rs`
+
+**Descomposición obligatoria y wiring adicional:**
+- [ ] **T008.a — Shell y rutas** (5 archivos): `crates/jameskills-desktop/src/lib.rs`; `crates/jameskills-desktop/src/views/mod.rs`; `crates/jameskills-desktop/src/views/shell.rs`; `crates/jameskills-desktop/src/routes.rs`; `crates/jameskills-desktop/src/state.rs`. Introducir lib testable y shell real; routing/empty states tests inline antes del render.
+- [ ] **T008.b — Bridge y arranque conectado** (5 archivos): `crates/jameskills-desktop/src/bridge.rs`; `crates/jameskills-desktop/src/composition.rs`; `crates/jameskills-desktop/src/main.rs`; `crates/jameskills-desktop/tests/async_lifecycle.rs`; `crates/jameskills-desktop/src/lib.rs`. Reemplazar probe de T005 por shell; request IDs/events tests ui_bridge antes del dispatch. src/lib registra bridge/composition.
+
+Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
+
+**Aceptación:**
+- [ ] Navegación y estados están visibles y manejados mediante bridge, sin I/O bloqueante en render.
+- [ ] Request IDs y revisión base permiten invalidar completions obsoletas.
+- [ ] Fixtures de preview se aíslan con cfg(test)/feature de desarrollo y release no los usa.
+
+**Verificación:** cargo test -p jameskills-desktop --features test-support --locked ui_bridge; cargo run -p jameskills-desktop --locked y navegar/foco/retry. Tests del state/bridge son headless, la apertura real se verifica aparte.
 
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
-<a id="t080"></a>
+<a id="t009"></a>
 
-## T080 — Construir artifacts de release, licencias y firma
+## T009 — Exponer parser CLI y contrato de salida
 
-- [ ] **T080 completada y verificada**
+- [x] **T009 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T078, T079, T077. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T003, T007. **Estado:** completada.
 
-**Implementación y funciones:** Release tagged semver genera packages, checksum manifest/provenance/SBOM según soporte real, firma mediante vault CI y publicación gated por autorización. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** Cli::parse, dispatch_cli, render_text, render_json, map_exit_code; subcommands doctor/validate/check/library/agents/install/backup/sync. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
-**Red primero:** Primero comprobar wrong tag/version/unsigned expected/signer absent/checksum mismatch impiden declarar release firmado; artifact no contiene tokens.
-
-**Archivos del incremento:**
-- `.github/workflows/release.yml`
-- `THIRD-PARTY-NOTICES.md`
-- `LICENSE`
-- `CHANGELOG.md`
-- `docs/RELEASE-EVIDENCE.md`
-
-**Aceptación:**
-- [ ] Build reproducible locked con artifacts Windows/Linux/licencias y semver consistente.
-- [ ] Secrets signing solo secret manager CI permisos limitados; ninguna llave commit/log/cache.
-- [ ] Sin credencial/publicación autorizada producir artifacts locales y pasos precisos, release externa queda pendiente.
-
-**Verificación:** Ejecutar pipeline autorizado o workflow_dispatch artifact-only según permiso; verificar sha256 de todos assets y firma con herramientas oficiales de proveedor, registrar run IDs.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-<a id="t081"></a>
-
-## T081 — Validar upgrades y compatibilidad de datos/exports
-
-- [ ] **T081 completada y verificada**
-
-**Módulo:** `skill-library`. **Dependencias:** T080, T037, T063, T064. **Estado:** pendiente.
-
-**Implementación y funciones:** Matriz versión app/schema/bundle/envelope; abrir DB anterior, export portable anterior, snapshot v1 y future schema safe handling. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** upgrade_compatibility nueva app carga v1/datos previos; version futura bloquea writes; backup preupgrade restaura; crypto header futuro no se interpreta como v1.
+**Red primero:** cli_contract invoca binario real con args inválidos/--help y compara esquema JSON/exit codes; subcommands sin backend responden Unsupported, nunca success falso.
 
 **Archivos del incremento:**
-- `crates/jameskills-infra/tests/upgrade_compatibility.rs`
-- `crates/jameskills-core/tests/schema_compatibility.rs`
-- `tests/fixtures/skills/schema-v1/jameskills.toml`
-- `docs/COMPATIBILITY.md`
-- `docs/OPERATIONS.md`
+- `crates/jameskills-cli/src/main.rs`
+- `crates/jameskills-cli/src/commands.rs`
+- `crates/jameskills-cli/src/output.rs`
+- `crates/jameskills-cli/tests/cli_contract.rs`
+- `crates/jameskills-cli/Cargo.toml`
+
+**Descomposición obligatoria:**
+- [x] **T009.dep — Fijar parser y serialización JSON** (4 archivos): `crates/jameskills-cli/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`. Pin exacto Clap+derive y serde_json; registrar fuente/licencia/MSRV.
+- Evidencia T009.dep: `cargo check -p jameskills-cli --offline` identificó crates ausentes del caché; tras resolución/crates.io `cargo check -p jameskills-cli` generó lock y compiló correctamente. Pins/source/licencias registrados. Commit `765abba`.
+- [x] **T009.a — Parser, dispatch y salida contractual** (5 archivos): los cinco archivos listados arriba. `doctor` reporta solo facts observados; comandos sin backend devuelven Unsupported/exit3; parse errors JSON tienen wrapper redacted.
+- Evidencia T009.a: RED CLI temporal produjo cinco fallas de contrato; otro RED mostró que Clap imprimía un valor inválido y se corrigió a diagnóstico genérico redacted. GREEN `cargo test -p jameskills-cli --locked --offline` (3 unit + 8 integration); Clippy combinado all-targets `-D warnings`, suite core/infra completa, `cargo run ... --help`, `doctor --json`, check flags y build release. `check` y otros comandos sin proveedor devuelven `Unsupported`, código3. Commit `ad2b662`.
 
 **Aceptación:**
-- [ ] Actualizaciones usan paquetes/versiones y migraciones comprobadas, no updater automático extra.
-- [ ] Rollback de binary no downgrade destructivo DB; guía recovery verificable.
-- [ ] Compatibilidad de agentes se recheck con versión nueva sin overwrite de install receipt.
+- [x] Ayuda enumera comandos/flags reales y check admite --json --strict.
+- [x] JSON estable y códigos distinguen fallos de checks (1), argumentos (2), auth/capacidad (3), operaciones (4) y cancelación (130). El motor check aún no está cableado y devuelve Unsupported.
+- [x] No passphrases/tokens por argumentos; parser rechaza flags secretas y oculta valores inválidos también en stderr.
 
-**Verificación:** cargo test -p jameskills-infra --locked upgrade_compatibility; cargo test -p jameskills-core --locked schema_compatibility; upgrade artifacts instalables reales en ambos OS y recuperación por backup.
+**Verificación:** cargo test -p jameskills-cli --locked cli_contract; cargo run -p jameskills-cli --locked -- --help. Registrar comandos existentes y todavía no conectados.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Linux Debian13 x86_64. Suite final core/infra/CLI: 29 tests pasan (18 core+infra, 11 CLI); cargo clippy all-targets `-D warnings`; fmt; CLI release build. `doctor --json` da observations sin directorios; `check --strict --json` se acepta y responde capability.unsupported/3 hasta T018/T028. Sin secretos por argv.
 
-## C027 — Checkpoint tras T079–T081
+## C003 — Checkpoint tras T007–T009
 
-- [ ] **C027 verificado**
+- [ ] **C003 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
-- Windows MSI/release/upgrade tienen artifacts/checksums/licencias/compatibility comprobados.
+- Puertos/errores, shell/bridge y CLI no tienen éxito ficticio ni secretos.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
 **Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
 
-<a id="t082"></a>
+<a id="t010"></a>
 
-## T082 — Cerrar documentación para usuario y contribuidor
+## T010 — Modelar y parsear manifest de suite portable
 
-- [ ] **T082 completada y verificada**
+- [x] **T010 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T081, T068, T072. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T007. **Estado:** pendiente.
 
-**Implementación y funciones:** Runbooks quickstart offline, suites, policies/authority, 5 agentes, OAuth/keyring, conflicts/restore, Linux/Windows builds y release; índice dossier. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** SkillManifest, CapabilityDeclaration, parse_manifest, parse_frontmatter y validate_skill_pair; validación de UUID/schema_version/semver y Agent Skills. SkillId ya está implementado y validado por T007.a. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
-**Red primero:** Primero ejecutar quickstart tal como lo leería usuario de perfil limpio; comando/ruta/flag inexistente deja criterio fallido y se corrige.
+**Red primero:** bundle_manifest rechaza schema desconocido, ID inválido, semver inválida, frontmatter ausente e incompatible; acepta fixture estándar.
 
 **Archivos del incremento:**
-- `README.md`
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `AGENTS.md`
-- `docs/OPERATIONS.md`
+- `crates/jameskills-core/src/domain/skill.rs`
+- `crates/jameskills-core/src/domain/mod.rs`
+- `crates/jameskills-core/tests/bundle_manifest.rs`
+- `tests/fixtures/valid-suite/jameskills.toml`
+- `tests/fixtures/valid-suite/SKILL.md`
+
+**Descomposición obligatoria y wiring adicional:**
+- [x] **T010.a — Reutilizar IDs validados** (0 archivos nuevos): provistos por T007.a en `crates/jameskills-core/src/domain/ids.rs` y `crates/jameskills-core/tests/common_types.rs`; SkillId UUID privado, `parse` rechaza valores arbitrarios. Evidencia: common types 8/8, commit `b97f744`.
+- [x] **T010.dep — Fijar parsers y versionado** (5 archivos): `crates/jameskills-core/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `docs/CONTRACTS.md`; `tasks/todo.md`. Pins exactos `toml`, `semver` serde y `serde-saphyr`; budget YAML limita profundidad, eventos y escalares, sin aliases/anchors/tags custom/merge.
+- Evidencia T010.dep: `yaml-rust2` inicial tenía parser recursivo sin quota de depth; cambiada selección antes del commit de T010.b. `serde-saphyr1.3.0` ya existe en lock como transitiva; APIs/options verificadas en source y sus budgets/MSRV1.89 documentados. GREEN: `cargo check -p jameskills-core --locked --offline` compiló con el lock fijado. Commit `1a354e5` deja el primer pin; el nuevo parser queda en T010.b.
+- [x] **T010.b — Manifest y frontmatter** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tests/fixtures/valid-suite/jameskills.toml`; `tests/fixtures/valid-suite/SKILL.md`. Parser TOML/YAML tipado con unknown fields/duplicate keys estrictos, límites, validaciones y fixture portable. Commit `521ea0e`.
+
+Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Docs tienen comandos reales, links/source y pasos de entorno revalidables; no afirmaciones absolutas de main/text enforcement.
-- [ ] AGENTS define límites/tests/commits y RESUME sin exigir gates de fase contrarios al usuario.
-- [ ] Security explica amenazas/recovery/passphrase/secret handling y soporte/reporting sin publicar secretos.
+- [x] Parseo preserva SKILL.md portable y metadata JameSkills separada.
+- [x] Schema v1 tiene errores localizables; campos/extensiones siguen contrato, no pérdida silenciosa.
+- [x] ID estable independiente del slug/directorio y límites de strings/contenido aplicados.
 
-**Verificación:** Recorrer documentación en perfiles limpios Linux/Windows; validar enlaces y correspondencia con --help doctor/gui reales. No usar un README como evidencia de tests.
+**Verificación:** cargo test -p jameskills-core --locked bundle_manifest; revisar fixture con docs/SPEC-skill-format.md. Core no lee disco directamente.
+
+**Evidencia al ejecutar:** Linux Debian 13, parser core sin IO; fixture golden + negativos. `cargo test -p jameskills-core --test bundle_manifest --locked --offline`: 13/13. Acumulado `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked --offline`: 42/42. Clippy `--all-targets -- -D warnings` y `cargo fmt --all -- --check` pasan. Commits `17cfaeb` (parser budget), `521ea0e` (implementación). Windows build y smoke GPUI nativo siguen bloqueados por ambiente sin Windows/display; no aplican al parser puro.
+
+<a id="t011"></a>
+
+## T011 — Modelar políticas y requisitos de herramientas
+
+- [x] **T011 completada y verificada**
+
+**Módulo:** `skill-format`. **Dependencias:** T010. **Estado:** pendiente.
+
+**Implementación y funciones:** PolicyDeclaration, Requirement, ToolRequirement, Scope, parse_policy; registry IDs/argumentos tipados, no shell strings. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** policy_schema rechaza requirement/tool desconocido, severity inválida, shell libre, referencias fuera de suite y versiones de schema no soportadas.
+
+**Archivos del incremento:**
+- `crates/jameskills-core/src/domain/policy.rs`
+- `crates/jameskills-core/src/domain/scope.rs`
+- `crates/jameskills-core/src/domain/mod.rs`
+- `crates/jameskills-core/tests/policy_schema.rs`
+- `tests/fixtures/valid-suite/policies/repository.toml`
+- `docs/CONTRACTS.md`
+- `docs/SPEC-policy-engine.md`
+
+**Descomposición verificada:**
+- [x] **T011.contract — Contrato del schema**: tipos/signatura común en `docs/CONTRACTS.md` y registro de enum/tool/check en `docs/SPEC-policy-engine.md`. Commit `2c9d60c`.
+- [x] **T011.schema — Parser y fixture tipados** (5 archivos): `policy.rs`, `scope.rs`, `domain/mod.rs`, `policy_schema.rs` y fixture. Sin shell strings ni comandos importados. Commit `f32f55c`.
+
+**Aceptación:**
+- [x] Formato expresa commits/README/gitignore/secrets/main/PR/CI/tests/releases y dependencias de entorno.
+- [x] Políticas se enlazan mediante IDs/referencias válidas sin ciclo de guía.
+- [x] La suite describe acciones registradas, nunca código que se ejecuta al importar.
+
+**Verificación:** cargo test -p jameskills-core --locked policy_schema; fixture representa todas las categorías v1 con ejemplos verificables, sin promesas de enforcement absoluto.
+
+**Evidencia al ejecutar:** RED `cargo test -p jameskills-core --test policy_schema --locked --offline` falló porque `parse_policy` devolvía `policy.unsupported`; GREEN focal 5/5. Suite core/infra/CLI 47/47; Clippy all-targets `-D warnings`; fmt y `git diff --check`. Linux Debian 13, parser puro, sin ejecutar herramientas declaradas. Implementación `f32f55c`; contrato `2c9d60c`.
+
+<a id="t012"></a>
+
+## T012 — Validar árboles e importaciones con límites portables
+
+- [ ] **T012 completada y verificada**
+
+**Módulo:** `skill-format`. **Dependencias:** T010, T011, T004. **Estado:** pendiente.
+
+**Implementación y funciones:** FileSystemPort, PortablePath, inspect_bundle_tree, validate_archive_entries; límites tamaño/número/rutas y symlinks/reparse points. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** safe_bundle_paths prueba ../, absolutas, device names Windows, case collisions, symlink/junction escape, zip bomb y archivos UTF8 inválidos donde el contrato lo exige.
+
+**Archivos del incremento:**
+- `crates/jameskills-core/src/ports/filesystem.rs`
+- `crates/jameskills-core/src/ports/mod.rs`
+- `crates/jameskills-infra/src/fs.rs`
+- `crates/jameskills-infra/src/lib.rs`
+- `crates/jameskills-infra/tests/safe_bundle_paths.rs`
+
+**Aceptación:**
+- [ ] Ningún input sale del staging/root ni escribe antes de validación completa.
+- [ ] Colisiones portables se detectan aunque el FS local tolere diferencias de case.
+- [ ] Límites se comprueban al recorrer y al descomprimir, no tras agotar memoria/disco.
+
+**Verificación:** cargo test -p jameskills-infra --locked safe_bundle_paths en Linux y Windows con temporales; confirmar archivos exteriores intactos y no ejecución de scripts.
 
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
-<a id="t083"></a>
+**Descomposición por dependencia nativa:**
+- [x] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, `Cargo.lock`, `docs/SOURCES.md` y `tasks/todo.md`. Pin exacto `icu_casemap=2.3.0`; `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política, se descartó. Commit `48d8ebf`.
+- Evidencia T012.dep: API oficial docs.rs 2.3.0 documenta `CaseMapper::new().fold_string` como full case-fold locale independiente; se normaliza el resultado NFC. `cargo check -p jameskills-core` resolvió/descargó y compiló 2.3.0 bajo Rust 1.95; `cargo check -p jameskills-core --locked --offline` pasa. Lock contiene `icu_casemap` y `icu_casemap_data`.
 
-## T083 — Completar aceptación integrada de R01–R12
+<a id="t012-a"></a>
 
-- [ ] **T083 completada y verificada**
+- [x] **T012.a — Inventario portable puro** (3 archivos): `crates/jameskills-core/src/domain/bundle.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/portable_bundle_inventory.rs`. Depende T010/T011, nunca abre/extracta archivos. Límite de número/tamaño, entries de solo fichero regular, PortablePath y colisiones tras ICU full case-fold + NFC. RED identificó colisión por prefijo de directorio (`Docs/...`/`docs/...`), GREEN focused 5/5; commit `56a28e3`.
+- [x] **T012.contract — Contrato de FileSystemPort y límites** (3 archivos): `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `tasks/todo.md`. Separó la validación de inventario puro de la capa OS, sin cambiar la interfaz existente del port. Commit `ed801a9`.
+- [ ] **T012.b — Filesystem/ZIP real** (5 archivos): ports Filesystem, infra fs/lib, test safe_bundle_paths. Depende T012.a y T004; valida no-follow/ancestor/symlink/reparse, entry ZIP real, bomb y staging sin escritura antes de validar.
 
-**Módulo:** `desktop-app`. **Dependencias:** T076, T080, T081, T082. **Estado:** pendiente.
+El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Linux y Windows reales.
 
-**Implementación y funciones:** Matriz requisitos→tareas/tests/artifacts/manual evidence; repetir solo flows que cambios recientes invalidaron y cerrar pendientes reales. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+## C004 — Checkpoint tras T010–T012
 
-**Red primero:** Antes de aceptación comparar requirements/specs/invariants contra evidencia; TODO crítico o test con fake presentado como real produce fail.
-
-**Archivos del incremento:**
-- `docs/ACCEPTANCE-EVIDENCE.md`
-- `docs/GUI-EVIDENCE.md`
-- `docs/TEST-EVIDENCE.md`
-- `docs/SECURITY-EVIDENCE.md`
-- `docs/PERFORMANCE-EVIDENCE.md`
-
-**Aceptación:**
-- [ ] Cada R01–R12 cumple con evidencia fechada/version/OS y todos UI handlers son reales.
-- [ ] Cinco adapters aceptados en scopes oficiales; unsupported por capability es explícito, no sustituto de adaptador omitido.
-- [ ] Google dos perfiles/dispositivos restore/conflict reales y packages ambos OS; credenciales/hardware ausentes permanecen blocked.
-
-**Verificación:** cargo fmt --all -- --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --features jameskills-desktop/test-support --locked; runbooks account/agents/GUI/packaging e integración de TESTING con artifacts saneados.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-<a id="t084"></a>
-
-## T084 — Preparar entrega y registro final reproducible
-
-- [ ] **T084 completada y verificada**
-
-**Módulo:** `desktop-app`. **Dependencias:** T083. **Estado:** pendiente.
-
-**Implementación y funciones:** Revisión final de checklist/DAG/evidence/commits, resumen release y estado de blockers; preparar artifacts y descripción de PR/release concreta. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
-
-**Red primero:** Comparar checklist completado con Git/build/artifacts reales; inconsistencia de un checkbox/evidence obliga reabrir tarea, no retocar conclusiones.
-
-**Archivos del incremento:**
-- `tasks/RESUME.md`
-- `tasks/todo.md`
-- `docs/ACCEPTANCE-EVIDENCE.md`
-- `docs/RELEASE-EVIDENCE.md`
-- `CHANGELOG.md`
-
-**Aceptación:**
-- [ ] Entrega distingue app implementada, tests, packages, firma y publicación efectiva con enlaces/checksums.
-- [ ] No hay pendientes obligatorios ni stubs críticos para declarar v1 terminada; bloquear declaración si falta evidencia OS/OAuth.
-- [ ] RESUME señala siguiente acción exacta y blockers si no terminó; no borrar historial ni falsear autorización de publicar.
-
-**Verificación:** Revisión read-only del repo/CI artifacts y matrices de aceptación; verificar git status/branch/commits y que ningún secreto está tracked. Entrega final autocontenida.
-
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
-
-## C028 — Checkpoint tras T082–T084
-
-- [ ] **C028 verificado**
+- [ ] **C004 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
-- Docs/aceptación/entrega coinciden con repo y evidencia; ningún checkbox falso.
+- Formato/policies/safe paths rechazan inputs inválidos; no side effects fuera staging.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
 **Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
 
-## Registro de bloqueos del entorno
+<a id="t013"></a>
 
-| ID / tarea | Fecha / plataforma | Prueba intentada | Error saneado | Fuente y acción siguiente | Tareas independientes |
-|---|---|---|---|---|---|
-| — | — | — | Ningún bloqueo comprobado aún; solo riesgos planificados | — | — |
+## T013 — Canonicalizar bundle y calcular hash de contenido
 
-No rellenar esta tabla con riesgos hipotéticos ni credenciales. Mantener tareas bloqueadas pendientes y actualizar RESUME.
+- [ ] **T013 completada y verificada**
+
+**Módulo:** `skill-format`. **Dependencias:** T010, T011, T012. **Estado:** pendiente.
+
+**Implementación y funciones:** ValidatedBundle, canonical_inventory, hash_bundle; orden de paths y hashing con representación/versionado documentado. compute_revision usa bytes/hash exactos SPEC-skill-format; parent IDs ordenados, timestamps fuera hash; goldens content/tombstone. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** bundle_hash mismo contenido produce hash idéntico tras orden distinto/timestamps; cambiar bytes, metadata relevante o path produce hash distinto. Revision hash difiere por parents/kind/observed_heads y no por created_at; CRLF diferente cambia bundle hash.
+
+**Archivos del incremento:**
+- `crates/jameskills-core/src/domain/skill.rs`
+- `crates/jameskills-core/tests/support/mod.rs`
+- `crates/jameskills-core/tests/bundle_hash.rs`
+- `crates/jameskills-infra/src/fs.rs`
+
+**Descomposición obligatoria y wiring adicional:**
+- [ ] **T013.a — DTO de revisión y hash causal** (4 archivos): `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/tests/revision_hash.rs`. Definir RevisionRecord/RevisionKind/parents/ContentHash usando IDs validados; compute_revision exacto antes de StoragePort. revision_hash golden content/tombstone, timestamps irrelevantes, parent ordering.
+- [ ] **T013.b — Bundle hashing canónico** (4 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/tests/support/mod.rs`; `crates/jameskills-core/tests/bundle_hash.rs`; `crates/jameskills-infra/src/fs.rs`. Hash raw bytes ordenadas/inventory; tests/support/mod.rs local a integration tests, no helper de fixture en release.
+
+Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
+
+**Aceptación:**
+- [ ] Canonicalización no normaliza arbitrariamente instrucciones ni line endings fuera del contrato.
+- [ ] Hash verifica bytes de assets y manifest, excluye solo metadata explícitamente no canónica.
+- [ ] Inventario lleva tamaños/hashes y se usa por library/install/backup sin algoritmos duplicados.
+
+**Verificación:** cargo test -p jameskills-core --locked revision_hash; cargo test -p jameskills-core --locked bundle_hash; goldens causales/raw byte inventory en ambos OS.
+
+**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+
+<a id="t014"></a>
+
+## T014 — Crear codec seguro para import/export portable
+
+- [ ] **T014 completada y verificada**
+
+**Módulo:** `skill-format`. **Dependencias:** T012, T013. **Estado:** pendiente.
+
+**Implementación y funciones:** read_bundle, write_bundle_archive, unpack_bundle_to_staging; archive determinista y límites, sin extracción directa sobre biblioteca. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** bundle_archive roundtrip conserva instrucciones/assets/policies y rechaza entrada duplicada, traversal, checksum mismatch y truncamiento.
+
+**Archivos del incremento:**
+- `crates/jameskills-infra/src/fs.rs`
+- `crates/jameskills-infra/tests/bundle_archive.rs`
+- `crates/jameskills-core/src/ports/filesystem.rs`
+- `crates/jameskills-infra/Cargo.toml`
+
+**Aceptación:**
+- [ ] Export portable es legible sin JameSkills y no contiene tokens, DB ni paths privados.
+- [ ] Import directory/archive comparte validación y exact bytes canónicos.
+- [ ] Errores borran staging y conservan fuente/destino; no follow symlinks.
+
+**Verificación:** cargo test -p jameskills-infra --locked bundle_archive; abrir export con herramienta zip estándar y leer SKILL.md/TOML.
+
+**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+
+<a id="t015"></a>
+
+## T015 — Añadir suite de ingeniería y validate CLI real
+
+- [ ] **T015 completada y verificada**
+
+**Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** pendiente.
+
+**Implementación y funciones:** validate_bundle_command; ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y limitaciones de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+
+**Red primero:** validate_bundle fixture inválida falla con path/código; ejemplo oficial pasa validación real usando el codec/core.
+
+**Archivos del incremento:**
+- `examples/repository-foundation/SKILL.md`
+- `examples/repository-foundation/jameskills.toml`
+- `examples/repository-foundation/policies/repository.toml`
+- `crates/jameskills-cli/src/commands.rs`
+- `crates/jameskills-cli/tests/validate_bundle.rs`
+
+**Descomposición obligatoria y wiring adicional:**
+- [ ] **T015.a — Ejemplo canónico mínimo** (3 archivos): `examples/repository-foundation/SKILL.md`; `examples/repository-foundation/jameskills.toml`; `examples/repository-foundation/policies/repository.toml`. Copiar/adaptar docs/examples/repository-foundation del dossier; usar UUID f9c0199f-c4ce-4b04-85dd-ae12a7db292b. No inventar política si falta fixture.
+- [ ] **T015.b — Guía y referencias del ejemplo** (5 archivos): `examples/repository-foundation/guidance/repository.toml`; `examples/repository-foundation/references/standards.md`; `examples/repository-foundation/references/environment.md`; `examples/repository-foundation/templates/README.md`; `examples/repository-foundation/templates/.gitignore`. DAG tipado y material de lectura/templates; validar references y ausencia de shell/tool registration arbitrary.
+- [ ] **T015.c — Template de CI y asset propio** (2 archivos): `examples/repository-foundation/templates/ci-rust.yml`; `examples/repository-foundation/assets/optional-brand.svg`. Assets seguros sin script/external href; template es dato; validación golden de suite completa.
+- [ ] **T015.d — Validate service y CLI** (5 archivos): `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/tests/validate_bundle.rs`. LibraryService::validate_import usa FileSystemPort y domain::validate_bundle sin exigir storage aún; CLI llama service, no infra directa.
+
+Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
+
+**Aceptación:**
+- [ ] validate conecta CLI→ApplicationServices/validador→FileSystemPort sin duplicar parseo.
+- [ ] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
+- [ ] JSON y salida humana muestran warnings/errores concretos y límites del formato.
+
+**Verificación:** cargo test -p jameskills-cli --locked validate_bundle; cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation.
+
+**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+
+## C005 — Checkpoint tras T013–T015
+
