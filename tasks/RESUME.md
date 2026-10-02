@@ -1,15 +1,15 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-02
-Rama / commit: `feat/bootstrap-toolchain` / `a636782`, `414be62`, `ddd67ec`, `ea6ad4b`, `9ea9749`, `7bf2bd3`, `f4eb1b3`, `d329cae`
-Última tarea / checkpoint completo: T003; C001 registrado parcialmente y pendiente por enlace nativo/Windows.
-Tarea activa y estado: T007, tipos de errores/servicios/ports compartidos. T004.a/b/c implementadas; padre T004 pendiente de ejecución nativa Windows.
-Prueba roja y resultado: T004.a namespace ausente; T004.b facts quedaban Unknown aunque fixture observaba Wayland/GPU. REDs reproducidas y corregidas.
-Último comando verde y resultado: infra platform tests 6/6; Linux setup JSON/status, bash syntax; PowerShell parser y plan JSON con status unsupported en Linux; clippy infra y fmt.
-Archivos modificados: platform.rs, infra manifest, Cargo.lock, contracts, sources, scripts/setup-linux.sh, scripts/setup-windows.ps1, PLATFORM-EVIDENCE.
-Contratos modificados y documento: baseline subió a Rust1.95.0 por requisito fuente `std::hint::cold_path`; docs/SOURCES, SPEC-desktop-app, OPERATIONS, plan y handoff actualizados.
+Rama / commit: `feat/bootstrap-toolchain` / `bb46ab4`, `048039a`, `540b20e`, `14fad9b`, `b97f744`
+Última tarea / checkpoint completo: T007.dep y T007.a; base tipada con dependencias fijas y errores/IDs/rutas validadas.
+Tarea activa y estado: T007.b, implementar ClockPort object-safe con fake determinista. T004.a/b/c implementadas; padre T004 pendiente de ejecución nativa Windows.
+Prueba roja y resultado: T007.a `cargo test -p jameskills-core --locked --offline common_types` falló inicialmente por tipos/reexports inexistentes; implementado y 8/8 pasan.
+Último comando verde y resultado: `cargo test -p jameskills-core --locked --offline` 8/8; clippy core all-targets `-D warnings`; fmt; `cargo check -p jameskills-core -p jameskills-infra --locked --offline`.
+Archivos modificados: core error/domain IDs/module exports/test; core+infra manifests; Cargo.lock; docs/CONTRACTS, SOURCES y SPEC-skill-format.
+Contratos modificados y documento: T007 usa campos privados en IDs/hash/path, Deserialize validado para hash/path, diagnósticos app-authored serializables, AppError redacted; SPEC-skill-format agrega caracteres inválidos Win32 al rechazo portable.
 Bloqueos con fuente/evidencia saneada: Debian13 headless carece development libs `xcb`, `xkbcommon`, `xkbcommon-x11`; sin display/GPU. No hay Windows runner. No declarar smoke nativo.
-Próximas tareas elegibles: T007, independiente del runner Windows. T005/T006 bloqueadas por T004 nativa.
-Próxima acción exacta: empezar T007 con errores/ports según `docs/CONTRACTS.md`; no fabricar rutas Windows ni declarar T004 completo sin ejecutar `setup-windows.ps1 -Check` en Windows.
-Lecturas mínimas: `AGENTS.md`, sección T004 de `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SPEC-desktop-app.md`, `docs/OPERATIONS.md`, `docs/PLATFORM-EVIDENCE.md`.
+Próximas tareas elegibles: T007.b; luego T007.c. T005/T006 bloqueadas por aceptación nativa T004 pendiente.
+Próxima acción exacta: agregar `ports::ClockPort`, contrato fake de UTC/monotonicidad; mantener `SystemClock` solo en infra.
+Lecturas mínimas: sección T007 de `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SPEC-skill-format.md`.
 Evidencia manual Linux / Windows pendiente: ventana GPUI real en Linux con display/GPU; build y recorrido GPUI real en Windows/MSVC.
