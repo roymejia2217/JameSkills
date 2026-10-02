@@ -333,21 +333,20 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-core/src/error.rs`
 - `crates/jameskills-core/src/lib.rs`
 - `crates/jameskills-core/src/domain/mod.rs`
-- `crates/jameskills-core/src/application/mod.rs`
 - `crates/jameskills-core/src/ports/mod.rs`
 
 **Descomposición obligatoria y wiring adicional:**
+- [ ] **T007.dep — Dependencias tipadas y contratos ajustados** (5 archivos): `crates/jameskills-core/Cargo.toml`; `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `docs/CONTRACTS.md`. Pins exactos `serde`, `uuid`, `sha2`, `thiserror`, `unicode-normalization`, `chrono`; `RevisionId` y `PortablePath` no se construyen por tuple pública y sus Deserialize valida.
 - [ ] **T007.a — Errores e IDs públicos reales** (5 archivos): `crates/jameskills-core/src/error.rs`; `crates/jameskills-core/src/domain/ids.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/common_types.rs`. AppError/Diagnostic + UUID/hash/PortablePath validados; registrar solo domain+error. Tests common_errors y invalid IDs/paths. No DTO secretos ni source serializable.
 - [ ] **T007.b — ClockPort y registro ports** (4 archivos): `crates/jameskills-core/src/ports/clock.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/clock_contract.rs`. ClockPort object-safe y fake determinista; core sin SystemClock de infraestructura.
-- [ ] **T007.c — Config/factory disponible** (3 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/service_factory.rs`. SystemClock y validación config/paths; factory contiene solo puertos/servicios disponibles y se amplía al crearlos. No instanciar servicios que aún no tienen tipos/implementación ni renderizar acciones operativas sin backend.
-- [ ] **T007.d — Registro de application** (2 archivos): `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/src/lib.rs`. Registrar namespace para módulos reales posteriores; ApplicationServices final se declara cuando existen sus servicios/tipos. No crear árbol de servicios vacíos ni placeholders de éxito.
+- [ ] **T007.c — Config/factory disponible** (3 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/service_factory.rs`. SystemClock y validación config/paths; factory contiene únicamente runtime facts, dirs y reloj real. No instanciar servicios sin tipos/implementación ni renderizar acciones operativas sin backend.
 
-Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
+La secuencia termina en T007.c. `ApplicationServices` de dominio se declara al existir sus servicios reales; no crear `application/mod.rs` vacío en este corte. Cerrar cada subtarea con prueba/evidencia/commit. Esta descomposición contiene el presupuesto/wiring real.
 
 **Aceptación:**
 - [ ] AppError Display/source quedan saneados; DTO error UI/CLI es serializable, jamás una cadena source con secretos.
 - [ ] ClockPort permite reloj determinista y no decide causalidad por timestamp.
-- [ ] Factory comparte servicios entre consumidores y rechaza config inválida, sin defaults inventados.
+- [ ] Factory comparte únicamente servicios de plataforma disponibles y rechaza config inválida, sin defaults inventados.
 
 **Verificación:** cargo test -p jameskills-core --locked common_errors; cargo check -p jameskills-infra --locked. Si añadir ApplicationServices exige módulo nuevo extra, formalizar subtarea y registrar su wiring.
 
