@@ -40,13 +40,15 @@ Referencias versionadas: [`clap`](https://docs.rs/clap/4.5.60/clap/),
 exactas y checksums están registradas en Cargo manifests y lockfile.
 
 Skill format T010: `toml = 1.1.6` (TOML1.1, MIT OR Apache-2.0),
-`semver = 1.0.28` (MIT OR Apache-2.0) y `yaml-rust2 = 0.13.0`
-(YAML1.2 parser, MIT OR Apache-2.0, MSRV1.85). Fuentes versionadas:
+`semver = 1.0.28` (MIT OR Apache-2.0) y `serde-saphyr = 1.3.0`
+(YAML1.2 Serde parser, MIT OR Apache-2.0, MSRV1.89). Fuentes versionadas:
 [`toml`](https://docs.rs/toml/1.1.6+spec-1.1.0/toml/),
 [`semver`](https://docs.rs/semver/1.0.28/semver/),
-[`yaml-rust2`](https://docs.rs/yaml-rust2/0.13.0/yaml_rust2/). Se elige el event
-parser YAML para rechazar aliases, anchors y tags antes de interpretar scalars;
-el TOML usa structs Serde `deny_unknown_fields` y [extensions] string-map explícito.
+[`serde-saphyr`](https://docs.rs/serde-saphyr/1.3.0/serde_saphyr/). Se fijan
+budgets de profundidad/eventos/scalars y cero aliases/anchors; Options rechaza
+tags custom y merge keys, exige llaves duplicadas como error y desactiva snippets
+en errores. El TOML usa structs Serde `deny_unknown_fields` y [extensions]
+string-map explícito.
 
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de

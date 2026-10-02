@@ -105,6 +105,9 @@ compatibility y metadata string-map. `parse_manifest(&str)` y
 propios y línea/columna cuando el parser provee span. `validate_skill_pair`
 verifica slug/name, description y metadata JameSkills opcional. Entradas
 externas no se convierten directamente a estos tipos por Deserialize.
+El parser YAML usa `serde-saphyr` con budget estricto de profundidad, eventos,
+documentos y bytes escalares; alias/anchor limitados a cero, duplicate keys y
+merge keys como error, tags custom rechazadas y snippets desactivados.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
