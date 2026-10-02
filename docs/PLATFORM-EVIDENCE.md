@@ -53,15 +53,19 @@ nativa abra ni que el renderer Vulkan funcione. Debian 13 no se convertirá en
 Ubuntu 24.04 por inferencia; T004 debe imprimir instrucciones específicas y no
 ejecutar `sudo`.
 
-## Windows documentado, ejecución pendiente
+## Windows: host check 2026-10-02
 
 | Dato | Resultado |
 |---|---|
-| Sistema disponible para prueba | no hay runner ni host Windows en esta ejecución |
+| Host observado | `DESKTOP-6PK09A2`, Windows 10 IoT Enterprise LTSC `10.0.19044`, x64 |
+| Herramientas de ejecución | Git `2.55.0.windows.5`; Windows PowerShell `5.1.19041.7725`; `pwsh` no está instalado |
 | Target que debe validar CI/QA | `x86_64-pc-windows-msvc` |
-| Display/GPU | no observados; requieren sesión/runner Windows con renderer apto |
+| Windows SDK | headers detectados |
+| Rust MSVC / target | no detectados |
+| CMake / Visual Studio 2022 C++ | no detectados |
+| Display/GPU | `unknown`; requieren smoke nativo con renderer apto |
 | Prerrequisitos publicados | Windows 10+, Visual Studio 2022 Build Tools con Desktop C++, Windows SDK, CMake en PATH y toolchain Rust MSVC |
-| Compilación/smoke nativo | pendiente de runner Windows; no afirmado |
+| Compilación/smoke nativo | bloqueado por Rust MSVC, CMake y Visual Studio C++; no afirmado |
 
 Fuentes Windows y Linux upstream: [instalación GPUI Kit](https://gpui-kit.com/docs/installation)
 y [documentación de release 0.7.0](https://github.com/longbridge/gpui-kit/releases/tag/v0.7.0).
@@ -85,10 +89,13 @@ plan Debian/Ubuntu enumera los development packages que el linker pidió
 (`xcb`, `xkbcommon`, `xkbcommon-x11`) además de fontconfig/freetype/Wayland.
 
 `setup-windows.ps1` comprueba Rust MSVC, CMake, Visual Studio C++ y Windows SDK
-con salida JSON; el plan es textual y no llama a winget/Chocolatey. Su sintaxis
-PowerShell/Windows todavía requiere runner Windows; no se reporta como
-ejecutado. Las observaciones de display/GPU continúan `unknown` hasta smoke
-nativo.
+con salida JSON; el plan es textual y no llama a winget/Chocolatey. En el host
+Windows observado, `pwsh -File scripts/setup-windows.ps1 -Check` no pudo
+iniciarse porque PowerShell 7 (`pwsh`) no está instalado. El mismo script sí se
+ejecutó directamente en Windows PowerShell 5.1 y devolvió código 1 con Rust,
+toolchain/target MSVC, CMake y Visual Studio C++ `missing`, Windows SDK `pass`,
+y display/GPU `unknown`. `-PrintInstallPlan` enumeró pasos manuales para VS 2022
+Build Tools/Desktop C++, CMake y Rust 1.95.0 MSVC; no se instaló nada.
 
 Verificación ejecutada: `bash -n scripts/setup-linux.sh` pasó; `--check` emitió
 JSON y código1 por CMake/Clang y módulos pkg-config de desarrollo ausentes,
@@ -96,5 +103,8 @@ marcando Vulkan loader `pass` y display/GPU `unknown`; `--print-install-plan`
 emitió JSON apt con 14 paquetes sin ejecutar comandos privilegiados. PowerShell
 7.6.6 oficial (SHA-256 validado contra `hashes.sha256`) parseó
 `setup-windows.ps1`; `-PrintInstallPlan` emitió JSON y `-Check` en Linux devolvió
-`unsupported`. Esto valida parser y rutas de ayuda, no la detección nativa de
-Windows.
+`unsupported`. En Windows, Git clonó la rama `feat/bootstrap-toolchain`; el
+diagnóstico real corrió en PowerShell 5.1.19041.7725 y devolvió código 1 por los
+prerrequisitos ausentes enumerados arriba. Esta ejecución comprueba detección
+nativa de herramientas, pero no es compilación ni smoke GPUI; display/GPU siguen
+`unknown`.

@@ -1,15 +1,15 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-02
-Rama / commit: `feat/bootstrap-toolchain` / `56a28e3` (T012.a), `48d8ebf` (T012.dep), `ed801a9` (T012.contract)
+Rama / commit base de la revisión: `feat/bootstrap-toolchain` / `b2d29c9` (publicado en `roymejia2217/JameSkills`; checkpoint Windows registrado después)
 Última tarea / checkpoint completo: T012.a, inventario portable puro; T011 cerrado y T012 parent abierto hasta filesystem real Linux/Windows. T007/T009/T010/T011 también completos. C003 sigue pendiente porque shell T008 espera desktop T005/native gates.
-Tarea activa y estado: T012.b, inspección/staging filesystem y ZIP; aún no implementada. T004 no puede cerrarse en este entorno porque falta host/runner Windows/MSVC.
+Tarea activa y estado: T004 continúa abierto: el host Windows ya se observó, pero faltan Rust MSVC 1.95.0, target `x86_64-pc-windows-msvc`, CMake y Visual Studio 2022 C++. T012.b, inspección/staging filesystem y ZIP, aún no implementada y espera T004.
 Prueba roja y resultado: T012.a `cargo test -p jameskills-core --test portable_bundle_inventory --locked --offline` falló en aceptación inicial `bundle.validation.unavailable`; otro RED identificó colisión en prefijos de directorio `Docs/...`/`docs/...`; GREEN focused 5/5. Cubre Unicode `Straße`/`STRASSE`, duplicate, special file types, SKILL/text/count/total size.
 Último comando verde y resultado: `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked --offline` 52/52; Clippy combinado all-targets `-D warnings`; `cargo fmt --all -- --check`; `git diff --check`.
 Archivos modificados: ninguno pendiente; zip del dossier y `target/` ajenos al índice y preservados.
 Contratos modificados y documento: `serde-saphyr` con presupuesto YAML explícito; policy TOML cerrado con DTOs tipados y registry; `BundleEntry` bounded, regular files only, Unicode full case-fold vía ICU 2.3 + NFC y árbol de rutas privado. Contratos en `docs/CONTRACTS.md`; límites en `docs/SPEC-skill-format.md`.
-Bloqueos con fuente/evidencia saneada: Debian13 headless carece development libs `xcb`, `xkbcommon`, `xkbcommon-x11`; sin display/GPU. No hay Windows runner. No declarar smoke nativo.
-Próximas tareas elegibles: ninguna con todas las deps y evidencia exigida. T012.b y toda la secuencia posterior esperan T004. T004 tiene completadas las subtareas a/b/c; PowerShell solo se analizó desde Linux, no se probó en Windows. T005/T006/T008 también esperan T004.
-Próxima acción exacta: ejecutar `pwsh -File scripts/setup-windows.ps1 -Check` en Windows/MSVC real y registrar los paquetes/build tools observados; se requiere un runner/host Windows que no está conectado a este workspace. Después continuar el filesystem/ZIP con pruebas nativas y el siguiente DAG topológico.
+Bloqueos con fuente/evidencia saneada: Debian13 headless carece development libs `xcb`, `xkbcommon`, `xkbcommon-x11`; display/GPU siguen `unknown`. En `DESKTOP-6PK09A2` (Windows 10 IoT Enterprise LTSC x64), PowerShell 5.1 ejecutó `scripts/setup-windows.ps1 -Check` (código 1): SDK `pass`; Rust, toolchain/target MSVC, CMake y VS C++ `missing`; display/GPU `unknown`. `pwsh` no está instalado. No declarar build ni smoke nativo.
+Próximas tareas elegibles: ninguna con todas las deps y evidencia exigida. T012.b y la secuencia posterior esperan T004. T004.a/b/c están implementadas; su diagnóstico real de Windows confirma faltantes de toolchain. T005/T006/T008 también esperan T004.
+Próxima acción exacta: preparar en Windows los requisitos listados por `scripts/setup-windows.ps1 -PrintInstallPlan` (VS 2022 Build Tools/Desktop C++, CMake y Rust 1.95.0 MSVC con rustfmt/clippy), luego repetir `-Check` y continuar T004/T012.b. No instalarlos automáticamente.
 Lecturas mínimas: T004/T012 de `tasks/todo.md`, contratos FileSystem/Bundle en `docs/CONTRACTS.md`, paths/archives en `docs/SPEC-skill-format.md`, pruebas portables en `docs/SECURITY.md` y wiring `docs/ARCHITECTURE.md`.
-Evidencia manual Linux / Windows pendiente: ventana GPUI real en Linux con display/GPU; build y recorrido GPUI real en Windows/MSVC.
+Evidencia manual Linux / Windows pendiente: ventana GPUI real en Linux con display/GPU; build y recorrido GPUI real en Windows/MSVC tras instalar prerequisitos. Ver `docs/PLATFORM-EVIDENCE.md` para la observación del host.

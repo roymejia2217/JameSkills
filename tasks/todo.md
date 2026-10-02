@@ -232,8 +232,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - [x] **T004.a — Contrato y prueba de aislamiento de rutas** (3 archivos): `docs/CONTRACTS.md`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/src/lib.rs`. RED falló porque Linux path se devolvía sin namespace; GREEN 2/2 tests Linux/Windows. Commit `966caff`.
 - [x] **T004.b — Resolver directorios y facts del host** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/platform.rs`; `docs/SOURCES.md`. Pin `directories=6.0.0`; `BaseDirs` usa Known Folders/XDG, nunca se concatena `$HOME`.
 - Evidencia T004.b: RED detect facts devolvió Unknown aunque el fixture observó Wayland+GPU; GREEN `cargo test -p jameskills-infra --locked platform::tests` 6/6, `cargo clippy ... -D warnings`, fmt. Commit `4db2885`.
-- [x] **T004.c — Doctor previo y planes de paquetes** (3 archivos): `scripts/setup-linux.sh`; `scripts/setup-windows.ps1`; `docs/PLATFORM-EVIDENCE.md`. Salidas estructuradas para check/plan, no mutación de sistema; Linux probado y Windows permanece explícitamente no observado.
-- Evidencia T004.c: `bash -n` y Linux JSON check/plan; PowerShell7.6.6 parser+plan pasan; check desde Linux reporta `unsupported`. `docs/PLATFORM-EVIDENCE.md` registra evidencia; Windows runner sigue pendiente para cerrar padre.
+- [x] **T004.c — Doctor previo y planes de paquetes** (3 archivos): `scripts/setup-linux.sh`; `scripts/setup-windows.ps1`; `docs/PLATFORM-EVIDENCE.md`. Salidas estructuradas para check/plan, no mutación de sistema; ambos diagnósticos ejecutados en su OS, Windows con prerrequisitos faltantes documentados.
+- Evidencia T004.c: `bash -n` y Linux JSON check/plan; PowerShell7.6.6 parser+plan pasan; check desde Linux reporta `unsupported`. En `DESKTOP-6PK09A2`, Windows 10 IoT Enterprise LTSC x64, el check real en PowerShell 5.1.19041.7725 detectó SDK (`pass`), Rust/toolchain/target MSVC, CMake y VS C++ (`missing`), display/GPU (`unknown`), y salió 1. `pwsh` no está instalado. Ver `docs/PLATFORM-EVIDENCE.md`.
 
 Cada incremento tiene su propio test/evidencia/commit. T004 no cierra mientras la comprobación PowerShell/Windows no sea ejercitada o su limitación quede representada según alcance de aceptación.
 
@@ -244,7 +244,7 @@ Cada incremento tiene su propio test/evidencia/commit. T004 no cierra mientras l
 
 **Verificación:** cargo test -p jameskills-infra --locked platform_dirs; bash scripts/setup-linux.sh --check; pwsh -File scripts/setup-windows.ps1 -Check en runner Windows. Registrar ambas salidas saneadas.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** host Windows y detección documentados en `docs/PLATFORM-EVIDENCE.md`; diagnóstico intencionalmente sale 1 por prerrequisitos faltantes. T004 no cierra hasta instalar/verificar los prerequisitos y completar la aceptación; no hubo build ni smoke nativo.
 
 <a id="t005"></a>
 
