@@ -321,9 +321,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T007 — Definir errores, servicios y puertos comunes
 
-- [ ] **T007 completada y verificada**
+- [x] **T007 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T002, T003. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T002, T003. **Estado:** completada.
 
 **Implementación y funciones:** AppError/AppResult, ClockPort, SystemClock y build_services; registro de módulos reales según subtareas. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -340,19 +340,21 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T007.dep: RED `cargo check -p jameskills-core --locked` rechazó cambios pendientes al lock; GREEN `cargo check -p jameskills-core -p jameskills-infra --locked --offline`, metadata y `cargo fmt --all -- --check` pasan. Dependencias y APIs citadas por versión. Commit `048039a`.
 - [x] **T007.a — Errores e IDs públicos reales** (5 archivos): `crates/jameskills-core/src/error.rs`; `crates/jameskills-core/src/domain/ids.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/common_types.rs`. AppError/Diagnostic + UUID/hash/PortablePath validados; registrar solo domain+error. Tests common_errors y invalid IDs/paths. No DTO secretos ni source serializable.
 - Evidencia T007.a: RED `cargo test -p jameskills-core --locked --offline common_types` falló porque faltaban los tipos/reexports públicos. GREEN `cargo test -p jameskills-core --locked --offline` 8/8; `cargo clippy -p jameskills-core --all-targets --locked --offline -- -D warnings`; fmt. Commit `b97f744`.
-- [ ] **T007.b — ClockPort y registro ports** (4 archivos): `crates/jameskills-core/src/ports/clock.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/clock_contract.rs`. ClockPort object-safe y fake determinista; core sin SystemClock de infraestructura.
-- [ ] **T007.c — Config/factory disponible** (3 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/service_factory.rs`. SystemClock y validación config/paths; factory contiene únicamente runtime facts, dirs y reloj real. No instanciar servicios sin tipos/implementación ni renderizar acciones operativas sin backend.
+- [x] **T007.b — ClockPort y registro ports** (4 archivos): `crates/jameskills-core/src/ports/clock.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/tests/clock_contract.rs`. ClockPort object-safe y fake determinista; core sin SystemClock de infraestructura.
+- Evidencia T007.b: RED `cargo test -p jameskills-core --locked --offline --test clock_contract` no encontró `ports`; GREEN contrato object-safe 1/1 y suite core 9/9; Clippy all-targets `-D warnings`, fmt. Commit `f057d6a`.
+- [x] **T007.c — Config/factory disponible** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/service_factory.rs`; `docs/CONTRACTS.md`. SystemClock y validación config/paths; factory contiene únicamente runtime facts, dirs y reloj real. No instanciar servicios sin tipos/implementación ni renderizar acciones operativas sin backend.
+- Evidencia T007.c: RED `cargo test -p jameskills-infra --locked --offline --test service_factory` falló al no existir el módulo composition. GREEN suite core+infra completa 18/18 tests, incluidos 2 del factory y 1 de rutas Windows insensibles a mayúsculas; Clippy all-targets `-D warnings`, fmt. Factory no crea carpetas y requiere rutas absolutas, distintas y no solapadas. Commit `2ff5483`.
 
 La secuencia termina en T007.c. `ApplicationServices` de dominio se declara al existir sus servicios reales; no crear `application/mod.rs` vacío en este corte. Cerrar cada subtarea con prueba/evidencia/commit. Esta descomposición contiene el presupuesto/wiring real.
 
 **Aceptación:**
-- [ ] AppError Display/source quedan saneados; DTO error UI/CLI es serializable, jamás una cadena source con secretos.
-- [ ] ClockPort permite reloj determinista y no decide causalidad por timestamp.
-- [ ] Factory comparte únicamente servicios de plataforma disponibles y rechaza config inválida, sin defaults inventados.
+- [x] AppError Display/source quedan saneados; DTO error UI/CLI es serializable, jamás una cadena source con secretos.
+- [x] ClockPort permite reloj determinista y no decide causalidad por timestamp.
+- [x] Factory comparte únicamente servicios de plataforma disponibles y rechaza config inválida, sin defaults inventados.
 
 **Verificación:** cargo test -p jameskills-core --locked common_errors; cargo check -p jameskills-infra --locked. Si añadir ApplicationServices exige módulo nuevo extra, formalizar subtarea y registrar su wiring.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T007.dep RED lock desactualizado con `--locked`; GREEN core/infra checks offline y versioned source pins, commit `048039a`. T007.a RED faltaban API imports; core tests 8/8, clippy `-D warnings`, commit `b97f744`. T007.b RED faltaba `ports`; contract fake object-safe 1/1 y suite acumulada, commit `f057d6a`. T007.c RED módulo composition ausente; core/infra 18/18, clippy `-D warnings`, commit `2ff5483`. Sin smoke GUI en este slice.
 
 <a id="t008"></a>
 
