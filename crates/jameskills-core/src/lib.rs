@@ -7,6 +7,7 @@
 
 pub mod domain;
 mod error;
+pub mod ports;
 
 pub use domain::{
     ContentHash, IdValidationError, OperationId, PathValidationError, PortablePath, RevisionId,
