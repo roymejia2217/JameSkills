@@ -534,7 +534,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 **Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
 
 **Descomposición por dependencia nativa:**
-- [ ] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, lock y `docs/SOURCES.md`/`tasks/todo.md`. Pin de `icu_casemap`. `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política; no usarlo.
+- [x] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, `Cargo.lock`, `docs/SOURCES.md` y `tasks/todo.md`. Pin exacto `icu_casemap=2.3.0`; `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política, se descartó.
+- Evidencia T012.dep: API oficial docs.rs 2.3.0 documenta `CaseMapper::new().fold_string` como full case-fold locale independiente; se normaliza el resultado NFC. `cargo check -p jameskills-core` resolvió/descargó y compiló 2.3.0 bajo Rust 1.95; lock contiene `icu_casemap` y `icu_casemap_data`. Commit pendiente.
 
 <a id="t012-a"></a>
 

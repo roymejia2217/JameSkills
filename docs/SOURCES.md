@@ -50,6 +50,11 @@ tags custom y merge keys, exige llaves duplicadas como error y desactiva snippet
 en errores. El TOML usa structs Serde `deny_unknown_fields` y [extensions]
 string-map explícito.
 
+Portable path collision T012: `icu_casemap = 2.3.0` (Unicode-3.0 license,
+MSRV1.88). `CaseMapper::new().fold_string` uses full locale-independent Unicode
+case folding; normalize its result to NFC before comparing path keys. Fuente de
+API versionada: [`icu_casemap::CaseMapper`](https://docs.rs/icu_casemap/2.3.0/icu_casemap/struct.CaseMapper.html).
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
