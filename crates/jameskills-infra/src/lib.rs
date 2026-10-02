@@ -4,3 +4,5 @@
 //!
 //! Implementations are introduced with their ports; this crate depends on the
 //! domain crate and never defines domain policy.
+
+pub mod platform;

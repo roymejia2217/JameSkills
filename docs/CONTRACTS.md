@@ -61,6 +61,31 @@ pub enum AppError {
 
 AppError tiene implementación thiserror; Display redacted estable, source interno no serializable a logs. Diagnostic {code, path:PortablePath?, line?, column?, message, severity}. Nunca incluir contenido del secreto.
 
+## Facts de plataforma e inicialización
+
+Estos tipos viven en `jameskills-infra::platform`; no cambian el dominio ni
+serializan paths de usuario a logs.
+
+~~~rust
+pub enum HostPlatform { Linux, Windows, Other }
+pub enum Observation { Present, Absent, Unknown }
+pub struct PlatformFacts {
+    pub platform: HostPlatform,
+    pub architecture: String,
+    pub display_environment: Observation,
+    pub gpu_device: Observation,
+}
+impl PlatformFacts { pub fn detect() -> Self; }
+pub struct UserDirectories { pub config: PathBuf, pub data: PathBuf, pub cache: PathBuf }
+pub enum PlatformError { BaseDirectoriesUnavailable }
+pub fn resolve_user_dirs() -> Result<UserDirectories, PlatformError>;
+~~~
+
+`directories::BaseDirs` es la autoridad para XDG en Linux y Known Folders en
+Windows; JameSkills agrega `jameskills` o `JameSkills` sin crear carpetas. Una
+observación ausente no demuestra ausencia global de hardware ni de sesión, y
+`Unknown` jamás se transforma en `Present` por defecto.
+
 ## Archivos portables, revisiones e instalación
 
 PortablePath(String) constructor valida en SPEC-skill-format. No implementa From<String> sin validación.
