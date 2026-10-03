@@ -1,6 +1,7 @@
-use super::{PathValidationError, PortablePath, SkillId};
-use crate::{Diagnostic, DiagnosticSeverity};
+use super::{ContentHash, PathValidationError, PortablePath, SkillId, ValidatedInventory};
+use crate::{AppError, AppResult, Diagnostic, DiagnosticSeverity};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
@@ -739,4 +740,59 @@ fn line_column(source: &str, index: usize) -> (u32, u32) {
         .count() as u32
         + 1;
     (line, column)
+}
+
+/// Canonical path order of a validated inventory: UTF-8 byte order, the same
+/// order `validate_bundle_inventory` stores. Library, install and backup
+/// share this order instead of re-sorting it.
+pub fn canonical_inventory(inventory: &ValidatedInventory) -> Vec<PortablePath> {
+    inventory
+        .files()
+        .iter()
+        .map(|file| file.path().clone())
+        .collect()
+}
+
+/// Hashes raw bundle bytes in canonical order over the exact SPEC-skill-format
+/// bytes: tag, then per path u32be length plus path bytes plus u64be length
+/// plus raw bytes. Line endings hash as-is, so different bytes are a different
+/// revision; sizes and other metadata never reach the digest. The byte map
+/// must match the inventory exactly: missing and unexpected entries fail.
+pub fn hash_bundle(
+    inventory: &ValidatedInventory,
+    files: &BTreeMap<PortablePath, Vec<u8>>,
+) -> AppResult<ContentHash> {
+    let canonical = canonical_inventory(inventory);
+    let mut digest = Sha256::new();
+    digest.update(b"JAMESKILLS-BUNDLE-V1\0");
+    for path in &canonical {
+        let content = files.get(path).ok_or_else(|| {
+            AppError::Validation(vec![diagnostic(
+                "bundle.hash.missing_bytes",
+                None,
+                None,
+                "Bundle bytes are missing for a validated path.",
+            )])
+        })?;
+        let path_bytes = path.as_str().as_bytes();
+        digest.update(bundle_len(path_bytes.len())?);
+        digest.update(path_bytes);
+        digest.update((content.len() as u64).to_be_bytes());
+        digest.update(content);
+    }
+    if files.len() != canonical.len() {
+        return Err(AppError::Validation(vec![diagnostic(
+            "bundle.hash.unexpected_bytes",
+            None,
+            None,
+            "Bundle bytes cover paths outside the validated inventory.",
+        )]));
+    }
+    Ok(ContentHash::from_digest(digest.finalize().into()))
+}
+
+fn bundle_len(len: usize) -> AppResult<[u8; 4]> {
+    u32::try_from(len)
+        .map(|count| count.to_be_bytes())
+        .map_err(|_| AppError::CryptoInvalid)
 }
