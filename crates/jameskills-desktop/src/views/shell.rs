@@ -9,20 +9,27 @@ use gpui_kit::{
     div, px,
 };
 
-use crate::{routes::Route, state::AppState};
+use crate::{
+    bridge::{CommandEnvelope, UiBridge, UiCommand, dispatch_command},
+    routes::Route,
+    state::AppState,
+};
 
 /// Shell real de la aplicación: rail de navegación con primitivos del
 /// catálogo, contenido por ruta con estados vacíos honestos y barra de
-/// estado. Sin E/S en el render; el bridge con servicios llega en T008.b.
+/// estado. Los clics despachan por el bridge con request id y generación;
+/// los servicios que produzcan eventos asíncronos llegan en T046+.
 #[derive(Default)]
 pub struct Shell {
     state: AppState,
+    bridge: UiBridge,
 }
 
 impl Shell {
     pub fn new() -> Self {
         Self {
             state: AppState::new(),
+            bridge: UiBridge::new(),
         }
     }
 
@@ -40,7 +47,17 @@ impl Shell {
                         .on_click(move |_, _, cx| {
                             if let Some(view) = weak.upgrade() {
                                 view.update(cx, |this: &mut Self, cx| {
-                                    this.state.navigate(route);
+                                    let request_id = this.bridge.next_request_id();
+                                    let envelope = CommandEnvelope {
+                                        request_id,
+                                        route_generation: this.state.route_generation,
+                                        command: UiCommand::Navigate(route),
+                                    };
+                                    let _events = dispatch_command(
+                                        &mut this.state,
+                                        &mut this.bridge,
+                                        envelope,
+                                    );
                                     cx.notify();
                                 });
                             }
@@ -109,6 +126,7 @@ impl Render for Shell {
                             .child(
                                 div()
                                     .id("shell-route-title")
+                                    .test_support()
                                     .aria_label(route.label())
                                     .text_size(px(24.))
                                     .font_weight(gpui_kit::FontWeight::BOLD)
@@ -166,10 +184,12 @@ mod tests {
             }
             assert!(window.find("shell-content").visible());
             assert!(window.find("shell-status").visible());
+            assert_eq!(window.find("shell-route-title").label(), Some("Biblioteca"));
             assert_eq!(view.read(cx).state.route, Route::Library);
             window.click(nav_item_id(2), cx);
             window.draw(cx).clear(cx);
             assert_eq!(view.read(cx).state.route, Route::Agents);
+            assert_eq!(window.find("shell-route-title").label(), Some("Agentes"));
             assert!(window.find("shell-content").visible());
             window.click(nav_item_id(2), cx);
             window.draw(cx).clear(cx);

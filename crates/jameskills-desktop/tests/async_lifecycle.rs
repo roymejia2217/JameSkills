@@ -29,12 +29,11 @@ async fn bridge_late_completion_keeps_newer_route(cx: &mut TestAppContext) {
     });
 
     // La persona usuaria pasa a Ajustes antes de que aterrice la carga.
-    // (El título por ruta se vuelve observable en T008.b2 junto al
-    // cableado del bridge en la shell; aquí se verifica ciclo de vida.)
     cx.update_window(window, |_, window, cx| {
         window.draw(cx).clear(cx);
         window.click("0-4", cx);
         window.draw(cx).clear(cx);
+        assert_eq!(window.find("shell-route-title").label(), Some("Ajustes"));
         assert!(window.find("shell-content").visible());
         assert!(window.find("shell-status").visible());
     })
