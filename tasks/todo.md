@@ -296,7 +296,8 @@ Cada incremento tiene su propio test/evidencia/commit. T004 cierra con diagnóst
 - `scripts/check-workspace.sh`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T006.a — Convenciones de repo y licencia** (4 archivos): `.gitignore`; `.gitattributes`; `README.md`; `LICENSE`. Añadir reglas/Apache-2.0 propia o licencia elegida en requisitos; verificar ignore y comandos.
+- [x] **T006.a — Convenciones de repo y licencia** (4 archivos): `.gitignore`; `.gitattributes`; `README.md`; `LICENSE`. Añadir reglas/Apache-2.0 propia o licencia elegida en requisitos; verificar ignore y comandos.
+- Evidencia T006.a: RED `git ls-files --error-unmatch .gitignore .gitattributes LICENSE` sin coincidencias. GREEN `LICENSE` Apache-2.0 (texto apache.org, titular roymejia2217 pendiente de validación del owner antes de publicar), `text=auto`+LF en shell, ignore con target/secretos/respaldos/salidas sin tocar fixtures, README con convenciones. `ls-files` coincide, `check-ignore` cubre `target/` y `.env`, `diff --check` limpio. Commit `9f6f8ed`.
 - [ ] **T006.b — Workflow y script de checks** (2 archivos): `.github/workflows/ci.yml`; `scripts/check-workspace.sh`. Quality gates reales, sin continue-on-error ni secrets en artifacts.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
