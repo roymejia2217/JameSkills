@@ -1,5 +1,7 @@
 /target/
 *.rs.bk
+# Tooling de gobierno (instalación local, reproducible vía npm ci).
+node_modules/
 # Secretos y credenciales: jamás se commitean (ver docs/SECURITY.md).
 .env
 *.pem
