@@ -166,13 +166,16 @@ jobs:
     needs: [fmt, clippy, tests, build-linux, build-windows, validate-commit-messages]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
     steps:
       - name: Require all quality gates green
         run: |
           python3 - <<'EOF'
           import json
+          import os
           import sys
-          needs = json.loads('${{ toJSON(needs) }}')
+          needs = json.loads(os.environ["NEEDS_JSON"])
           bad = {
               name: outcome["result"]
               for name, outcome in needs.items()
