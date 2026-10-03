@@ -1,13 +1,16 @@
 use jameskills_core::{
     Diagnostic,
-    domain::{BundleEntry, EntryKind, PortablePath, ValidatedInventory, validate_bundle_inventory},
+    domain::{
+        BundleEntry, ContentHash, EntryKind, PortablePath, ValidatedInventory, hash_bundle,
+        validate_bundle_inventory,
+    },
     ports::filesystem::{
         BundleFiles, bundle_entry_from_path, extract_archive_files, validate_archive_entries,
     },
 };
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Local filesystem adapter: read-only walks and validation live here so
 /// core never touches the disk. Nothing here writes: staging happens only
@@ -27,6 +30,71 @@ pub fn read_bundle(bytes: &[u8]) -> Result<(ValidatedInventory, BundleFiles), Ve
     let inventory = validate_archive_entries(bytes)?;
     let files = extract_archive_files(bytes, &inventory)?;
     Ok((inventory, files))
+}
+
+/// Addresses a content blob by canonical hash: a two-hex prefix directory
+/// keeps single directories small, mirroring the documented blob layout.
+pub fn blob_path(blobs_root: &Path, hash: &ContentHash) -> PathBuf {
+    let hex = hash.as_str();
+    blobs_root.join(&hex[..2]).join(format!("{hex}.bundle"))
+}
+
+/// Stores archive bytes under their canonical hash. Identical bytes are
+/// idempotent; different bytes under the same hash fail instead of
+/// overwriting published content.
+pub fn store_blob_bytes(
+    blobs_root: &Path,
+    hash: &ContentHash,
+    archive: &[u8],
+) -> Result<PathBuf, Vec<Diagnostic>> {
+    let path = blob_path(blobs_root, hash);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|_| blob_io("Bundle blob directory is not writable."))?;
+        restrict_directory(parent).map_err(|_| blob_io("Bundle blob directory is not private."))?;
+    }
+    match std::fs::read(&path) {
+        Ok(existing) if existing == archive => return Ok(path),
+        Ok(_) => {
+            return Err(vec![Diagnostic::error(
+                "bundle.blob.conflict",
+                "Different bundle bytes share one hash.",
+            )]);
+        }
+        Err(_) => {}
+    }
+    std::fs::write(&path, archive).map_err(|_| blob_io("Bundle blob is not writable."))?;
+    restrict_file(&path).map_err(|_| blob_io("Bundle blob is not private."))?;
+    Ok(path)
+}
+
+/// Verifies blob bytes end to end: the archive must parse, its canonical
+/// hash must match, and the recovered files return for callers that keep
+/// going. Anything else fails closed.
+pub fn verify_blob_bytes(
+    blobs_root: &Path,
+    expected: &ContentHash,
+) -> Result<BundleFiles, Vec<Diagnostic>> {
+    let bytes = std::fs::read(blob_path(blobs_root, expected))
+        .map_err(|_| blob_io("Bundle blob is not readable."))?;
+    let (inventory, files) = read_bundle(&bytes)?;
+    let actual = hash_bundle(&inventory, &files).map_err(|_| {
+        vec![Diagnostic::error(
+            "bundle.blob.unverifiable",
+            "Bundle blob cannot be hashed.",
+        )]
+    })?;
+    if &actual != expected {
+        return Err(vec![Diagnostic::error(
+            "bundle.blob.checksum_mismatch",
+            "Bundle blob bytes do not match their hash.",
+        )]);
+    }
+    Ok(files)
+}
+
+fn blob_io(message: &'static str) -> Vec<Diagnostic> {
+    vec![Diagnostic::error("bundle.blob.io", message)]
 }
 
 /// Unpacks a validated archive into private staging: nothing is written
