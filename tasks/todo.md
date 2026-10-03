@@ -280,9 +280,9 @@ Cada incremento tiene su propio test/evidencia/commit. T004 cierra con diagnóst
 
 ## T006 — Establecer CI mínima reproducible
 
-- [ ] **T006 completada y verificada**
+- [x] **T006 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T003, T004. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T003, T004. **Estado:** completada.
 
 **Implementación y funciones:** Jobs de fmt, clippy/core tests y builds de targets disponibles; cache por Cargo.lock; main/PR triggers y documented commands. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -298,18 +298,19 @@ Cada incremento tiene su propio test/evidencia/commit. T004 cierra con diagnóst
 **Descomposición obligatoria y wiring adicional:**
 - [x] **T006.a — Convenciones de repo y licencia** (4 archivos): `.gitignore`; `.gitattributes`; `README.md`; `LICENSE`. Añadir reglas/Apache-2.0 propia o licencia elegida en requisitos; verificar ignore y comandos.
 - Evidencia T006.a: RED `git ls-files --error-unmatch .gitignore .gitattributes LICENSE` sin coincidencias. GREEN `LICENSE` Apache-2.0 (texto apache.org, titular roymejia2217 pendiente de validación del owner antes de publicar), `text=auto`+LF en shell, ignore con target/secretos/respaldos/salidas sin tocar fixtures, README con convenciones. `ls-files` coincide, `check-ignore` cubre `target/` y `.env`, `diff --check` limpio. Commit `9f6f8ed`.
-- [ ] **T006.b — Workflow y script de checks** (2 archivos): `.github/workflows/ci.yml`; `scripts/check-workspace.sh`. Quality gates reales, sin continue-on-error ni secrets en artifacts.
+- [x] **T006.b — Workflow y script de checks** (2 archivos): `.github/workflows/ci.yml`; `scripts/check-workspace.sh`. Quality gates reales, sin continue-on-error ni secrets en artifacts.
+- Evidencia T006.b: RED ambos ausentes. GREEN ci.yml con actions fijados por SHA, jobs fmt/clippy/tests/builds linux+windows sin continue-on-error y cache por Cargo.lock; `bash scripts/check-workspace.sh` código 0. Remoto: PR #2 8/8, PR #3 y PR #4 9/9, runs push en main verificados. Commits `903153d`, `628cb8c` (fix fontconfig), `931a356` (fix aggregator).
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] CI corre ante pull_request y push con nombres estables de checks.
-- [ ] Tokens mínimos, actions por SHA revisado y secrets fuera de logs/caches/artifacts.
-- [ ] Gitignore excluye tokens, llaves, vault dumps, backups temporales y outputs sin excluir código/fixtures legítimos.
+- [x] CI corre ante pull_request y push con nombres estables de checks.
+- [x] Tokens mínimos, actions por SHA revisado y secrets fuera de logs/caches/artifacts.
+- [x] Gitignore excluye tokens, llaves, vault dumps, backups temporales y outputs sin excluir código/fixtures legítimos.
 
 **Verificación:** bash scripts/check-workspace.sh; revisar workflow contra documentación oficial GitHub Actions y ejecutar en repo autorizado cuando exista. Un YAML escrito no equivale a CI verde.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T006.a y T006.b verificadas en Windows local y remoto (PR #2 8/8, PR #3 y #4 9/9, push runs en main). `git diff --check` limpio.
 
 ## C002 — Checkpoint tras T004–T006
 
@@ -512,9 +513,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T012 — Validar árboles e importaciones con límites portables
 
-- [ ] **T012 completada y verificada**
+- [x] **T012 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T010, T011, T004. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T010, T011, T004. **Estado:** completada.
 
 **Implementación y funciones:** FileSystemPort, PortablePath, inspect_bundle_tree, validate_archive_entries; límites tamaño/número/rutas y symlinks/reparse points. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -528,13 +529,13 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/safe_bundle_paths.rs`
 
 **Aceptación:**
-- [ ] Ningún input sale del staging/root ni escribe antes de validación completa.
-- [ ] Colisiones portables se detectan aunque el FS local tolere diferencias de case.
-- [ ] Límites se comprueban al recorrer y al descomprimir, no tras agotar memoria/disco.
+- [x] Ningún input sale del staging/root ni escribe antes de validación completa.
+- [x] Colisiones portables se detectan aunque el FS local tolere diferencias de case.
+- [x] Límites se comprueban al recorrer y al descomprimir, no tras agotar memoria/disco.
 
 **Verificación:** cargo test -p jameskills-infra --locked safe_bundle_paths en Linux y Windows con temporales; confirmar archivos exteriores intactos y no ejecución de scripts.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED imports sin resolver en safe_bundle_paths. GREEN 10/10 Windows local y suite remota ubuntu en PR #4 9/9. Symlink escape con assert real en Linux; en Windows sin privilegios queda UNSUPPORTED visible y el resto del slice verifica igual. Sin ZIP crate nueva: parser central a mano. Commit `2c04106` (squash PR #4).
 
 **Descomposición por dependencia nativa:**
 - [x] **T012.dep — Fijar case-fold Unicode vigente** (4 archivos): `crates/jameskills-core/Cargo.toml`, `Cargo.lock`, `docs/SOURCES.md` y `tasks/todo.md`. Pin exacto `icu_casemap=2.3.0`; `unicode-casefold 0.2.0` usa tablas Unicode 9.0, insuficientes para la política, se descartó. Commit `48d8ebf`.
@@ -544,7 +545,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [x] **T012.a — Inventario portable puro** (3 archivos): `crates/jameskills-core/src/domain/bundle.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/portable_bundle_inventory.rs`. Depende T010/T011, nunca abre/extracta archivos. Límite de número/tamaño, entries de solo fichero regular, PortablePath y colisiones tras ICU full case-fold + NFC. RED identificó colisión por prefijo de directorio (`Docs/...`/`docs/...`), GREEN focused 5/5; commit `56a28e3`.
 - [x] **T012.contract — Contrato de FileSystemPort y límites** (3 archivos): `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `tasks/todo.md`. Separó la validación de inventario puro de la capa OS, sin cambiar la interfaz existente del port. Commit `ed801a9`.
-- [ ] **T012.b — Filesystem/ZIP real** (5 archivos): ports Filesystem, infra fs/lib, test safe_bundle_paths. Depende T012.a y T004; valida no-follow/ancestor/symlink/reparse, entry ZIP real, bomb y staging sin escritura antes de validar.
+- [x] **T012.b — Filesystem/ZIP real** (5 archivos): ports Filesystem, infra fs/lib, test safe_bundle_paths. Depende T012.a y T004; valida no-follow/ancestor/symlink/reparse, entry ZIP real, bomb y staging sin escritura antes de validar.
 
 El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Linux y Windows reales.
 
