@@ -598,28 +598,28 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T014 — Crear codec seguro para import/export portable
 
-- [ ] **T014 completada y verificada**
+- [x] **T014 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T012, T013. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T012, T013. **Estado:** completada.
 
 **Implementación y funciones:** read_bundle, write_bundle_archive, unpack_bundle_to_staging; archive determinista y límites, sin extracción directa sobre biblioteca. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** bundle_archive roundtrip conserva instrucciones/assets/policies y rechaza entrada duplicada, traversal, checksum mismatch y truncamiento.
 
 **Archivos del incremento:**
+- `crates/jameskills-core/src/ports/filesystem.rs`
+- `crates/jameskills-core/src/ports/mod.rs`
 - `crates/jameskills-infra/src/fs.rs`
 - `crates/jameskills-infra/tests/bundle_archive.rs`
-- `crates/jameskills-core/src/ports/filesystem.rs`
-- `crates/jameskills-infra/Cargo.toml`
 
 **Aceptación:**
-- [ ] Export portable es legible sin JameSkills y no contiene tokens, DB ni paths privados.
-- [ ] Import directory/archive comparte validación y exact bytes canónicos.
-- [ ] Errores borran staging y conservan fuente/destino; no follow symlinks.
+- [x] Export portable es legible sin JameSkills y no contiene tokens, DB ni paths privados.
+- [x] Import directory/archive comparte validación y exact bytes canónicos.
+- [x] Errores borran staging y conservan fuente/destino; no follow symlinks.
 
 **Verificación:** cargo test -p jameskills-infra --locked bundle_archive; abrir export con herramienta zip estándar y leer SKILL.md/TOML.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED E0432 en las tres funciones del codec. GREEN 11/11 Windows local (roundtrip con igualdad de hash, exports byte-idénticos, traversal/absoluta/duplicada/device rechazadas, mismatch/truncamiento sin pánico, staging con limpieza y rechazo de destino existente). Manual: motor ZIP de Windows extrajo bytes exactos con CRLF intacto. Remoto PR #11 9/9. Writer stored-only sin dependencias nuevas (`infra/Cargo.toml` intacto); deflated valida inventario pero no se extrae hasta inflate verificado; staging Unix 0700/0600. Commit `4d4179f` (squash PR #11).
 
 <a id="t015"></a>
 
