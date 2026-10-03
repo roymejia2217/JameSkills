@@ -172,3 +172,91 @@ fn decode_digest(hex: &str) -> AppResult<[u8; 32]> {
     }
     Ok(out)
 }
+
+/// Request to persist one revision. The skill row must already exist;
+/// creating skills belongs to authoring, so a missing skill fails instead
+/// of inventing metadata. Tombstones carry no bundle hash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveRevisionRequest {
+    skill_id: SkillId,
+    bundle_hash: Option<ContentHash>,
+    parents: Vec<RevisionId>,
+    kind: RevisionKind,
+    semantic_version: String,
+    schema_version: u32,
+    expected_heads: Vec<RevisionId>,
+}
+
+impl SaveRevisionRequest {
+    pub fn new(
+        skill_id: SkillId,
+        bundle_hash: Option<ContentHash>,
+        parents: Vec<RevisionId>,
+        kind: RevisionKind,
+        semantic_version: String,
+        schema_version: u32,
+        expected_heads: Vec<RevisionId>,
+    ) -> Self {
+        Self {
+            skill_id,
+            bundle_hash,
+            parents,
+            kind,
+            semantic_version,
+            schema_version,
+            expected_heads,
+        }
+    }
+
+    pub fn skill_id(&self) -> SkillId {
+        self.skill_id
+    }
+
+    pub fn bundle_hash(&self) -> Option<&ContentHash> {
+        self.bundle_hash.as_ref()
+    }
+
+    pub fn parents(&self) -> &[RevisionId] {
+        &self.parents
+    }
+
+    pub fn kind(&self) -> &RevisionKind {
+        &self.kind
+    }
+
+    pub fn semantic_version(&self) -> &str {
+        &self.semantic_version
+    }
+
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub fn expected_heads(&self) -> &[RevisionId] {
+        &self.expected_heads
+    }
+}
+
+/// Outcome of a committed revision: the stored record plus the new head set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveRevisionResult {
+    revision: RevisionRecord,
+    new_heads: Vec<RevisionId>,
+}
+
+impl SaveRevisionResult {
+    pub fn new(revision: RevisionRecord, new_heads: Vec<RevisionId>) -> Self {
+        Self {
+            revision,
+            new_heads,
+        }
+    }
+
+    pub fn revision(&self) -> &RevisionRecord {
+        &self.revision
+    }
+
+    pub fn new_heads(&self) -> &[RevisionId] {
+        &self.new_heads
+    }
+}

@@ -1,5 +1,9 @@
+use chrono::{SecondsFormat, Utc};
 use jameskills_core::{
     AppError, AppResult,
+    domain::{
+        RevisionId, RevisionKind, RevisionRecord, SaveRevisionRequest, SaveRevisionResult, SkillId,
+    },
     ports::{CURRENT_SCHEMA_VERSION, StoragePort},
 };
 use rusqlite::{Connection, OpenFlags, Transaction};
@@ -142,6 +146,138 @@ impl SqliteStore {
             .map_err(|_| storage_error("storage.transaction.failed"))?;
         Ok(output)
     }
+
+    /// Commits one revision: the expected heads must match the stored heads
+    /// exactly, otherwise the commit fails with the current heads and nothing
+    /// is written. Revision, parents and the new head land in ONE
+    /// transaction; tombstones additionally record their observed heads.
+    /// Blobs are staged before this call, so a failed commit leaves an
+    /// unreferenced blob but never an invalid head.
+    pub fn commit_revision(&self, request: &SaveRevisionRequest) -> AppResult<SaveRevisionResult> {
+        if self.read_only {
+            return Err(storage_error("storage.store.read_only"));
+        }
+        let record = RevisionRecord::new(
+            request.skill_id(),
+            request.bundle_hash().cloned(),
+            request.parents().to_vec(),
+            request.kind().clone(),
+            request.semantic_version().to_owned(),
+        )?;
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let transaction = guard
+            .transaction()
+            .map_err(|_| storage_error("storage.transaction.failed"))?;
+        let current = read_heads(&transaction, request.skill_id())?;
+        let mut expected: Vec<String> = request
+            .expected_heads()
+            .iter()
+            .map(|head| head.as_str().to_owned())
+            .collect();
+        expected.sort();
+        expected.dedup();
+        if current != expected {
+            let conflicting = current
+                .iter()
+                .map(|hex| RevisionId::parse_hex(hex))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+            return Err(AppError::Conflict {
+                current: conflicting,
+            });
+        }
+        let state = match request.kind() {
+            RevisionKind::Content => "content",
+            RevisionKind::Tombstone { .. } => "tombstone",
+        };
+        let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        transaction
+            .execute(
+                "INSERT INTO revisions(id, skill_id, bundle_hash, semantic_version, schema_version, state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (
+                    record.id().as_str(),
+                    request.skill_id().as_uuid().to_string(),
+                    record.bundle_hash().as_str(),
+                    request.semantic_version(),
+                    request.schema_version(),
+                    state,
+                    created_at,
+                ),
+            )
+            .map_err(|_| storage_error("storage.revision.rejected"))?;
+        for parent in record.parents() {
+            transaction
+                .execute(
+                    "INSERT INTO revision_parents(revision_id, parent_revision_id) VALUES (?1, ?2)",
+                    (record.id().as_str(), parent.as_str()),
+                )
+                .map_err(|_| storage_error("storage.revision.rejected"))?;
+        }
+        if let RevisionKind::Tombstone { observed_heads } = request.kind() {
+            transaction
+                .execute(
+                    "INSERT INTO deletions(skill_id, deletion_revision_id, observed_heads_json) VALUES (?1, ?2, ?3)",
+                    (
+                        request.skill_id().as_uuid().to_string(),
+                        record.id().as_str(),
+                        observed_heads_json(observed_heads),
+                    ),
+                )
+                .map_err(|_| storage_error("storage.revision.rejected"))?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM skill_heads WHERE skill_id = ?1",
+                [request.skill_id().as_uuid().to_string()],
+            )
+            .map_err(|_| storage_error("storage.revision.rejected"))?;
+        transaction
+            .execute(
+                "INSERT INTO skill_heads(skill_id, revision_id) VALUES (?1, ?2)",
+                (
+                    request.skill_id().as_uuid().to_string(),
+                    record.id().as_str(),
+                ),
+            )
+            .map_err(|_| storage_error("storage.revision.rejected"))?;
+        transaction
+            .commit()
+            .map_err(|_| storage_error("storage.transaction.failed"))?;
+        let new_heads = vec![record.id().clone()];
+        Ok(SaveRevisionResult::new(record, new_heads))
+    }
+}
+
+fn read_heads(transaction: &Transaction<'_>, skill_id: SkillId) -> AppResult<Vec<String>> {
+    let mut statement = transaction
+        .prepare("SELECT revision_id FROM skill_heads WHERE skill_id = ?1 ORDER BY revision_id")
+        .map_err(|_| storage_error("storage.revision.rejected"))?;
+    statement
+        .query_map([skill_id.as_uuid().to_string()], |row| row.get(0))
+        .map_err(|_| storage_error("storage.revision.rejected"))?
+        .map(|id| id.map_err(|_| storage_error("storage.data.corrupt")))
+        .collect()
+}
+
+/// Serializes observed heads as a JSON array by hand. Revision ids are
+/// validated 64-char lowercase hex at construction, so no quoting or escape
+/// sequence can appear; anything else fails the debug assertion in tests.
+fn observed_heads_json(heads: &[RevisionId]) -> String {
+    let mut out = String::from("[");
+    for (index, head) in heads.iter().enumerate() {
+        debug_assert!(head.as_str().bytes().all(|byte| byte.is_ascii_hexdigit()));
+        if index > 0 {
+            out.push(',');
+        }
+        out.push('"');
+        out.push_str(head.as_str());
+        out.push('"');
+    }
+    out.push(']');
+    out
 }
 
 impl StoragePort for SqliteStore {
