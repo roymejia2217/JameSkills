@@ -6,4 +6,5 @@
 //! domain crate and never defines domain policy.
 
 pub mod composition;
+pub mod fs;
 pub mod platform;
