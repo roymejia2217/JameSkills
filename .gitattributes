@@ -1,0 +1,3 @@
+# Normaliza finales de línea en el repo; los scripts de shell exigen LF.
+* text=auto
+*.sh text eol=lf

@@ -32,3 +32,7 @@ Las [instrucciones de agentes](AGENTS.md) fijan la ejecución reanudable. Comenz
 [Suite de referencia](docs/examples/repository-foundation/SKILL.md) es un fixture del esquema propuesto, para implementar y validar en TDD. Su plantilla CI tiene valores por resolver y debe fallar validación de producción hasta completarlos; no es workflow activo.
 
 GPUI Kit0.7.0 fijado desde release/registry, OpenCode/Codex/Pi/AntigravityCLI/GrokBuild con contratos documentados. Unsupported/Unknown siempre visibles. Una skill puede guiar pasos del usuario, pero protección de main y gates CI dependen de reglas/permisos reales del proveedor. Tokens y passphrase no forman parte de la skill ni del backup.
+
+## Convenciones del repo
+
+Licencia propuesta Apache-2.0 (`LICENSE`); el owner la valida antes de publicar (ver `docs/OPERATIONS.md`). Commits convencionales en rama, sin push automático a `main` remoto. Comandos de verificación: `cargo fmt --all -- --check`, `cargo test -p jameskills-desktop --features test-support --locked`, `git diff --check`. Instrucciones de agentes en `AGENTS.md`.

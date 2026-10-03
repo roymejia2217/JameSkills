@@ -1,0 +1,14 @@
+/target/
+*.rs.bk
+# Secretos y credenciales: jamás se commitean (ver docs/SECURITY.md).
+.env
+*.pem
+*.key
+# Respaldos temporales y salidas de empaquetado local.
+*.bak
+*~
+*.tmp
+dist/
+# Los patrones de vault dumps y snapshots cifrados se amplían cuando
+# cloud-sync defina sus extensiones (T051+); nada de tests/fixtures
+# usa hoy estas extensiones (verificado contra git ls-files).
