@@ -54,6 +54,11 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Documented upstream dlopen flag (yeslogic-fontconfig-sys): check and
+      # lint without fontconfig.pc. Builds that link still install the dev
+      # package in build-linux. See docs/PLATFORM-EVIDENCE.md.
+      RUST_FONTCONFIG_DLOPEN: 1
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -114,7 +119,8 @@ jobs:
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
-            libxkbcommon-x11-dev
+            libxkbcommon-x11-dev \
+            libfontconfig1-dev
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # 1.98.1
         with:
@@ -160,13 +166,16 @@ jobs:
     needs: [fmt, clippy, tests, build-linux, build-windows, validate-commit-messages]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
     steps:
       - name: Require all quality gates green
         run: |
           python3 - <<'EOF'
           import json
+          import os
           import sys
-          needs = json.loads('${{ toJSON(needs) }}')
+          needs = json.loads(os.environ["NEEDS_JSON"])
           bad = {
               name: outcome["result"]
               for name, outcome in needs.items()
