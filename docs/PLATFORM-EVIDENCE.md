@@ -101,6 +101,46 @@ está instalado, así que las verificaciones usaron Windows PowerShell 5.1. Tras
 la instalación, `scripts/setup-windows.ps1 -Check` terminó con código 0:
 Rust/toolchain/target MSVC, CMake, VS C++ y SDK `pass`; display/GPU `unknown`.
 
+## Ventana T005 en Windows (wiring PlatformProbe) — 2026-10-03
+
+Incremento T005 (5 archivos): `crates/jameskills-desktop/src/main.rs`,
+`src/theme.rs`, `src/views/platform_probe.rs`, `src/composition.rs` y esta
+sección. `main` llama a `composition::bootstrap_desktop`, que usa
+`application().with_assets(Assets)`, `init` y `open_window` con
+`render_platform_probe`. El `mod` de la vista usa `#[path]` temporal hasta
+que T008.a cree `src/views/mod.rs`.
+
+**RED:** `cargo test -p jameskills-desktop --features test-support --locked`
+dio `0 passed` porque la sonda existía como borrador sin `mod` que la
+compilara: la prueba de foco/click/icono no podía mostrar ningún fallo.
+
+**Correcciones del borrador contra el source publicado del Kit (no contra
+memoria):** `gpui-kit 0.7.0/src/lib.rs` confirma que `open_window` ya
+envuelve en `base::Root` (nada de `Root` extra) y que `init` ejecuta
+`theme::init`; `src/test.rs` muestra que `find`/`click` viven en
+`TestWindowExt` sobre `Window` (`VisualTestContext` de gpui 0.3.7 no tiene
+`find`); `tests/common/mod.rs` fija la receta con el `open_window`
+productivo y `tests/components.rs` el ciclo `draw/clear/find/click`.
+`Icon::new(IconName::Search)` existe (`gpui-component-0.7.0/src/Icon.rs`);
+`Button::new().primary().label().on_click()`, `Input::new(&state)`,
+`InputState::new(window, cx)` y `ActiveTheme` verificados en el mismo
+source. Ventana 1280x800 centrada con mínimo 1000x680 (SPEC-desktop-app).
+
+**GREEN Windows (`DESKTOP-6PK09A2`, Rust 1.95.0 MSVC):**
+
+| Comando | Resultado |
+|---|---|
+| `cargo test -p jameskills-desktop --features test-support --locked` | 1/1 `platform_probe_renders_the_search_control` (input visible, click cambia `interaction_checked`) |
+| `cargo fmt -p jameskills-desktop -- --check` | limpio |
+| `cargo clippy -p jameskills-desktop --all-targets --features test-support --locked -- -D warnings` | limpio |
+| `cargo build -p jameskills-desktop --locked` | código 0 |
+| `target/debug/jameskills-desktop.exe` en proceso aparte | vivo 12s sin panic; detenido por el harness (el cierre visual limpio queda para el smoke con captura) |
+
+**No se declara T005 completa:** la aceptación exige build/smoke en Linux
+y Windows por separado; Linux sigue bloqueado (sin sesión gráfica ni
+development libs `xcb`/`xkbcommon`, ver sección Linux). Display/GPU en
+Windows siguen `unknown` hasta captura del nuevo layout con la sonda.
+
 Verificación ejecutada: `bash -n scripts/setup-linux.sh` pasó; `--check` emitió
 JSON y código1 por CMake/Clang y módulos pkg-config de desarrollo ausentes,
 marcando Vulkan loader `pass` y display/GPU `unknown`; `--print-install-plan`
