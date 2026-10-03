@@ -563,9 +563,9 @@ El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Lin
 
 ## T013 — Canonicalizar bundle y calcular hash de contenido
 
-- [ ] **T013 completada y verificada**
+- [x] **T013 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T010, T011, T012. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T010, T011, T012. **Estado:** completada.
 
 **Implementación y funciones:** ValidatedBundle, canonical_inventory, hash_bundle; orden de paths y hashing con representación/versionado documentado. compute_revision usa bytes/hash exactos SPEC-skill-format; parent IDs ordenados, timestamps fuera hash; goldens content/tombstone. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -580,18 +580,19 @@ El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Lin
 **Descomposición obligatoria y wiring adicional:**
 - [x] **T013.a — DTO de revisión y hash causal** (3 archivos): `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/revision_hash.rs`. Definir RevisionRecord/RevisionKind/parents/ContentHash usando IDs validados; compute_revision exacto antes de StoragePort. revision_hash golden content/tombstone, timestamps irrelevantes, parent ordering.
 - Evidencia T013.a: RED E0432 imports sin resolver. GREEN 8/8 Windows local (`--test revision_hash`), suite core completa, clippy all-targets `-D warnings`, fmt/diff limpios; PR #7 9/9 remoto (tests ubuntu + builds). Kind bytes propios Content 0x01/Tombstone 0x02 documentados; `skill.rs` sin cambios (versión pasa como `&str` validado semver). Commit `9cf9a71` (squash PR #7).
-- [ ] **T013.b — Bundle hashing canónico** (4 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/tests/support/mod.rs`; `crates/jameskills-core/tests/bundle_hash.rs`; `crates/jameskills-infra/src/fs.rs`. Hash raw bytes ordenadas/inventory; tests/support/mod.rs local a integration tests, no helper de fixture en release.
+- [x] **T013.b — Bundle hashing canónico** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/support/mod.rs`; `crates/jameskills-core/tests/bundle_hash.rs`; `crates/jameskills-infra/src/fs.rs`. Hash raw bytes ordenadas/inventory; tests/support/mod.rs local a integration tests, no helper de fixture en release.
+- Evidencia T013.b: RED E0432 en `canonical_inventory`/`hash_bundle`. GREEN 7/7 Windows local más 3 unit tests de `read_bundle_bytes` en fs; suites core/infra completas, clippy workspace `-D warnings`, fmt/diff limpios; PR #9 9/9 remoto. El quinto archivo es el reexport en `mod.rs`; `skill.rs` no toca parsers. Commit `27325af` (squash PR #9).
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Canonicalización no normaliza arbitrariamente instrucciones ni line endings fuera del contrato.
-- [ ] Hash verifica bytes de assets y manifest, excluye solo metadata explícitamente no canónica.
-- [ ] Inventario lleva tamaños/hashes y se usa por library/install/backup sin algoritmos duplicados.
+- [x] Canonicalización no normaliza arbitrariamente instrucciones ni line endings fuera del contrato.
+- [x] Hash verifica bytes de assets y manifest, excluye solo metadata explícitamente no canónica.
+- [x] Inventario lleva tamaños/hashes y se usa por library/install/backup sin algoritmos duplicados.
 
 **Verificación:** cargo test -p jameskills-core --locked revision_hash; cargo test -p jameskills-core --locked bundle_hash; goldens causales/raw byte inventory en ambos OS.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T013.a 8/8 y T013.b 7/7 Windows local con goldens independientes del digest; remoto PR #7 y PR #9 9/9 (tests ubuntu + builds). CRLF cambia bundle hash, orden no; tamaños fuera del digest. Commits `9cf9a71`, `27325af`.
 
 <a id="t014"></a>
 
