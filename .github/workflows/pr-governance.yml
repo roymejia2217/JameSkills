@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   validate-pull-request-governance:
+    name: PR Governance
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
