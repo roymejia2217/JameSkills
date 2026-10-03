@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-02
-Rama: `feat/bootstrap-toolchain`; la corrección de rutas está publicada como `d1b9f07`, seguida del commit de evidencia/checkpoint HEAD. El intento Git convencional de push recibió HTTP 401; la sincronización se completó con el conector autenticado de GitHub.
+Rama: `main` (única, local y remota; antes `feat/bootstrap-toolchain`, ya eliminada y con default movido a `main` el 2026-10-03). Protección `main-protection` activa sin bypass.
 Última tarea completa: T004 (incluye T004.d, rutas de Windows y verificación de prerequisitos). T007/T009/T010/T011/T012.a también están completas. `target/` y `JameSkills-implementation-dossier.zip` son artefactos locales sin seguimiento; preservarlos.
 Tarea activa: ninguna en este turno. Próxima elegible por orden topológico: T005, abrir/validar ventana GPUI con sesión gráfica. T012.b filesystem/ZIP también requiere T004 y espera la secuencia del DAG.
 RED/GREEN T004.d: prueba nueva reprodujo `LocalAppData/JameSkills` idéntico para data y cache, rechazado por `build_services`; GREEN separa `LocalAppData/JameSkills/Data` y `/Cache`, conservando rechazo de rutas solapadas.
