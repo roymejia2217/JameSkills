@@ -55,6 +55,14 @@ MSRV1.88). `CaseMapper::new().fold_string` uses full locale-independent Unicode
 case folding; normalize its result to NFC before comparing path keys. Fuente de
 API versionada: [`icu_casemap::CaseMapper`](https://docs.rs/icu_casemap/2.3.0/icu_casemap/struct.CaseMapper.html).
 
+Storage T037: `rusqlite = 0.40.2` (MIT), `default-features = false` con
+`bundled`: SQLite se compila desde su fuente con cc, sin SQLite del sistema
+ni extensiones cargables. Índice crates.io: `yanked=false`; `rust-version`
+no declarado en el índice, compatibilidad con 1.95 probada por compilación
+local (MSVC, objeto `sqlite3.o` generado) y CI. Referencia versionada:
+[`rusqlite`](https://docs.rs/rusqlite/0.40.2/rusqlite/). El toolchain C lo
+aporta VS2022 en Windows y cc en Linux; `load_extension` queda desactivado.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
