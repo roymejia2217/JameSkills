@@ -287,6 +287,191 @@ fn staged_blob_without_commit_leaves_no_head() {
 }
 
 #[test]
+fn store_rejects_bytes_that_do_not_match_the_addressed_hash() {
+    let case = setup_case();
+    let archive = write_bundle_archive(&files_v2()).unwrap();
+    let expected = bundle_hash_of(&files_v1());
+
+    assert!(store_blob_bytes(&case.blobs, &expected, &archive).is_err());
+    assert!(!blob_path(&case.blobs, &expected).exists());
+}
+
+#[test]
+fn orphaned_blobs_are_listed_and_preserved_across_reopen() {
+    let case = setup_case();
+    let (_archive, hash) = stage(&case, &files_v1());
+
+    assert_eq!(case.store.orphan_blob_hashes().unwrap(), vec![hash.clone()]);
+    drop(case.store);
+    let reopened = SqliteStore::open(&case.db).unwrap();
+    assert_eq!(reopened.orphan_blob_hashes().unwrap(), vec![hash.clone()]);
+    assert!(blob_path(&case.blobs, &hash).is_file());
+    assert!(reopened.check_integrity().is_ok());
+}
+
+#[test]
+fn reopening_rejects_a_missing_blob_referenced_by_a_revision() {
+    let case = setup_case();
+    let (_archive, hash) = stage(&case, &files_v1());
+    case.store
+        .commit_revision(&request(
+            Some(hash.clone()),
+            vec![],
+            RevisionKind::Content,
+            "0.1.0",
+            vec![],
+        ))
+        .unwrap();
+    std::fs::remove_file(blob_path(&case.blobs, &hash)).unwrap();
+    let db = case.db.clone();
+    drop(case.store);
+
+    assert!(SqliteStore::open(&db).is_err());
+}
+
+#[test]
+fn reopening_rejects_a_corrupt_blob_referenced_by_a_revision() {
+    let case = setup_case();
+    let (_archive, hash) = stage(&case, &files_v1());
+    case.store
+        .commit_revision(&request(
+            Some(hash.clone()),
+            vec![],
+            RevisionKind::Content,
+            "0.1.0",
+            vec![],
+        ))
+        .unwrap();
+    let path = blob_path(&case.blobs, &hash);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[0] ^= 0x01;
+    std::fs::write(path, bytes).unwrap();
+    let db = case.db.clone();
+    drop(case.store);
+
+    assert!(SqliteStore::open(&db).is_err());
+}
+
+#[test]
+fn commit_requires_parents_to_cover_every_current_head() {
+    let case = setup_case();
+    let (_archive, first_hash) = stage(&case, &files_v1());
+    let first = case
+        .store
+        .commit_revision(&request(
+            Some(first_hash),
+            vec![],
+            RevisionKind::Content,
+            "0.1.0",
+            vec![],
+        ))
+        .unwrap();
+    let (_archive, second_hash) = stage(&case, &files_v2());
+
+    let result = case.store.commit_revision(&request(
+        Some(second_hash),
+        vec![],
+        RevisionKind::Content,
+        "0.2.0",
+        vec![first.revision().id().clone()],
+    ));
+
+    assert!(result.is_err());
+    assert_eq!(
+        heads(&case),
+        vec![first.revision().id().as_str().to_owned()]
+    );
+}
+
+#[test]
+fn failed_revision_transaction_preserves_previous_head_and_orphan_blob() {
+    let case = setup_case();
+    let (_archive, first_hash) = stage(&case, &files_v1());
+    let first = case
+        .store
+        .commit_revision(&request(
+            Some(first_hash),
+            vec![],
+            RevisionKind::Content,
+            "0.1.0",
+            vec![],
+        ))
+        .unwrap();
+    let (_archive, second_hash) = stage(&case, &files_v2());
+    case.store
+        .with_transaction(|transaction| {
+            transaction
+                .execute_batch(
+                    "CREATE TRIGGER fail_head_insert BEFORE INSERT ON skill_heads BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+                )
+                .map_err(|_| storage_marker("test.trigger.failed"))?;
+            Ok(())
+        })
+        .unwrap();
+
+    let retry = request(
+        Some(second_hash.clone()),
+        vec![first.revision().id().clone()],
+        RevisionKind::Content,
+        "0.2.0",
+        vec![first.revision().id().clone()],
+    );
+    let result = case.store.commit_revision(&retry);
+
+    assert!(result.is_err());
+    assert_eq!(
+        heads(&case),
+        vec![first.revision().id().as_str().to_owned()]
+    );
+    let count: u32 = rusqlite::Connection::open(&case.db)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM revisions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    assert!(blob_path(&case.blobs, &second_hash).is_file());
+    assert_eq!(
+        case.store.orphan_blob_hashes().unwrap(),
+        vec![second_hash.clone()]
+    );
+    case.store
+        .with_transaction(|transaction| {
+            transaction
+                .execute_batch("DROP TRIGGER fail_head_insert")
+                .map_err(|_| storage_marker("test.trigger.drop_failed"))?;
+            Ok(())
+        })
+        .unwrap();
+    let retried = case.store.commit_revision(&retry).unwrap();
+    assert_eq!(
+        heads(&case),
+        vec![retried.revision().id().as_str().to_owned()]
+    );
+    assert!(case.store.orphan_blob_hashes().unwrap().is_empty());
+}
+
+#[test]
+fn commit_without_a_verified_content_blob_does_not_write_a_revision() {
+    let case = setup_case();
+    let hash = bundle_hash_of(&files_v1());
+
+    let result = case.store.commit_revision(&request(
+        Some(hash),
+        vec![],
+        RevisionKind::Content,
+        "0.1.0",
+        vec![],
+    ));
+
+    assert!(result.is_err());
+    assert!(heads(&case).is_empty());
+    let count: u32 = rusqlite::Connection::open(&case.db)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM revisions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
 fn tombstone_replaces_heads_and_records_observed_heads() {
     let case = setup_case();
     let (_archive, first_hash) = stage(&case, &files_v1());

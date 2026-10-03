@@ -1372,7 +1372,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T038 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T037, T013, T012. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T037, T013, T012. **Estado:** en progreso.
 
 **Implementación y funciones:** SkillRevision, RevisionId, store_bundle_blob, commit_revision, verify_blob; hash+size+parent causal y commit DB/FS recuperable. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1386,13 +1386,27 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/revision_storage.rs`
 
 **Aceptación:**
-- [ ] Blobs/revisiones inmutables y referenciados por hash; commit acepta expected_heads esperada.
+- [x] Blobs/revisiones inmutables y referenciados por hash; commit acepta expected_heads esperada (base T038, PR #17).
 - [ ] Orphans locales quedan identificados para recuperación segura; no borrar parent aún usado.
 - [ ] Reabrir biblioteca verifica consistencia con errores y recuperación, sin sobrescribir contenido.
 
 **Verificación:** cargo test -p jameskills-infra --locked revision_storage con failure injection; comprobar manifest/hash roundtrip frente T013.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Base parcial: RED E0432/E0599 y GREEN 7/7 Windows local; PR #17 `c81fa73` (9/9 checks). Los siete tests no ejercitaban identificación de blobs huérfanos ni validación al reabrir; esos criterios siguen abiertos.
+
+### T038.a — Verificar y recuperar el almacén de blobs
+
+- [ ] **T038.a completada y verificada**
+
+**Dependencias:** T038 base (PR #17). **Archivos (4):** `crates/jameskills-infra/src/fs.rs`, `crates/jameskills-infra/src/sqlite.rs`, `crates/jameskills-infra/tests/revision_storage.rs`, `tasks/todo.md`.
+
+**RED primero:** blobs huérfanos identificables sin borrado automático; al reabrir, referencias ausentes/corruptas se informan y bloquean escrituras; reintento de commit puede reutilizar blob verificado. Fallo transaccional no publica revisión ni destruye una revisión anterior.
+
+**Aceptación:** inventario separa blobs referenciados y huérfanos; apertura verifica cada blob referenciado y no limpia bytes automáticamente; recuperación segura es repetible/no destructiva y ninguna revisión parent se borra.
+
+**Verificación:** `cargo test -p jameskills-infra --locked --test revision_storage`; luego suite infra, clippy y fmt. Registrar RED/GREEN y ejecución Windows + CI Linux.
+
+**Evidencia al ejecutar:** RED `cargo test -p jameskills-infra --locked --test revision_storage` falló con E0599 porque faltaba `orphan_blob_hashes`. GREEN 14/14 focused Windows; `cargo test -p jameskills-infra --locked` 60/60; workspace Clippy `-D warnings`, fmt y `git diff --check` limpios. Incluye blob hash mismatch rechazado, huérfano listado/preservado/reutilizado tras rollback, y re-open bloquea referencias ausentes o corruptas. CI Linux/Windows de PR pendiente.
 
 <a id="t039"></a>
 
@@ -1400,7 +1414,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T039 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T037, T038. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T037, T038.a. **Estado:** pendiente.
 
 **Implementación y funciones:** LibraryService::list_skills, search_skills, load_skill, load_history; filtros/sort/page cursor estables sin cargar blobs completos. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
