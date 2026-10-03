@@ -1348,7 +1348,10 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/sqlite_migrations.rs`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T037.a — SQL migrations** (3 archivos): `crates/jameskills-infra/migrations/001_library.sql`; `crates/jameskills-infra/migrations/002_operations.sql`; `crates/jameskills-infra/migrations/003_sync.sql`. Esquema exacto ARCHITECTURE, user_version y rollback; sqlite_migrations tests se escriben antes del código b.
+- [x] **T037.dep — Fijar proveedor SQLite** (3 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`. Pin exacto `rusqlite = 0.40.2` con `bundled`, sin SQLite del sistema ni extensiones; registrar fuente/licencia/MSRV.
+- Evidencia T037.dep: índice crates.io `yanked=false`; `cargo check` compiló `sqlite3.c` vía cc (MSVC local, objeto generado); CI linux+windows verde con el proveedor. Commit `6c0324c` (squash PR #13, incluye T037.a).
+- [x] **T037.a — SQL migrations** (4 archivos): `crates/jameskills-infra/migrations/001_library.sql`; `crates/jameskills-infra/migrations/002_operations.sql`; `crates/jameskills-infra/migrations/003_sync.sql`; `crates/jameskills-infra/tests/sqlite_migrations.rs`. Esquema exacto ARCHITECTURE, user_version y rollback; sqlite_migrations tests se escriben antes del código b.
+- Evidencia T037.a: RED 6/6 por archivos ausentes. GREEN 6/6 Windows local (11 tablas exactas, rerun idempotente, FK rechaza revisión huérfana pero permite parent ausente por diseño, archivos sin `PRAGMA user_version`, corrupto rechazado sin pánico, columnas de revisions/deletions fijadas). Remoto PR #13 9/9. Commit `6c0324c` (squash PR #13).
 - [ ] **T037.b — StoragePort y actor SQLite** (5 archivos): `crates/jameskills-core/src/ports/storage.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/sqlite.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/sqlite_migrations.rs`. Single writer, WAL/foreign_keys/busy_timeout 5s. No global connection ni sqlite en UI render.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
