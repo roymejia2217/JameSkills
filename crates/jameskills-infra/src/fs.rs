@@ -1,7 +1,9 @@
 use jameskills_core::{
     Diagnostic,
     domain::{BundleEntry, EntryKind, PortablePath, ValidatedInventory, validate_bundle_inventory},
-    ports::filesystem::bundle_entry_from_path,
+    ports::filesystem::{
+        BundleFiles, bundle_entry_from_path, extract_archive_files, validate_archive_entries,
+    },
 };
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -16,6 +18,89 @@ impl LocalFileSystem {
     pub fn inspect_bundle(&self, root: &Path) -> Result<ValidatedInventory, Vec<Diagnostic>> {
         validate_bundle_inventory(&inspect_bundle_tree(root)?)
     }
+}
+
+/// Reads a `.jskill` archive fully before trusting it: central validation,
+/// then stored-entry extraction with checksums and validated totals. Shares
+/// validation with directory import so both accept exact canonical bytes.
+pub fn read_bundle(bytes: &[u8]) -> Result<(ValidatedInventory, BundleFiles), Vec<Diagnostic>> {
+    let inventory = validate_archive_entries(bytes)?;
+    let files = extract_archive_files(bytes, &inventory)?;
+    Ok((inventory, files))
+}
+
+/// Unpacks a validated archive into private staging: nothing is written
+/// before the full archive validates, the staging directory must not exist
+/// (a pre-existing destination is never touched), and any failure removes
+/// what this call created. On Unix, staging dirs are 0700 and files 0600;
+/// on Windows the directory inherits the user's ACL. Staging is never the
+/// library: install flows revalidate from staging before touching targets.
+pub fn unpack_bundle_to_staging(
+    bytes: &[u8],
+    staging: &Path,
+) -> Result<ValidatedInventory, Vec<Diagnostic>> {
+    let (inventory, files) = read_bundle(bytes)?;
+    if std::fs::symlink_metadata(staging).is_ok() {
+        return Err(vec![Diagnostic::error(
+            "bundle.staging.exists",
+            "Staging directory already exists.",
+        )]);
+    }
+    let failed = |message: &'static str| {
+        let _ = std::fs::remove_dir_all(staging);
+        vec![Diagnostic::error("bundle.staging.unwritable", message)]
+    };
+    if std::fs::create_dir_all(staging).is_err() {
+        return Err(failed("Staging directory is not writable."));
+    }
+    restrict_directory(staging).map_err(|_| failed("Staging directory is not private."))?;
+    for file in inventory.files() {
+        let content = files.get(file.path()).ok_or_else(|| {
+            let _ = std::fs::remove_dir_all(staging);
+            vec![Diagnostic::error(
+                "bundle.archive.mismatch",
+                "Archive extraction disagrees with its inventory.",
+            )]
+        })?;
+        let mut path = staging.to_path_buf();
+        for component in file.path().as_str().split('/') {
+            path.push(component);
+        }
+        if let Some(parent) = path.parent()
+            && std::fs::create_dir_all(parent).is_err()
+        {
+            return Err(failed("Staging directory is not writable."));
+        }
+        if std::fs::write(&path, content).is_err() {
+            return Err(failed("Staging file is not writable."));
+        }
+        if restrict_file(&path).is_err() {
+            return Err(failed("Staging file is not private."));
+        }
+    }
+    Ok(inventory)
+}
+
+#[cfg(unix)]
+fn restrict_directory(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn restrict_directory(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_file(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn restrict_file(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Reads the raw bytes of every validated file under the canonical root, in
