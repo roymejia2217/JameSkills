@@ -18,4 +18,6 @@ pub use policy::{
     ToolRequirement, parse_policy,
 };
 pub use scope::Scope;
-pub use skill::{CapabilityDeclaration, SkillFrontmatter, SkillManifest};
+pub use skill::{
+    CapabilityDeclaration, SkillFrontmatter, SkillManifest, canonical_inventory, hash_bundle,
+};
