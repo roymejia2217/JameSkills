@@ -8,3 +8,4 @@
 pub mod composition;
 pub mod fs;
 pub mod platform;
+pub mod sqlite;
