@@ -4,12 +4,15 @@ use jameskills_core::{
     AppError, AppResult,
     domain::ToolId,
     ports::process::{
-        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ProcessOutput,
-        ProcessPermission, ProcessPort, ProcessSpec, RepositoryFacts, RepositoryState,
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
+        ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec, RepositoryFacts,
+        RepositoryState,
     },
 };
+use sha2::{Digest, Sha256};
 use std::{
     ffi::OsString,
+    fs::File,
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -22,11 +25,52 @@ use std::{
 };
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const MAX_EXECUTABLE_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
 
 /// OS process adapter. It uses argv only, clears inherited environment, drains
 /// stdout/stderr concurrently under a shared byte budget, and kills the whole
 /// process group/job on timeout, cancellation or output overflow.
 pub struct SystemProcessPort;
+
+/// Computes a bounded fingerprint for display/approval of one candidate.
+/// The process adapter recomputes it before execution to detect replacement.
+pub fn fingerprint_executable(path: &Path) -> AppResult<ExecutableFingerprint> {
+    let canonical = std::fs::canonicalize(path).map_err(|_| executable_identity_error())?;
+    let mut file = File::open(canonical).map_err(|_| executable_identity_error())?;
+    let before = file.metadata().map_err(|_| executable_identity_error())?;
+    if !before.file_type().is_file()
+        || before.len() == 0
+        || before.len() > MAX_EXECUTABLE_FINGERPRINT_BYTES
+    {
+        return Err(executable_identity_error());
+    }
+
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| executable_identity_error())?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        if total > MAX_EXECUTABLE_FINGERPRINT_BYTES {
+            return Err(executable_identity_error());
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    let after = file.metadata().map_err(|_| executable_identity_error())?;
+    if total != before.len()
+        || total != after.len()
+        || before.modified().ok() != after.modified().ok()
+    {
+        return Err(executable_identity_error());
+    }
+    Ok(ExecutableFingerprint::from_sha256(hasher.finalize().into()))
+}
 
 /// Reads repository metadata using only fixed, read-only Git argv. The selected
 /// path is passed as the process working directory rather than interpolated
@@ -321,6 +365,14 @@ fn run_blocking(spec: ProcessSpec) -> AppResult<ProcessOutput> {
             operation: "process.executable.not_regular".to_owned(),
         });
     }
+    if let Some(expected) = spec.approved_executable_fingerprint() {
+        let observed = fingerprint_executable(&executable)?;
+        if &observed != expected {
+            return Err(AppError::PermissionDenied {
+                operation: "process.executable.identity_changed".to_owned(),
+            });
+        }
+    }
     let cwd = std::fs::canonicalize(spec.cwd().path()).map_err(|_| AppError::PermissionDenied {
         operation: "process.cwd.unavailable".to_owned(),
     })?;
@@ -472,6 +524,10 @@ fn tool_id_name(tool_id: ToolId) -> &'static str {
         ToolId::Gh => "gh",
         ToolId::Cargo => "cargo",
         ToolId::Npm => "npm",
+        ToolId::Node => "node",
+        ToolId::Rustc => "rustc",
+        ToolId::CargoAudit => "cargo-audit",
+        ToolId::CargoDeny => "cargo-deny",
     }
 }
 
@@ -479,5 +535,11 @@ fn external_error(tool_id: &str, exit_code: Option<i32>) -> AppError {
     AppError::ExternalTool {
         tool_id: tool_id.to_owned(),
         exit_code,
+    }
+}
+
+fn executable_identity_error() -> AppError {
+    AppError::PermissionDenied {
+        operation: "process.executable.identity_unavailable".to_owned(),
     }
 }

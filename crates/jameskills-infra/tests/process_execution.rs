@@ -6,7 +6,7 @@ use jameskills_core::{
         ProcessPort, ProcessSpec,
     },
 };
-use jameskills_infra::process::SystemProcessPort;
+use jameskills_infra::process::{SystemProcessPort, fingerprint_executable};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
@@ -147,4 +147,55 @@ fn process_runner_terminates_group_on_timeout_and_cancellation() {
         cancellation,
     ));
     assert!(matches!(cancelled, Err(AppError::Cancelled)));
+}
+
+#[test]
+fn process_runner_rejects_an_executable_replaced_after_fingerprint_approval() {
+    let path = std::env::temp_dir().join(format!(
+        "jameskills candidate fingerprint-{}.bin",
+        std::process::id()
+    ));
+    std::fs::write(&path, b"candidate before approval").unwrap();
+    let approved = fingerprint_executable(&path).unwrap();
+    std::fs::write(&path, b"candidate replaced after approval").unwrap();
+
+    let spec = ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(std::fs::canonicalize(&path).unwrap()).unwrap(),
+        ToolId::Git,
+        vec![],
+        ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap(),
+        safe_environment(),
+        Duration::from_secs(2),
+        4096,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .unwrap()
+    .with_approved_executable_fingerprint(approved);
+
+    let error = match run(spec) {
+        Err(error) => error,
+        Ok(_) => panic!("changed executable identity must block process spawn"),
+    };
+    assert!(matches!(
+        error,
+        AppError::PermissionDenied { operation }
+            if operation == "process.executable.identity_changed"
+    ));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn process_runner_accepts_an_unchanged_approved_executable() {
+    let executable_path = std::env::current_exe().unwrap();
+    let approved = fingerprint_executable(&executable_path).unwrap();
+    let spec = helper_spec(
+        "process_probe_output",
+        Duration::from_secs(5),
+        4096,
+        CancellationToken::new(),
+    )
+    .with_approved_executable_fingerprint(approved);
+
+    assert_eq!(run(spec).unwrap().exit_code(), Some(0));
 }
