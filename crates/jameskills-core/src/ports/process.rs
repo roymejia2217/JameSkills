@@ -46,6 +46,21 @@ impl ApprovedExecutable {
     }
 }
 
+/// SHA-256 identity that was reviewed before an executable probe. The provider
+/// must compare this value with the file immediately before spawning it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ExecutableFingerprint([u8; 32]);
+
+impl ExecutableFingerprint {
+    pub fn from_sha256(digest: [u8; 32]) -> Self {
+        Self(digest)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// Canonical absolute working directory selected by the caller.
 pub struct ApprovedRoot(PathBuf);
 
@@ -133,6 +148,7 @@ pub struct ProcessSpec {
     output_limit_bytes: usize,
     permission: ProcessPermission,
     cancellation: CancellationToken,
+    approved_executable_fingerprint: Option<ExecutableFingerprint>,
 }
 
 impl ProcessSpec {
@@ -174,7 +190,16 @@ impl ProcessSpec {
             output_limit_bytes,
             permission,
             cancellation,
+            approved_executable_fingerprint: None,
         })
+    }
+
+    pub fn with_approved_executable_fingerprint(
+        mut self,
+        fingerprint: ExecutableFingerprint,
+    ) -> Self {
+        self.approved_executable_fingerprint = Some(fingerprint);
+        self
     }
 
     pub fn executable(&self) -> &ApprovedExecutable {
@@ -211,6 +236,10 @@ impl ProcessSpec {
 
     pub fn cancellation(&self) -> &CancellationToken {
         &self.cancellation
+    }
+
+    pub fn approved_executable_fingerprint(&self) -> Option<&ExecutableFingerprint> {
+        self.approved_executable_fingerprint.as_ref()
     }
 }
 

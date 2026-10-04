@@ -1200,6 +1200,10 @@ fn tool_id_name(tool_id: super::policy::ToolId) -> &'static str {
         ToolId::Gh => "gh",
         ToolId::Cargo => "cargo",
         ToolId::Npm => "npm",
+        ToolId::Node => "node",
+        ToolId::Rustc => "rustc",
+        ToolId::CargoAudit => "cargo-audit",
+        ToolId::CargoDeny => "cargo-deny",
     }
 }
 
@@ -1213,6 +1217,9 @@ fn tool_operation_name(operation: super::policy::ToolOperation) -> &'static str 
         ToolOperation::BranchRules => "branch-rules",
         ToolOperation::CheckRuns => "check-runs",
         ToolOperation::QualitySuite => "quality-suite",
+        ToolOperation::Version => "version",
+        ToolOperation::Audit => "audit",
+        ToolOperation::Deny => "deny",
     }
 }
 

@@ -4,7 +4,10 @@ use crate::{
 };
 use chrono::{SecondsFormat, Utc};
 use jameskills_core::{
-    AppError, AppResult, Diagnostic, application::LibraryService, ports::ClockPort,
+    AppError, AppResult, Diagnostic,
+    application::{LibraryService, PolicyService, policy::PolicyCheckProvider},
+    domain::{Requirement, policy::CheckObservation},
+    ports::ClockPort,
 };
 use std::{sync::Arc, time::Instant};
 
@@ -44,6 +47,7 @@ pub struct RuntimeServices {
     directories: UserDirectories,
     clock: Arc<SystemClock>,
     library: Arc<LibraryService>,
+    policy: Arc<PolicyService>,
 }
 
 impl RuntimeServices {
@@ -62,17 +66,36 @@ impl RuntimeServices {
     pub fn library(&self) -> &LibraryService {
         self.library.as_ref()
     }
+
+    pub fn policy(&self) -> &PolicyService {
+        self.policy.as_ref()
+    }
+}
+
+struct UnavailablePolicyCheckProvider;
+
+#[async_trait::async_trait]
+impl PolicyCheckProvider for UnavailablePolicyCheckProvider {
+    async fn observe(&self, _requirement: &Requirement) -> AppResult<CheckObservation> {
+        Ok(CheckObservation::unknown())
+    }
 }
 
 /// Build the available runtime adapters after validating caller-supplied paths.
 /// This function does not create directories or initialize unimplemented services.
 pub fn build_services(directories: UserDirectories) -> AppResult<RuntimeServices> {
     validate_directories(&directories)?;
+    let clock = Arc::new(SystemClock::new());
+    let policy_clock: Arc<dyn ClockPort> = clock.clone();
     Ok(RuntimeServices {
         facts: PlatformFacts::detect(),
         directories,
-        clock: Arc::new(SystemClock::new()),
+        clock,
         library: Arc::new(LibraryService::new(Arc::new(LocalFileSystem))),
+        policy: Arc::new(PolicyService::new(
+            Arc::new(UnavailablePolicyCheckProvider),
+            policy_clock,
+        )),
     })
 }
 
@@ -128,6 +151,11 @@ fn path_is_within(path: &std::path::Path, root: &std::path::Path, case_insensiti
 #[cfg(test)]
 mod tests {
     use super::paths_overlap;
+    use super::{UserDirectories, build_services};
+    use jameskills_core::{
+        application::policy::CheckRequest,
+        domain::{parse_policy, policy::CheckStatus},
+    };
     use std::path::Path;
 
     #[test]
@@ -137,5 +165,33 @@ mod tests {
             Path::new("c:/users/ada/appdata/local/jameskills/config"),
             true,
         ));
+    }
+
+    #[test]
+    fn unavailable_runtime_policy_provider_returns_unknown_not_pass() {
+        let root =
+            std::env::temp_dir().join(format!("jameskills policy runtime-{}", std::process::id()));
+        let directories = UserDirectories {
+            config: root.join("config"),
+            data: root.join("data"),
+            cache: root.join("cache"),
+        };
+        let runtime = build_services(directories).unwrap();
+        let policy = parse_policy(
+            include_str!("../../../tests/fixtures/valid-suite/policies/repository.toml").as_bytes(),
+        )
+        .unwrap();
+        let report = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(
+                runtime
+                    .policy()
+                    .check(CheckRequest::new(policy, Default::default())),
+            )
+            .unwrap();
+
+        assert_eq!(report.results()[0].status(), CheckStatus::Unknown);
+        assert_eq!(report.strict_exit(), 1);
     }
 }

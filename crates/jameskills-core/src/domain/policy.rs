@@ -1,4 +1,4 @@
-use super::{PortablePath, Scope};
+use super::{PortablePath, RevisionId, Scope};
 use crate::{Diagnostic, DiagnosticSeverity};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,6 +7,8 @@ const MAX_POLICY_BYTES: usize = 256 * 1024;
 const MAX_REQUIREMENTS: usize = 512;
 const MAX_TOOL_REQUIREMENTS: usize = 64;
 const MAX_LIST_ITEMS: usize = 128;
+const MAX_CHECK_EVIDENCE: usize = 32;
+const MAX_CHECK_SUMMARY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -33,6 +35,46 @@ pub enum Enforcement {
     HostRule,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ApplicabilityFact {
+    Os,
+    Architecture,
+    Stack,
+    Host,
+    Context,
+    Capability,
+}
+
+impl ApplicabilityFact {
+    pub fn accepts_value(self, value: &str) -> bool {
+        let values: &[&str] = match self {
+            Self::Os => &["windows", "linux", "other"],
+            Self::Architecture => &["x86_64", "aarch64", "x86", "arm", "other"],
+            Self::Stack => &["rust", "node", "rust-node", "generic"],
+            Self::Host => &["github", "other"],
+            Self::Context => &["user", "project", "repository"],
+            Self::Capability => &["supported", "needs-verification", "unsupported"],
+        };
+        values.contains(&value)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ApplicabilityCondition {
+    fact: ApplicabilityFact,
+    equals: String,
+}
+
+impl ApplicabilityCondition {
+    pub fn fact(&self) -> ApplicabilityFact {
+        self.fact
+    }
+
+    pub fn equals(&self) -> &str {
+        &self.equals
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ToolId {
     Git,
@@ -41,6 +83,10 @@ pub enum ToolId {
     Gh,
     Cargo,
     Npm,
+    Node,
+    Rustc,
+    CargoAudit,
+    CargoDeny,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -52,6 +98,9 @@ pub enum ToolOperation {
     BranchRules,
     CheckRuns,
     QualitySuite,
+    Version,
+    Audit,
+    Deny,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -91,6 +140,7 @@ pub struct Requirement {
     enforcement: Enforcement,
     depends_on: Vec<String>,
     guidance_id: Option<String>,
+    applies_when: Option<ApplicabilityCondition>,
     check: Check,
 }
 
@@ -118,6 +168,9 @@ impl Requirement {
     }
     pub fn guidance_id(&self) -> Option<&str> {
         self.guidance_id.as_deref()
+    }
+    pub fn applies_when(&self) -> Option<&ApplicabilityCondition> {
+        self.applies_when.as_ref()
     }
     pub fn check(&self) -> &Check {
         &self.check
@@ -218,7 +271,394 @@ struct RawRequirement {
     depends_on: Vec<String>,
     #[serde(default)]
     guidance_id: Option<String>,
+    #[serde(default)]
+    applies_when: Option<RawApplicabilityCondition>,
     check: RawCheck,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckStatus {
+    Pass,
+    Fail,
+    Blocked,
+    Unknown,
+    Unsupported,
+    NotApplicable,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CheckEvidence {
+    source_id: String,
+    observed_at: String,
+    revision: Option<RevisionId>,
+    environment_fingerprint: String,
+    summary: &'static str,
+    expires_at_monotonic_ms: Option<u64>,
+}
+
+impl CheckEvidence {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        source_id: &str,
+        observed_at: &str,
+        revision: Option<RevisionId>,
+        environment_fingerprint: &str,
+        summary: &'static str,
+        expires_at_monotonic_ms: Option<u64>,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        if !valid_evidence_source(source_id)
+            || !valid_evidence_timestamp(observed_at)
+            || !valid_environment_fingerprint(environment_fingerprint)
+            || summary.is_empty()
+            || summary.len() > MAX_CHECK_SUMMARY_BYTES
+            || summary.chars().any(char::is_control)
+        {
+            return Err(vec![diagnostic(
+                "policy.evidence.invalid",
+                "Check evidence metadata is invalid or outside its limits.",
+            )]);
+        }
+        Ok(Self {
+            source_id: source_id.to_owned(),
+            observed_at: observed_at.to_owned(),
+            revision,
+            environment_fingerprint: environment_fingerprint.to_owned(),
+            summary,
+            expires_at_monotonic_ms,
+        })
+    }
+
+    pub fn source_id(&self) -> &str {
+        &self.source_id
+    }
+
+    pub fn observed_at(&self) -> &str {
+        &self.observed_at
+    }
+
+    pub fn revision(&self) -> Option<&RevisionId> {
+        self.revision.as_ref()
+    }
+
+    pub fn environment_fingerprint(&self) -> &str {
+        &self.environment_fingerprint
+    }
+
+    pub fn summary(&self) -> &'static str {
+        self.summary
+    }
+
+    pub fn expires_at_monotonic_ms(&self) -> Option<u64> {
+        self.expires_at_monotonic_ms
+    }
+
+    pub(crate) fn is_expired_at(&self, now_monotonic_ms: u64) -> bool {
+        self.expires_at_monotonic_ms
+            .is_some_and(|expires| now_monotonic_ms >= expires)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CheckObservation {
+    status: CheckStatus,
+    enforcement: Option<Enforcement>,
+    evidence: Vec<CheckEvidence>,
+}
+
+impl CheckObservation {
+    pub fn new(
+        status: CheckStatus,
+        enforcement: Option<Enforcement>,
+        evidence: Vec<CheckEvidence>,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        if evidence.len() > MAX_CHECK_EVIDENCE {
+            return Err(vec![diagnostic(
+                "policy.evidence.limit",
+                "Check returned too many evidence entries.",
+            )]);
+        }
+        Ok(Self {
+            status,
+            enforcement,
+            evidence,
+        })
+    }
+
+    pub fn unknown() -> Self {
+        Self {
+            status: CheckStatus::Unknown,
+            enforcement: None,
+            evidence: Vec::new(),
+        }
+    }
+
+    pub fn status(&self) -> CheckStatus {
+        self.status
+    }
+
+    pub fn enforcement(&self) -> Option<Enforcement> {
+        self.enforcement
+    }
+
+    pub fn evidence(&self) -> &[CheckEvidence] {
+        &self.evidence
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CheckResult {
+    requirement_id: String,
+    status: CheckStatus,
+    severity: Severity,
+    enforcement: Option<Enforcement>,
+    evidence: Vec<CheckEvidence>,
+    guidance_id: Option<String>,
+}
+
+impl CheckResult {
+    pub fn requirement_id(&self) -> &str {
+        &self.requirement_id
+    }
+
+    pub fn status(&self) -> CheckStatus {
+        self.status
+    }
+
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
+
+    pub fn enforcement(&self) -> Option<Enforcement> {
+        self.enforcement
+    }
+
+    pub fn evidence(&self) -> &[CheckEvidence] {
+        &self.evidence
+    }
+
+    pub fn guidance_id(&self) -> Option<&str> {
+        self.guidance_id.as_deref()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CheckReport {
+    results: Vec<CheckResult>,
+    required_ids: BTreeSet<String>,
+}
+
+impl CheckReport {
+    pub(crate) fn new(results: Vec<CheckResult>, required_ids: BTreeSet<String>) -> Self {
+        Self {
+            results,
+            required_ids,
+        }
+    }
+
+    pub fn results(&self) -> &[CheckResult] {
+        &self.results
+    }
+
+    pub fn strict_exit(&self) -> u8 {
+        strict_exit(self)
+    }
+}
+
+pub fn evaluate_predicate(
+    requirement: &Requirement,
+    observation: &CheckObservation,
+    now_monotonic_ms: u64,
+) -> CheckResult {
+    let evidence_expired = observation
+        .evidence
+        .iter()
+        .any(|evidence| evidence.is_expired_at(now_monotonic_ms));
+    let evidence_missing = observation.evidence.is_empty()
+        && matches!(
+            observation.status,
+            CheckStatus::Pass | CheckStatus::Fail | CheckStatus::NotApplicable
+        );
+    let status =
+        if evidence_expired || evidence_missing || observation.status == CheckStatus::NotApplicable
+        {
+            CheckStatus::Unknown
+        } else if observation.status == CheckStatus::Pass
+            && !enforcement_satisfies(requirement.enforcement, observation.enforcement)
+        {
+            CheckStatus::Blocked
+        } else {
+            observation.status
+        };
+    CheckResult {
+        requirement_id: requirement.id.clone(),
+        status,
+        severity: requirement.severity,
+        enforcement: (!evidence_expired && !observation.evidence.is_empty())
+            .then_some(observation.enforcement)
+            .flatten(),
+        evidence: observation.evidence.clone(),
+        guidance_id: requirement.guidance_id.clone(),
+    }
+}
+
+pub(crate) fn not_applicable_result(
+    requirement: &Requirement,
+    evidence: CheckEvidence,
+    now_monotonic_ms: u64,
+) -> CheckResult {
+    CheckResult {
+        requirement_id: requirement.id.clone(),
+        status: if evidence.is_expired_at(now_monotonic_ms) {
+            CheckStatus::Unknown
+        } else {
+            CheckStatus::NotApplicable
+        },
+        severity: requirement.severity,
+        enforcement: None,
+        evidence: vec![evidence],
+        guidance_id: requirement.guidance_id.clone(),
+    }
+}
+
+pub fn strict_exit(report: &CheckReport) -> u8 {
+    if report.required_ids.iter().any(|id| {
+        report
+            .results
+            .iter()
+            .find(|result| result.requirement_id == *id)
+            .is_none_or(|result| {
+                !matches!(
+                    result.status,
+                    CheckStatus::Pass | CheckStatus::NotApplicable
+                )
+            })
+    }) {
+        1
+    } else {
+        0
+    }
+}
+
+fn enforcement_satisfies(required: Enforcement, observed: Option<Enforcement>) -> bool {
+    match required {
+        Enforcement::Instruction => observed.is_some(),
+        Enforcement::LocalCheck => matches!(
+            observed,
+            Some(
+                Enforcement::LocalCheck
+                    | Enforcement::LocalHook
+                    | Enforcement::RequiredCi
+                    | Enforcement::HostRule
+            )
+        ),
+        Enforcement::LocalHook => observed == Some(Enforcement::LocalHook),
+        Enforcement::RequiredCi => {
+            matches!(
+                observed,
+                Some(Enforcement::RequiredCi | Enforcement::HostRule)
+            )
+        }
+        Enforcement::HostRule => observed == Some(Enforcement::HostRule),
+    }
+}
+
+fn valid_evidence_source(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
+        })
+        && value
+            .split(['.', '-'])
+            .all(|component| !component.is_empty())
+}
+
+fn valid_environment_fingerprint(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn valid_evidence_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if !(20..=40).contains(&bytes.len())
+        || !value.is_ascii()
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return false;
+    }
+    let Some(year) = evidence_decimal(bytes, 0, 4) else {
+        return false;
+    };
+    let Some(month) = evidence_decimal(bytes, 5, 7) else {
+        return false;
+    };
+    let Some(day) = evidence_decimal(bytes, 8, 10) else {
+        return false;
+    };
+    let Some(hour) = evidence_decimal(bytes, 11, 13) else {
+        return false;
+    };
+    let Some(minute) = evidence_decimal(bytes, 14, 16) else {
+        return false;
+    };
+    let Some(second) = evidence_decimal(bytes, 17, 19) else {
+        return false;
+    };
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap_year => 29,
+        2 => 28,
+        _ => return false,
+    };
+    if day == 0 || day > max_day || hour > 23 || minute > 59 || second > 60 {
+        return false;
+    }
+
+    let mut suffix = &bytes[19..];
+    if suffix.starts_with(b".") {
+        let timezone = suffix
+            .iter()
+            .position(|byte| matches!(byte, b'Z' | b'+' | b'-'))
+            .unwrap_or(suffix.len());
+        let fraction = &suffix[1..timezone];
+        if fraction.is_empty() || fraction.len() > 9 || !fraction.iter().all(u8::is_ascii_digit) {
+            return false;
+        }
+        suffix = &suffix[timezone..];
+    }
+    if suffix == b"Z" {
+        return true;
+    }
+    suffix.len() == 6
+        && matches!(suffix[0], b'+' | b'-')
+        && suffix[3] == b':'
+        && evidence_decimal(suffix, 1, 3).is_some_and(|hours| hours <= 23)
+        && evidence_decimal(suffix, 4, 6).is_some_and(|minutes| minutes <= 59)
+}
+
+fn evidence_decimal(bytes: &[u8], start: usize, end: usize) -> Option<u32> {
+    let digits = bytes.get(start..end)?;
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(digits).ok()?.parse().ok()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawApplicabilityCondition {
+    fact: String,
+    equals: String,
 }
 
 #[derive(Deserialize)]
@@ -363,6 +803,10 @@ pub fn parse_policy(source: &[u8]) -> Result<Policy, Vec<Diagnostic>> {
                 "Guidance identifier is invalid.",
             )]);
         }
+        let applies_when = item
+            .applies_when
+            .map(parse_applicability_condition)
+            .transpose()?;
         let check = parse_check(item.check)?;
         requirements.push(Requirement {
             id: item.id,
@@ -373,6 +817,7 @@ pub fn parse_policy(source: &[u8]) -> Result<Policy, Vec<Diagnostic>> {
             enforcement,
             depends_on: item.depends_on,
             guidance_id: item.guidance_id,
+            applies_when,
             check,
         });
     }
@@ -401,6 +846,42 @@ fn parse_scope(value: &str) -> Result<Scope, Vec<Diagnostic>> {
             "Policy scope is invalid.",
         )]),
     }
+}
+
+fn parse_applicability_condition(
+    raw: RawApplicabilityCondition,
+) -> Result<ApplicabilityCondition, Vec<Diagnostic>> {
+    let fact = match raw.fact.as_str() {
+        "os" => ApplicabilityFact::Os,
+        "architecture" => ApplicabilityFact::Architecture,
+        "stack" => ApplicabilityFact::Stack,
+        "host" => ApplicabilityFact::Host,
+        "context" => ApplicabilityFact::Context,
+        "capability" => ApplicabilityFact::Capability,
+        _ => return Err(applicability_diagnostic()),
+    };
+    let allowed_values: &[&str] = match fact {
+        ApplicabilityFact::Os => &["windows", "linux", "other"],
+        ApplicabilityFact::Architecture => &["x86_64", "aarch64", "x86", "arm", "other"],
+        ApplicabilityFact::Stack => &["rust", "node", "rust-node", "generic"],
+        ApplicabilityFact::Host => &["github", "other"],
+        ApplicabilityFact::Context => &["user", "project", "repository"],
+        ApplicabilityFact::Capability => &["supported", "needs-verification", "unsupported"],
+    };
+    if !allowed_values.contains(&raw.equals.as_str()) {
+        return Err(applicability_diagnostic());
+    }
+    Ok(ApplicabilityCondition {
+        fact,
+        equals: raw.equals,
+    })
+}
+
+fn applicability_diagnostic() -> Vec<Diagnostic> {
+    vec![diagnostic(
+        "policy.applies_when.invalid",
+        "Applicability fact or value is not registered.",
+    )]
 }
 
 fn parse_severity(value: &str) -> Result<Severity, Vec<Diagnostic>> {
@@ -451,6 +932,10 @@ fn parse_tool_id(value: &str) -> Result<ToolId, Vec<Diagnostic>> {
         "gh" => Ok(ToolId::Gh),
         "cargo" => Ok(ToolId::Cargo),
         "npm" => Ok(ToolId::Npm),
+        "node" => Ok(ToolId::Node),
+        "rustc" => Ok(ToolId::Rustc),
+        "cargo-audit" => Ok(ToolId::CargoAudit),
+        "cargo-deny" => Ok(ToolId::CargoDeny),
         _ => Err(vec![diagnostic(
             "policy.tool.invalid",
             "Tool ID is not registered.",
@@ -467,6 +952,9 @@ fn parse_tool_operation(value: &str) -> Result<ToolOperation, Vec<Diagnostic>> {
         "branch-rules" => Ok(ToolOperation::BranchRules),
         "check-runs" => Ok(ToolOperation::CheckRuns),
         "quality-suite" => Ok(ToolOperation::QualitySuite),
+        "version" => Ok(ToolOperation::Version),
+        "audit" => Ok(ToolOperation::Audit),
+        "deny" => Ok(ToolOperation::Deny),
         _ => Err(vec![diagnostic(
             "policy.operation.invalid",
             "Tool operation is not registered.",
@@ -487,6 +975,21 @@ fn operation_allowed(tool: ToolId, operation: ToolOperation) -> bool {
                 ToolOperation::BranchRules | ToolOperation::CheckRuns
             )
             | (ToolId::Cargo | ToolId::Npm, ToolOperation::QualitySuite)
+            | (
+                ToolId::Git
+                    | ToolId::Gitleaks
+                    | ToolId::Commitlint
+                    | ToolId::Gh
+                    | ToolId::Cargo
+                    | ToolId::Npm
+                    | ToolId::Node
+                    | ToolId::Rustc
+                    | ToolId::CargoAudit
+                    | ToolId::CargoDeny,
+                ToolOperation::Version
+            )
+            | (ToolId::CargoAudit, ToolOperation::Audit)
+            | (ToolId::CargoDeny, ToolOperation::Deny)
     )
 }
 
@@ -639,10 +1142,7 @@ fn validate_registered_tools(
             Check::GithubBranchPolicy { .. } => &[ToolOperation::BranchRules],
             Check::CiEvidence { .. } => &[ToolOperation::CheckRuns],
             Check::ToolchainVersion { tool_id, .. } => {
-                if !available
-                    .iter()
-                    .any(|(available_tool, _)| *available_tool == tool_id)
-                {
+                if !available.contains(&(tool_id, ToolOperation::Version)) {
                     return Err(vec![diagnostic(
                         "policy.tool_reference.invalid",
                         "Check references a tool absent from the registry.",
@@ -659,6 +1159,12 @@ fn validate_registered_tools(
                 ToolOperation::LintMessage => ToolId::Commitlint,
                 ToolOperation::BranchRules | ToolOperation::CheckRuns => ToolId::Gh,
                 ToolOperation::QualitySuite => ToolId::Cargo,
+                ToolOperation::Version | ToolOperation::Audit | ToolOperation::Deny => {
+                    return Err(vec![diagnostic(
+                        "policy.tool_reference.invalid",
+                        "Check references an unsupported tool operation.",
+                    )]);
+                }
             };
             if !available.contains(&(tool, *operation)) {
                 return Err(vec![diagnostic(

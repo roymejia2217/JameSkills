@@ -320,7 +320,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Entorno por OS, ventana GPUI Kit real y CI mínima verificadas; bloqueos target registrados.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia parcial:** Windows `cargo test --workspace --features jameskills-desktop/test-support --locked` pasó; workspace Clippy `-D warnings`, fmt y diff check pasaron. CLI 16 tests, desktop headless 16, core 77, infra 82 passed/3 ignored. C006 sigue sin marcar por smoke nativo display/GPU/ventana pendiente en T005; continuar T019 independiente.
 
 <a id="t007"></a>
 
@@ -437,7 +437,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Puertos/errores, shell/bridge y CLI no tienen éxito ficticio ni secretos.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia parcial:** Windows `cargo test --workspace --features jameskills-desktop/test-support --locked` pasó; workspace Clippy `-D warnings`, fmt y diff check pasaron. CLI 16, desktop headless 16, core 77, infra 82 passed/3 ignored. C006 sigue sin marcar por smoke nativo display/GPU/ventana pendiente en T005; se continúa T019 independiente.
 
 <a id="t010"></a>
 
@@ -557,7 +557,7 @@ El padre T012 no se cierra hasta completar T012.a, T012.contract y T012.b en Lin
 - Formato/policies/safe paths rechazan inputs inválidos; no side effects fuera staging.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia 2026-10-04:** Windows host: `cargo test --workspace --features jameskills-desktop/test-support --locked` pasó; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt/diff check y `cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked` pasaron. No hay PR/runs remotos y Linux no se ejecutó aquí. C006 permanece sin marcar por los requisitos nativos pendientes de T005/C005; no se infiere estado Linux/GPU.
 
 <a id="t013"></a>
 
@@ -730,9 +730,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T017 — Detectar herramientas y perfiles de entorno
 
-- [ ] **T017 completada y verificada**
+- [x] **T017 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T016, T004. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T016, T004. **Estado:** completada localmente; evidencia Windows, Linux CI pendiente.
 
 **Implementación y funciones:** ToolRegistry, DriverVersionSpec, EnvironmentFacts, detect_tools; profiles/tools.toml solo de app: Git, cargo, npm/node, gh, Gitleaks, Commitlint, cargo-audit/deny con source/pin/args/schema/exit semantics. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -746,47 +746,74 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/tool_detection.rs`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T017.a — Facts/capacidades de herramientas** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/tool_capabilities.rs`. tool_detection tables missing/incompatible/unknown, IDs y versions/source.
-- [ ] **T017.b — Registry y probes reales** (4 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`. drivers Git/cargo/npm/node/gh/Gitleaks/Commitlint/audit/deny; argv y output limits; wrapper npm .cmd seguro sin shell arbitrary.
+- [x] **T017.a — Facts/capacidades de herramientas**: tipos puros, estados distintos, enum registry ampliado y consumidores alineados.
+- [x] **T017.a1 — Modelar tool observations puros** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/tool_capabilities.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Missing/Blocked/Unknown/Candidate/Verified, compatibilidad SemVer, capabilities y Evidence app-owned.
+- Evidencia T017.a1: RED E0432 porque `domain::guidance::ToolDetection` no existía. GREEN `tool_capabilities` 3/3; core 65/65 Windows; core Clippy `-D warnings`, fmt/diff clean. Candidate compatible no pasa capability hasta verificación; summary es estático y source ID/timestamp bounded.
+- [x] **T017.a2 — Ampliar IDs/operations cerradas en el policy registry** (5 archivos): `crates/jameskills-core/src/domain/policy.rs`; `crates/jameskills-core/tests/policy_schema.rs`; `tests/fixtures/valid-suite/policies/repository.toml`; `tasks/todo.md`; `tasks/RESUME.md`. Registrar Node/Rustc/cargo-audit/cargo-deny y pares permitidos; exigir operation `version` al check toolchain y probar pares cruzados inválidos.
+- Evidencia T017.a2: RED focused `policy_schema` con E0599 por ToolId/ToolOperation ausentes; GREEN `cargo test -p jameskills-core --locked --test policy_schema` 6/6. Fixture incluye `cargo/version`; rechazo de `node/scan-tracked` confirma allowlist de pares.
+- [x] **T017.a3 — Alinear consumidores de los nuevos registry IDs** (4 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-infra/src/process.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Mapear IDs/operaciones estables en guía/diagnósticos sin tratar cargo-audit/deny como shell.
+- Evidencia T017.a3: RED E0004 al compilar consumidores exhaustivos tras ampliar enums; GREEN `cargo test -p jameskills-core --locked` 66/66 y `cargo test -p jameskills-infra --locked` 67 passed, 3 ignored; Clippy core+infra `-D warnings` pasó.
+- [x] **T017.b — Registry, probes y guías oficiales** (b1+b2+b3+b4+b5): perfiles app-owned, discovery conservador, argv fijo, fingerprint y fuentes por plataforma.
+- [x] **T017.b1 — Definir y parsear perfiles de tools** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`. Schema cerrado, parsers/rangos semver y argv literal app-owned.
+- Evidencia T017.b1: RED `cargo test -p jameskills-infra --locked --test tool_detection` E0432 por falta del loader; GREEN integración 1/1 y parser unitario 1/1. Schema rechaza campos desconocidos y combinaciones herramienta/operación inválidas.
+- [x] **T017.b2 — Descubrir candidatos y parsear versiones** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Resolver candidatos sin ejecutarlos; outputs no reconocidos permanecen Unknown.
+- Evidencia T017.b2: RED `tool_detection` E0432 por falta de candidate/version parsers; GREEN `cargo test -p jameskills-infra --locked --test tool_detection` 4/4 y Clippy infra `-D warnings`. PATH produce solo candidatos (nunca ejecución), rutas relativas se omiten, shims `.cmd` quedan tipados aparte y outputs desconocidos/oversized no parsean.
+- [x] **T017.b3 — Vincular aprobación de ejecutable con fingerprint** (4 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-core/tests/process_contract.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Un probe ejecutable debe declarar SHA-256 observado/aprobado; paths sin fingerprint no autorizan probes.
+- Evidencia T017.b3: RED `process_contract` E0432/E0599 al faltar el tipo/builder de fingerprint; GREEN `cargo test -p jameskills-core --locked --test process_contract` 4/4. `ProcessSpec::new` no incluye identidad aprobada por defecto.
+- [x] **T017.b4 — Ejecutar probes registrados** (b4a+b4b): fingerprint de ejecutable y ProcessPort con argv/environment/budgets fijos.
+- [x] **T017.b4a — Verificar fingerprint al ejecutar procesos** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/process_execution.rs`. SHA-256 streaming limitado; cambio/no match bloquea antes de spawn.
+- Evidencia T017.b4a: RED al retirar el guard, test de ejecutable reemplazado no obtuvo `process.executable.identity_changed`; GREEN process_execution 5 passed/3 ignored, process_contract 4/4 y Clippy core+infra `-D warnings`. SHA-256 streaming <=512 MiB; mismatch bloquea antes del spawn.
+- [x] **T017.b4b — Probar perfiles con aprobación de fingerprint** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Missing/Unknown/Incompatible/shim Blocked; fixed argv; solo native candidate con digest aprobado ejecuta ProcessPort.
+- Evidencia T017.b4b: RED `tool_detection` E0432 por falta de `probe_registered_tool_version`; GREEN detección 7/7, core 67/67, infra 77 passed/3 ignored, Clippy core+infra `-D warnings` y fmt check. Sin fingerprint/missing/shim no hay spawn; versión desconocida no pasa; incompatible se marca Unsupported.
+- [x] **T017.b5a — Documentar fuentes oficiales por plataforma** (4 archivos): `docs/SOURCES.md`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Confirmar URLs oficiales de instalación/version probes para cada herramienta, sin publicar ni ejecutar cambios externos.
+- Evidencia T017.b5a: consultadas páginas oficiales de Git SCM, Node/npm, rustup, GitHub CLI, Gitleaks, Commitlint, RustSec y cargo-deny; se registran guías Windows/Linux y fuentes de comandos version en `docs/SOURCES.md`.
+- [x] **T017.b5b — Enlazar guías de instalación en perfiles** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Fuentes por Windows/Linux app-owned, typed y fail-closed; ningún URL llega desde manifest/skill.
+- Evidencia T017.b5b: RED integration E0599 por falta de `ToolProfile::install_guides`; GREEN tool_detection 8/8 y parser unit 1/1; infra 81 passed/3 ignored; Clippy core+infra `-D warnings`, fmt/diff check. Solo acepta los 18 IDs oficiales por SO; `Other`, URLs no registradas y guías cruzadas no resuelven.
+- [x] **T017.c — Resolver stack desde manifests del proyecto** (c1+c2+c3): inferir stack solo desde `Cargo.toml`/`package.json` acotados; nunca del nombre o metadatos de skill.
+- [x] **T017.c1 — Especificar RED de facts de manifests** (5 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/tests/tool_detection.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Dependencia JSON pinneada y tests para Rust/Node/mixed/malformed/oversized.
+- Evidencia T017.c1: RED E0432 al pedir `ProjectStack`/`inspect_project_manifests` inexistentes; añadida dependencia directa `serde_json=1.0.149` ya presente en lock; `cargo check -p jameskills-infra --offline` pasó.
+- [x] **T017.c2 — Implementar inspección segura de manifests** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Root validado, symlinks/non-regular rechazados, límites, nombres de scripts sin ejecutar ni preservar sus valores.
+- Evidencia T017.c2: RED E0432 por APIs ausentes; GREEN `tool_detection` 11/11 y suites core 67/67, infra 81 passed/3 ignored; Clippy core+infra `-D warnings`, fmt check. Cargo.toml/package.json solo lectura con límite 1 MiB; malformados/oversized/non-regular -> Unknown; ausencia -> Generic; scripts no ejecutados.
+- [x] **T017.c3 — Incorporar firmas públicas en contratos** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Documentar ToolDetection/evidence, ToolProfile/candidate/guides, detect_tools y manifest facts.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Detección separa presencia/version/capacidad y guarda fuente/revisión de la comprobación.
-- [ ] No inferir npm/cargo/etc solo por nombre del skill; leer manifests y configuración.
-- [ ] Registry define probes seguros por tool ID y guía de instalación oficial por OS.
+- [x] Detección separa presencia/version/capacidad y guarda fuente/revisión de la comprobación.
+- [x] No inferir npm/cargo/etc solo por nombre del skill; leer manifests y configuración.
+- [x] Registry define probes seguros por tool ID y guía de instalación oficial por OS.
 
 **Verificación:** cargo test -p jameskills-infra --locked tool_detection; doctor se conectará en T026. No activar una herramienta por checkbox manual.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED por APIs ausentes; GREEN `cargo test -p jameskills-core --locked` 67/67 y `cargo test -p jameskills-infra --locked` 81 passed/3 ignored en Windows; Clippy core+infra `-D warnings`, fmt check y diff check pasaron. Linux CI/runtime no observado en esta sesión.
 
 <a id="t018"></a>
 
 ## T018 — Implementar evaluación de políticas y evidencia
 
-- [ ] **T018 completada y verificada**
+- [x] **T018 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T011, T016, T017. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T011, T016, T017. **Estado:** completada localmente; verificada en Windows.
 
-**Implementación y funciones:** PolicyService::check(CheckRequest) -> CheckReport; domain::evaluate_predicate y strict_exit; helpers privados evaluate_requirement/expire_evidence con providers inyectables. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** async `PolicyService::check(CheckRequest) -> AppResult<CheckReport>`; domain `evaluate_predicate` y `strict_exit`; provider async inyectable y expiración monotónica de evidencia. APIs públicas siguen docs/CONTRACTS.md.
 
 **Red primero:** policy_evaluation no transforma Unknown/Blocked en Pass; una evidencia caducada invalida resultado y requerido vs recomendado se distingue. Enforcement exigida no se copia como observada: conventional message válido sin hook no pasa LocalHook; workflow válido sin host mandatory no pasa RequiredCi.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/policy.rs`
-- `crates/jameskills-core/src/domain/policy.rs`
-- `crates/jameskills-core/src/application/mod.rs`
-- `crates/jameskills-core/tests/policy_evaluation.rs`
-- `crates/jameskills-infra/src/composition.rs`
+**Descomposición obligatoria:**
+- [x] **T018.a — Declarar condiciones tipadas de aplicabilidad** (5 archivos): `crates/jameskills-core/src/domain/policy.rs`; `crates/jameskills-core/tests/policy_schema.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. `applies_when` solo acepta facts/valores registrados; desconocidos fallan cerrados.
+- Evidencia T018.a: RED E0432/E0599 por ApplicabilityFact/applies_when ausentes; GREEN `cargo test -p jameskills-core --locked --test policy_schema` 7/7. OS/architecture/stack/host/context/capability aceptan solo valores registrados.
+- [x] **T018.b — Evaluador, servicio e integración fail-closed** (5 archivos): `crates/jameskills-core/src/domain/policy.rs`; `crates/jameskills-core/src/application/policy.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/policy_evaluation.rs`; `crates/jameskills-infra/src/composition.rs`. Status/evidence/expiry, autoridad observada separada y provider desconocido por defecto.
+- Evidencia T018.b: RED `policy_evaluation` E0432 por tipos/report/service ausentes; GREEN policy_evaluation 9/9, core 77/77, infra 82 passed/3 ignored; Clippy core+infra `-D warnings`, fmt check. Unknown/Blocked no pasan; expiry -> Unknown; hook/CI authority insuficiente -> Blocked; solo requeridos bloquean strict; provider runtime default Unknown.
+- [x] **T018.c — Documentar contratos de evaluación y reportes** (4 archivos): `docs/CONTRACTS.md`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Firmas exactas, evidencia monotónica/UTC, autoridad observada y regla de N/A basada en applies_when+fact evidence.
 
 **Aceptación:**
-- [ ] Evaluador puro produce resultados/next actions estructurados por requisito.
-- [ ] Evidence/CheckResult registran enforcement OBSERVADA, separada de autoridad EXIGIDA por requirement; una autoridad inferior no satisface superior. Ningún enum del manifest es prueba.
-- [ ] Excepciones/no aplicable exigen razón verificable del perfil, no toggle de ocultación.
+- [x] Evaluador puro produce resultados/next actions estructurados por requisito.
+- [x] Evidence/CheckResult registran enforcement OBSERVADA, separada de autoridad EXIGIDA por requirement; una autoridad inferior no satisface superior. Ningún enum del manifest es prueba.
+- [x] Excepciones/no aplicable exigen razón verificable del perfil, no toggle de ocultación.
 
 **Verificación:** cargo test -p jameskills-core --locked policy_evaluation; property tables cubren cada estado y ausencia de facts.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED `policy_evaluation` E0432/E0599 por APIs ausentes; GREEN policy_evaluation 9/9, policy_schema 7/7, core 77/77 e infra 82 passed/3 ignored en Windows; Clippy core+infra `-D warnings`, fmt y diff check. Linux CI/runtime no observado; provider sin driver permanece Unknown.
 
 ## C006 — Checkpoint tras T016–T018
 
@@ -796,7 +823,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Facts/probes/check states confiables y errores de entorno no equivalen a pass.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia 2026-10-04:** Windows host: `cargo test --workspace --features jameskills-desktop/test-support --locked` pasó; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt/diff check y `cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked` pasaron. No hay PR/runs remotos y Linux no se ejecutó aquí. C006 permanece sin marcar por los requisitos nativos pendientes de T005/C005; no se infiere estado Linux/GPU.
 
 <a id="t019"></a>
 
@@ -806,7 +833,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Módulo:** `policy-engine`. **Dependencias:** T018, T012. **Estado:** pendiente.
 
-**Implementación y funciones:** check_readme con parser Markdown AST; check_gitignore mediante git check-ignore --no-index; check_sensitive_files usa driver Gitleaks pinned sobre tracked/staged/history según fase. Redacción en driver y límites. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** check_readme con parser Markdown AST; check_gitignore mediante git check-ignore --no-index; check_tracked_secrets usa el driver Gitleaks registrado para el working tree, con config temporal app-owned, redacción y límites. El history permanece Unsupported y un `.gitleaksignore` del repo bloquea antes del spawn porque Gitleaks lo aplica desde el source. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** repo_document_checks secreto sintético tracked falla aunque esté en gitignore; Gitleaks ausente Blocked; README heading vacío Fail; safe path/symlink escape rechazado.
 
@@ -817,14 +844,43 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `tests/fixtures/repo-policy/README.md`
 - `tests/fixtures/repo-policy/.gitignore`
 
+**Descomposición obligatoria:**
+- [x] **T019.a1 — Check estructural README con AST** (5 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tests/fixtures/repo-policy/README.md`. Parser markdown pinneado; read bounded/no-follow; headings requeridos con body no vacío.
+- Evidencia T019.a1: RED E0599 por falta de `LocalFileSystem::check_readme_sections`; GREEN repo_document_checks 3/3. Markdown `1.0.0` con AST; headings en fences no cuentan; secciones vacías fallan; no regular/oversized Blocked.
+- [x] **T019.a1b — Registrar fuente/API del parser Markdown** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Pin/source `markdown=1.0.0`, firma `to_mdast` verificada.
+- Evidencia T019.a1b: docs.rs markdown 1.0.0 confirmó `to_mdast(&str, &ParseOptions) -> Result<Node, Message>`; referencia versionada añadida a SOURCES.
+- [x] **T019.a2 — Check gitignore vía Git** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tests/fixtures/repo-policy/.gitignore`; `tasks/todo.md`; `tasks/RESUME.md`. argv fijo `check-ignore --no-index -v -z`, paths sintéticos; comparar el pattern real sin ejecutar valores importados.
+- Evidencia T019.a2: RED E0599 por falta de `check_gitignore_patterns`; GREEN `repo_document_checks` 5/5; Clippy infra `-D warnings`, fmt/diff check. Solo ejecuta samples app-owned, exige fingerprint Git y compara output NUL delimitado sin exponerlo.
+- [x] **T019.b1 — Declarar driver de scan Gitleaks** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Args/redaction/exit semantics app-owned y schema de reporte cerrado.
+- Evidencia T019.b1: RED al omitir scan spec, loader rechaza registry incompatible; GREEN `gitleaks_scan_profile_is_redacted_bounded_and_has_distinct_exit_codes` pasa. Args `dir`, redaction, JSON, findings exit 3 y output cap 64 KiB.
+- [x] **T019.b1a — Forzar configuración Gitleaks app-owned** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Scan requiere config placeholder privado con `useDefault=true`; ignorar `.gitleaks.toml` del repo; aceptar únicamente Gitleaks 8.30.1, cuya CLI/schema se verificaron.
+- Evidencia T019.b1a: RED focused porque el argv del scan no incluía `--config {APP_GITLEAKS_CONFIG}`; GREEN `gitleaks_scan_profile_is_redacted_bounded_and_has_distinct_exit_codes` y suite `repo_document_checks` 11/11. El loader solo acepta el placeholder fijo, fuerza default rules y rechaza versiones distintas a 8.30.1.
+- [x] **T019.b2a — Parsear reportes Gitleaks bounded** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tests/fixtures/repo-policy/gitleaks-findings.json`; `tasks/todo.md`; `tasks/RESUME.md`. Findings nunca salen en CheckEvidence/diagnostics; malformed/oversized -> Unknown.
+- Evidencia T019.b2a: RED E0432 por parser/status ausentes; GREEN `repo_document_checks` 7/7. Reporte array/schema validado, bytes >64 KiB/malformed -> Unknown; parser retorna solo Findings/NoFindings/Unknown sin valores reportados.
+- [x] **T019.b2a2 — Documentar fuente/schema JSON Gitleaks** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Fuente oficial v8.30.1 y fixture sanitizada; no guardar secret material.
+- Evidencia T019.b2a2: referencia al fixture upstream v8.30.1; test fixture solo incluye marcadores sintéticos redacted.
+- [x] **T019.b2b — Ejecutar Gitleaks con identidad aprobada** (4 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Candidate exacto 8.30.1 + fingerprint; exit/phase explícitos; history Unsupported sin nested-Git identity.
+- Evidencia T019.b2b: RED al desactivar parser, scan con findings dejó de producir Fail; GREEN repo_document_checks 9/9 y Clippy infra `-D warnings`. Versión exacta 8.30.1 y fingerprint verificados antes de ambos spawns; JSON no se expone; history queda Unsupported.
+- [x] **T019.b2c — Staging privado de config Gitleaks** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Config efímera modo privado, argv `--config` app-owned, se limpia siempre; la config del repo no altera reglas.
+- Evidencia T019.b2c: RED `gitleaks_scan_blocks_repository_ignore_file_before_spawning` obtuvo Pass y lanzó el fake al encontrar `.gitleaksignore`; GREEN test pasa en `repo_document_checks` 11/11 Windows. Config incluye `useDefault=true`, vive fuera del repo, su argv se confirma y el path ya no existe tras el scan. Si `.gitleaksignore` existe/no puede inspeccionarse se devuelve Blocked sin spawn.
+- [x] **T019.c1 — Propagar fallos/cancelación del provider** (5 archivos): `crates/jameskills-core/src/application/policy.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-core/tests/policy_evaluation.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Provider async retorna AppResult; Cancelled no se convierte en check Unknown/Blocked silencioso.
+- Evidencia T019.c1: RED E0053 cuando el provider debía retornar AppResult pero el trait solo permitía Observation; GREEN policy_evaluation 10/10 y composition unavailable-provider 1/1.
+- [x] **T019.c2 — Conectar repo document provider a PolicyService** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_document_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Dispatch por Check, README/gitignore/Gitleaks evidence redacted; unavailable tools status fail-closed.
+- Evidencia T019.c2: RED al desconectar README dispatch, PolicyService no reportó Pass; GREEN repo_document_checks 10/10 y Clippy core+infra `-D warnings`. Evidence summaries son app-authored; no se copian findings ni stdout/stderr.
+- [x] **T019.c3 — Documentar fuentes y semánticas de repo checks** (4 archivos): `docs/SOURCES.md`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git check-ignore, Gitleaks dir/redaction/exit codes, working tree vs history Unsupported.
+- Evidencia T019.c3: Git SCM `git-check-ignore` y Gitleaks v8.30.1 CLI/source verifican precedencia `--config`, default rules y carga de `.gitleaksignore`; docs declaran working-tree, bloqueo por ignore file, history Unsupported y redaction.
+
 **Aceptación:**
 - [ ] Cada check explica archivo/regla y evidencia sin imprimir valor secreto.
 - [ ] No scanner propio sustituye al estándar Gitleaks: missing/incompatible/version no probada Blocked; evidencia especifica fase/rango y límites.
+- [ ] `.gitleaksignore` presente o no inspeccionable bloquea antes del scan; el archivo `.gitleaks.toml` del repo no controla reglas.
 - [ ] No borrar/rewrite archivos automáticamente; proporcionar remediación e información de rotación cuando aplica.
 
 **Verificación:** cargo test -p jameskills-infra --locked repo_document_checks; fixture usa findings JSON de Gitleaks y proceso fake redacted; contrato opt-in con driver real pinneado sin secreto real.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T019.b1a/b2c y `repo_document_checks` 11/11 pasan localmente en Windows. El workspace test-support, Clippy, fmt, diff y build desktop Windows pasan; los commits locales `1497ccf` (profiles/probes), `ecf7025` (repo checks) y `d27cb5c` (docs) registran estas capas. No hay PR ni ejecución remota de CI. `gitleaks` no está instalado en el host (`Get-Command gitleaks` sin resultado), así que falta integración real con binario exacto 8.30.1; no sustituirla por fake. Historia de Git y checkpoint C006 siguen abiertos como abajo.
+
+**Secuencia local por capas (2026-10-04):** `05c6d07` registry/evidence; `a8db8a8` PolicyService/providers; `7bd60f8` contrato fingerprint; `f3dcbc7` ejecución con fingerprint; `1497ccf` profiles/detection; `ecf7025` checks de repo; `d27cb5c` contratos/fuentes. Los mensajes pasan hooks locales; ninguno tiene resultado CI remoto por falta de PR.
 
 <a id="t020"></a>
 

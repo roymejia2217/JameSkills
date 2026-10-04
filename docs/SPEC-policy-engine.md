@@ -59,8 +59,8 @@ contra el bundle completo durante su ensamblado.
 | Check kind | Driver y condición de Pass | Cuando no se sabe |
 |---|---|---|
 | git-repository | Git rev-parse, root/worktree válido | Missing Git Blocked |
-| gitignore-patterns | Usar git check-ignore --no-index con paths sintéticos seguros y normas del stack | Archivo existente solo no prueba protección |
-| tracked-secrets | Gitleaks pinned driver, redaction y exit semantics documentadas; escanear tracked staged/history según fase | Driver falta Blocked; nunca imprimir findings sin redaction |
+| gitignore-patterns | Usar git check-ignore --no-index -v -z con synthetic paths app-registered y patterns exactos | Archivo existente solo no prueba protección; pattern sin probe registrado Unsupported |
+| tracked-secrets | Gitleaks 8.30.1 exacto, redaction JSON y exit code distinto para findings; verificar versión/fingerprint antes del scan | Otra versión, driver faltante o identidad no aprobada Blocked; malformed report Unknown; nunca imprimir findings |
 | readme-sections | Parser Markdown headings AST, sección no vacía, mínimo Inicio/arquitectura/contribuir/licencia configurado | Heading superficial vacío Fail |
 | conventional-commit | Commitlint CLI+config Conventional Commits; input message temp seguro | commit message no disponible Unknown |
 | protected-main-local | Branch actual y working mode PR | Advisory; no demuestra protección host |
@@ -73,9 +73,44 @@ contra el bundle completo durante su ensamblado.
 
 repo profile Rust: cargo fmt/check clippy -Dwarnings/test y cargo-deny/audit; Node: npm ci, npm run lint/test/build con nombres detectados y explícitamente mapeados del proyecto. Nunca ejecutar package scripts importados sin trust del repo. Generic puede guiar definir commands y required CI, no presupone stack.
 
-Driver VersionSpec tiene tool_id, probe argv, allowlist args, expected exit/JSON schema, supported versions contract. profiles/tools.toml solo de app; actualización versionado+fixture. Drivers primero check paths/procedencia de ejecutable; un binario malicious con nombre git no se declara confiable automáticamente.
+Driver VersionSpec tiene tool_id, probe argv, allowlist args, expected exit/JSON schema, supported versions contract y source_id. `profiles/tools.toml` es solo de app y contiene guías oficiales Windows/Linux con IDs documentados en `docs/SOURCES.md`; actualización versionada+fixture. URLs nunca vienen de manifests/skills. Drivers primero comprueban fingerprint aprobado del ejecutable y vuelven a verificarlo antes de spawn; un binario malicioso con nombre git no se declara confiable automáticamente.
+
+El stack del proyecto se obtiene únicamente de `Cargo.toml` y `package.json` en
+el root aprobado; el nombre/metadatos de una skill no intervienen. La inspección
+es de solo lectura, limitada a 1 MiB por manifiesto, rechaza symlinks y entradas
+no regulares, y solo expone nombres acotados de scripts Node, nunca sus valores.
+No ejecuta scripts. Manifiesto ausente produce Generic si no hay otro reconocido;
+formato inválido, demasiado grande o inaccesible produce Unknown, no Unsupported.
+`detect_tools` combina profiles app-owned y candidatos explícitos; ejecuta un
+probe solo cuando recibe el fingerprint SHA-256 aprobado correspondiente.
+
+T019 Gitleaks `dir` versión exacta 8.30.1 analiza el working tree sin historial
+con output redacted y bounded; es un scope más amplio que los paths versionados.
+Otra versión permanece Blocked hasta tener fuente/fixture y contrato verificados.
+El driver pasa una
+config efímera privada que extiende las reglas default, y no carga `.gitleaks.toml`
+del repo. Gitleaks también carga `.gitleaksignore` desde el source sin una opción
+independiente para desactivarlo; si el archivo existe (incluso vacío o symlink),
+el check devuelve Blocked sin ejecutar el driver. `include_history=true` se
+reporta Unsupported hasta que el Git hijo del modo `gitleaks git` tenga una
+identidad verificada y bound al mismo permiso. Nunca ejecutar ese modo confiando
+en el PATH heredado.
 
 ## Autoridad y límites
+
+`CheckObservation` distingue predicado, evidencia y autoridad realmente observada.
+`evaluate_predicate` nunca eleva Unknown/Blocked a Pass: evidence necesaria ausente
+o caducada pasa a Unknown; Pass sin evidencia también es Unknown. Una autoridad
+inferior a la exigida convierte el resultado en Blocked, usando una matriz explícita
+por variante (no orden enum). Un provider que responda NotApplicable no basta.
+NotApplicable solo se genera cuando una condición `applies_when` del profile
+registrado no coincide con un fact tipado fresco que trae su propia evidencia.
+
+`strict_exit` devuelve 1 si falta o no pasa cualquier requirement `required`; los
+recomendados no bloquean. `RuntimeServices` instala un PolicyCheckProvider que
+devuelve Unknown mientras el driver real no esté conectado; nunca produce un Pass
+de placeholder. Los TTL son monotónicos del proceso; `observed_at` RFC3339 es
+informativo y no decide freshness.
 
 Instruction enseña; LocalCheck valida una ejecución; LocalHook puede saltarse con --no-verify y no es security boundary; RequiredCi bloquea merge si host lo obliga; HostRule depende de repo/org/plan/permisos. Mostrar cobertura por requisito, no "100% garantizado" por cantidad archivos. Política externa de organización puede imponerse al config local; no debilitar rulesets para lograr un Pass.
 

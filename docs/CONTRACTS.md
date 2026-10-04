@@ -41,8 +41,8 @@ pub struct CheckResult {
     pub requirement_id: String,
     pub status: CheckStatus,
     pub severity: Severity,
-    pub enforcement: Enforcement,
-    pub evidence: Vec<Evidence>,
+    pub enforcement: Option<Enforcement>, // observado, no copiado del requirement
+    pub evidence: Vec<CheckEvidence>,
     pub guidance_id: Option<String>,
 }
 pub enum AppError {
@@ -90,6 +90,41 @@ datos y caché, aunque ambas bases Known Folder sean iguales. Resolver no crea
 carpetas. Una observación ausente no demuestra ausencia global de hardware ni
 de sesión, y `Unknown` jamás se transforma en `Present` por defecto.
 
+### Tool detection y manifests de proyecto
+
+Domain modela `ToolAvailability = Missing | Candidate | Verified | Blocked |
+Unknown`, `ToolVersionStatus = Compatible | Incompatible | Unknown |
+NotApplicable` y `ToolCapabilitySupport = Supported | NeedsVerification |
+Unsupported`. `ToolDetection` conserva `tool_id`, disponibilidad, versión
+SemVer opcional, status de versión, capacidades por `ToolOperation` y
+`ToolEvidence { source_id, observed_at, tested_version, summary }`. Una versión
+compatible de un Candidate no marca capabilities Supported; solo un chequeo
+específico puede verificarlas. Resúmenes y source IDs son app-owned y acotados.
+
+`infra::platform::load_tool_profiles() -> Result<Vec<ToolProfile>,
+Vec<Diagnostic>>` carga exclusivamente `profiles/tools.toml` con schema cerrado,
+argv fijo, rango SemVer y fuentes de guía registradas para Windows/Linux.
+`find_tool_candidates(profiles, search_paths, platform) -> Vec<ToolCandidate>`
+solo descubre candidatos; no los ejecuta y omite paths relativos. `.cmd` es
+`CommandShim`, nunca un PE aprobado.
+
+`infra::platform::detect_tools(search_paths, platform, approved_fingerprints,
+cwd, environment, process, observed_at) -> AppResult<Vec<ToolDetection>>`
+combina profiles y candidatos. Un tool ausente, candidato sin fingerprint o
+wrapper bloqueado no genera spawn. Un candidato nativo se prueba únicamente
+con `ExecutableFingerprint` explícito, argv del profile y `ProcessPort`; el
+proveedor vuelve a calcular SHA-256 antes del spawn. Version output ausente o
+no reconocido produce versión `Unknown`; una versión fuera del rango produce
+`Incompatible`, sin elevar capabilities.
+
+`infra::platform::inspect_project_manifests(root: &ApprovedRoot) ->
+AppResult<ProjectManifestFacts>` solo lee `Cargo.toml` y `package.json` del root
+seleccionado, máximo 1 MiB cada uno. `ProjectStack` es `Rust | Node |
+RustAndNode | Generic | Unknown`. Nombres Node `scripts` pueden exponerse para
+mapear comandos; valores nunca se devuelven ni ejecutan. Manifiestos malformed,
+demasiado grandes, symlinks o archivos no regulares producen `Unknown`; ausencia
+de ambos produce `Generic`. Ningún nombre/metadato de skill determina el stack.
+
 ## Archivos portables, revisiones e instalación
 
 `SkillId` y `OperationId` exponen `new()`, `parse(&str)` y `as_uuid()`; campos privados. `RevisionId` y `ContentHash` exponen `from_digest([u8; 32])`, `parse_hex(&str)` y `as_str()`; campos privados, lowercase exacto. Deserializar siempre pasa por los constructores validados.
@@ -114,7 +149,10 @@ merge keys como error, tags custom rechazadas y snippets desactivados.
 `Policy` se construye con `domain::policy::parse_policy(&[u8])`; el DTO y sus
 campos se exponen mediante getters. `Scope` es el tipo común `User | Project`.
 Cada `Requirement` tiene id, descripción, `Severity`, required, `Phase`,
-`Enforcement`, depends_on, guidance_id opcional y un `Check` tipado. Check v1
+`Enforcement`, depends_on, guidance_id opcional, `applies_when` tipado opcional
+y un `Check` tipado. `ApplicabilityFact` es `Os | Architecture | Stack | Host |
+Context | Capability`; cada fact solo admite los valores registrados por el
+parser y `Unknown` nunca satisface una condición. Check v1
 admite git-repository, gitignore-patterns, tracked-secrets, readme-sections,
 conventional-commit, protected-main-local, github-branch-policy, ci-contract,
 ci-evidence, release-contract y toolchain-version. Los tool requirements usan
@@ -124,6 +162,46 @@ rechaza schema/campos/enums desconocidos, IDs duplicados, referencias de
 dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
 La existencia de policy/guidance paths y las referencias cruzadas entre archivos
 se validan al ensamblar el bundle, no al parsear una policy aislada.
+
+`CheckEvidence` lleva source_id, RFC3339 UTC, revision opcional, fingerprint
+`sha256:` y resumen app-authored acotado; su expiry monotónica es válida solo en
+el proceso que la observó. CheckObservation sin evidencia nunca produce Pass;
+evidencia expirada convierte el resultado en Unknown.
+
+~~~rust
+pub enum CheckStatus { Pass, Fail, Blocked, Unknown, Unsupported, NotApplicable }
+pub struct CheckObservation { status, enforcement: Option<Enforcement>, evidence: Vec<CheckEvidence> }
+pub struct CheckReport { results: Vec<CheckResult>, required_ids: BTreeSet<String> }
+pub fn evaluate_predicate(
+    requirement: &Requirement,
+    observation: &CheckObservation,
+    now_monotonic_ms: u64,
+) -> CheckResult;
+pub fn strict_exit(report: &CheckReport) -> u8;
+~~~
+
+`PolicyCheckProvider::observe(&Requirement)` es async e inyectado a
+`PolicyService::new(provider, clock)`. `PolicyService::check(CheckRequest)` es async y evalúa
+todos los requisitos, conserva autoridad observada aparte de la exigida y devuelve
+guidance_id estructurado. Unknown/Blocked/Fail/Unsupported requerido y cualquier
+resultado ausente dan strict exit 1; un resultado opcional no bloquea. `NotApplicable`
+solo nace de mismatch de un `applies_when` registrado con fact evidence fresca;
+una respuesta del provider que diga NotApplicable sin ese fundamento queda Unknown.
+
+`infra::fs::ApprovedRepositoryTool::new(executable, fingerprint)` y
+`RepositoryPolicyCheckProvider::new(root, git, gitleaks, environment, process,
+clock, environment_fingerprint)` conectan checks locales al service. El provider
+implementa readme-sections vía AST Markdown bounded, gitignore-patterns con Git
+`check-ignore --no-index -v -z` sobre rutas sintéticas registradas y tracked-secrets
+con Gitleaks redacted/fingerprint-checked. El Gitleaks profile actual escanea el
+working tree solo con Gitleaks 8.30.1, la única versión validada, y un `--config`
+privado app-owned que fuerza `useDefault=true`; la
+config `.gitleaks.toml` del repo no determina las reglas. El staging se limpia al
+terminar incluso si falla el spawn. Si existe `.gitleaksignore`, el check queda
+Blocked antes de lanzar procesos porque el driver oficial también la aplica desde
+el target y no ofrece un bypass independiente. `include_history=true` devuelve
+Unsupported hasta que el ejecutable Git hijo tenga un driver/identidad aprobada
+independiente. Ningún output crudo se copia a CheckEvidence.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
@@ -217,7 +295,12 @@ central+entries, límites antes de reservar/extractar y staging privado. Cualqui
 entrada inválida detiene la operación sin escribir destino.
 
 ApprovedRoot, ApprovedExecutable y SecretInput tienen constructores controlados; SecretInput implementa zeroize/zeroize_on_drop y Debug = "[REDACTED]". No serializar SecretInput ni pasarlo como argv.
-ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission }.
+`ExecutableFingerprint` encapsula el SHA-256 de un ejecutable revisado explícitamente.
+`ProcessSpec` puede llevar `approved_executable_fingerprint: Option<ExecutableFingerprint>`;
+el proveedor vuelve a calcularlo con lectura limitada antes de spawn. Los probes de
+tools registrados no ejecutan candidatos sin fingerprint aprobado; presencia o PATH
+por sí solos solo producen `Candidate`.
+ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint> }.
 ProcessPermission = ReadOnlyCheck | ExplicitMutation(OperationId). Allowlist driver's args verificada, logs solo tool_id/timing/exit.
 ApprovedEnv mínimo; rutas PATH necesarias, HOME/USERPROFILE por driver, idioma fijo cuando parseador depende. No heredar XAI_API_KEY/GEMINI_API_KEY ni credenciales ajenas.
 Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+entrypoint aprobado cuando sea posible; fallback oficial específico explícito limitado y testeado, sin construir una línea arbitraria shell. tools/COMMITLINT y drivers git son del proyecto, no importados de skills.
@@ -225,11 +308,11 @@ Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+
 ## Servicios
 
 El primer wiring de infraestructura publica `RuntimeServices { facts,
-directories, clock }` mediante `infra::composition::build_services(dirs)`.
+directories, clock, library, policy }` mediante `infra::composition::build_services(dirs)`.
 Valida que config/data/cache sean absolutas, distintas y no solapadas; no crea
-directorios. Su `SystemClock` entrega UTC RFC3339 y elapsed monotonic local. El
-factory se amplía con providers reales en sus tareas; todavía no promete ni
-registra servicios de biblioteca, políticas, instalación o sync.
+directorios. Su `SystemClock` entrega UTC RFC3339 y elapsed monotonic local.
+PolicyService usa un provider conservador que devuelve Unknown hasta que existan
+providers reales; ausencia de driver nunca se reporta como Pass.
 
 ApplicationServices conserva Arc<LibraryService>, Arc<PolicyService>, Arc<InstallService>, Arc<SyncService>, Arc<GuidanceService>. Para tests constructor recibe ports fake, sin init de SQLite/GPU/keyring.
 
@@ -238,11 +321,11 @@ Funciones públicas previstas:
 | Módulo | Funciones y resultados |
 |---|---|
 | domain/skill | parse_frontmatter(bytes)->Result; parse_manifest(toml)->Result; validate_bundle(&Bundle)->Vec<Diagnostic>; hash_bundle(entries)->ContentHash; compute_revision(record)->RevisionId |
-| domain/policy | parse_policy(bytes)->Policy; evaluate_predicate(check, observation)->CheckResult; strict_exit(report)->u8 |
+| domain/policy | parse_policy(bytes)->Policy; evaluate_predicate(requirement, observation, now_monotonic_ms)->CheckResult; strict_exit(report)->u8 |
 | domain/guidance | next_step(plan, facts, evidence)->GuidanceDecision; validate_guidance_graph(plan)->Result |
 | domain/sync | validate_snapshot(payload)->Result; merge_heads(local, remote, graph)->MergePlan; resolve_heads(choice)->RevisionRecord |
 | application/library | create_skill(CreateSkill); save_draft(SaveDraft); publish(SaveRevisionRequest); import_bundle(ImportRequest); export_bundle(ExportRequest); delete_skill(DeleteRequest); list_skills(LibraryQuery) |
-| application/policy | check(CheckRequest)->CheckReport; plan_repo_changes(RepoPolicyRequest)->RepoChangePlan; apply_repo_changes(ApprovedRepoChange)->ApplyResult |
+| application/policy | PolicyService::check(CheckRequest)->AppResult<CheckReport> (async); plan_repo_changes(RepoPolicyRequest)->RepoChangePlan; apply_repo_changes(ApprovedRepoChange)->ApplyResult |
 | application/install | detect_agents(DetectionContext); plan_install(InstallRequest)->InstallPlan; apply_install(ApprovedInstall)->InstallReceipt; remove_installation(RemoveRequest)->RemovalResult |
 | application/guidance | start_guidance(StartGuidance); advance(session_id, UserAnswer)->GuidanceDecision; recheck(session_id)->GuidanceProgress |
 | application/sync | plan_remote_reset(ResetRequest)->RemoteResetPlan; apply_remote_reset(ApprovedReset)->ResetResult; connect(ConnectRequest); disconnect(DisconnectRequest); unlock(UnlockRequest); sync_once(SyncRequest)->SyncResult; preview_restore(RestoreRequest)->RestorePlan; apply_restore(ApprovedRestore)->RestoreResult |

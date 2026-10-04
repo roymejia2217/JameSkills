@@ -1,38 +1,61 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`, T016.d `9c672e9`.
-PR #19 T015 merged, CI 9/9. PR #20 T016 is open; prior code checks passed 9/9, and the current head must be checked before merge.
+Rama / HEAD: `feat/t017-tool-capabilities` / `HEAD` (último commit de implementación `d27cb5c`; después se registraron checkpoints docs-only).
+Base: `main`=`b53ed68`; rama local sin upstream.
+PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run list` vacíos).
 
-## Tarea activa
+## Estado real
 
-T016 completa localmente con aceptación/evidencia. C005 continúa abierto por la ventana nativa de T005; merge depende de los checks requeridos del head actual de PR #20.
+- Se inspeccionaron `git status`, diff y log antes de continuar. El estado heredado tenía T017.a2–T019.c3 en una sola working tree dirty; no eran commits.
+- Esa implementación quedó separada en commits locales funcionales, además de los dos previos T017.a/a1:
+  - `05c6d07` — modelos cerrados de herramientas/evidencia de política.
+  - `a8db8a8` — PolicyService y providers cancelables.
+  - `7bd60f8` — fingerprint aprobado en el contrato de procesos.
+  - `f3dcbc7` — verificación de identidad antes del spawn.
+  - `1497ccf` — profiles/probes app-owned y stack desde manifests.
+  - `ecf7025` — checks README/gitignore/Gitleaks.
+  - `d27cb5c` — contratos, fuentes oficiales y evidencia de plataforma.
+  - `5969cbe` — reconciliación de checklist y evidencia local/CI.
+- Cada commit tuvo test focal y mensaje aceptado por el hook local. Las capas anteriores al punto de recuperación fueron reconstruidas desde el working tree; no hay CI remota para ellas.
+- T017/T018 están implementadas, verificadas localmente y comprometidas. C006 sigue abierto por límites Linux/native de T005/C005.
+- T019.a1/a1b/a2, b1/b1a, b2a/b2a2/b2b/b2c y c1–c3 están implementadas. T019 parent sigue incompleta porque el host no tiene Gitleaks instalado; falta contrato de integración real con el binario exacto 8.30.1.
+- T020 es elegible por DAG y no depende de cerrar T019; continuar tareas independientes mientras el smoke real Gitleaks queda bloqueado con evidencia.
 
-## Evidencia T016.dep
+## T019: verificación actual
 
-- RED: `cargo check -p jameskills-core -p jameskills-infra --locked` pidió actualizar lock.
-- GREEN: sin `--locked` resolvió `command-group 5.0.1` + `nix 0.27.1`; `cargo check -p jameskills-core -p jameskills-infra --locked` 0 en Windows MSVC.
-- `async-trait 0.1.92`, Tokio 1.53.1 y command-group 5.0.1 tienen fuentes, versiones, yanked/license/MSRV registrados en `docs/SOURCES.md`.
-- command-group documenta group_spawn con Unix process group y Windows Job Object; no usar wait_with_output por su lectura secuencial de stdout/stderr en Windows.
-- RED T016.a: `process_contract` test no compila porque `ports::process` y DTOs faltaban.
-- GREEN T016.a: process_contract 3/3; core 62/62 Windows; core Clippy/fmt/diff clean.
-- RED T016.b: `process_execution` no compila porque `SystemProcessPort` no existía.
-- GREEN T016.b: `process_execution` 3/3 Windows (streams simultáneos, límite, timeout/cancel); infra 64/64, core 62/62, workspace Clippy/fmt/diff clean.
-- RED T016.c: `repository_facts` no compila porque faltan `RepositoryState` y `collect_repository_facts`.
-- GREEN T016.c: repository_facts 3/3 Windows; fake comprueba args/cwd con metacaracteres y real Git temporal cubre attached/detached/worktree/submodule. Core 62/62, infra 67/67; workspace Clippy/fmt/diff clean.
-- GREEN T016.d local: lock/runtime deps fijados, test execution/facts y suites acumuladas verificadas; C005 permanece abierto por el smoke de ventana T005.
-- PR #20 Required CI, Linux/Windows build, tests, clippy, fmt, commitlint, README Policy y PR Governance 9/9.
+- Solo se acepta Gitleaks 8.30.1, versión contrastada con el README/CLI y fixture JSON del tag. Versiones no comprobadas quedan Blocked.
+- El scan usa `dir` sobre working tree con argv fijo, fingerprint del ejecutable, output JSON bounded/redacted y config temporal privada `useDefault=true`; `.gitleaks.toml` del repo no controla las reglas.
+- Gitleaks también carga `.gitleaksignore` desde el source independientemente de `--config`; su presencia o fallo de inspección produce Blocked antes de spawn. History sigue Unsupported.
+- RED de comportamiento: sin la guard, un fixture con `.gitleaksignore` obtenía Pass y lanzaba procesos. GREEN: `cargo test -p jameskills-infra --locked --test repo_document_checks` — 11/11 Windows. Se confirma argv materializado, config fuera del repo y eliminación posterior.
+- El test usa proceso fake para verificar el contrato; no se declara integración real. `Get-Command gitleaks` no encontró ejecutable instalado.
 
-## T005 blocker y próxima elegibilidad
+## Toolchain/fuentes revisadas
 
-T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue sin demostrar en Windows, y Linux carece sesión gráfica/GPU y development libs `xcb`, `xkbcommon`, `xkbcommon-x11`. Evidencia: `docs/PLATFORM-EVIDENCE.md`. T008 depende de T005. T016 es la siguiente tarea independiente elegible; no presentar build/test-support como smoke nativo.
+- Host: Windows MSVC; `rustc 1.95.0 (59807616e 2026-04-14)`, Cargo 1.95.0.
+- `rust-toolchain.toml` fija 1.95.0; Cargo workspace usa edition 2024 y `rust-version=1.95.0`.
+- `cargo tree` confirma gpui-kit/base/component/assets 0.7.0 y snapshots `gpui-pre`/`gpui-pre-platform` 0.3.7. `gpui` no es el nombre package ID que se selecciona con `cargo tree -p`.
+- Se revisaron GPUI Kit installation actual, tag/README v0.7.0 y Cargo 1.95. La instalación lista 0.7.0 y Rust 1.92+; README del tag conserva ejemplo `gpui-kit = "0.6"`. Prevalecen el pin exacto `=0.7.0` y la evidencia del workspace: `cold_path` requiere Rust 1.95.
+- Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
+- Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
+
+## Verificaciones locales acumuladas
+
+- `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked`: pasó.
+- `cargo test --workspace --features jameskills-desktop/test-support --locked`: pasó en Windows, incluidos 14 desktop unit tests y 2 lifecycle tests.
+- `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`: pasó.
+- `cargo fmt --all -- --check`, `git diff --check`: pasaron.
+- `cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked`: pasó.
+- `scripts/test-commitlint.sh` por Git Bash y `npm exec --no -- commitlint --from main --to HEAD --verbose`: pasaron para commits probados.
+- CI remoto y build Linux: no ejecutados. El workflow local refleja sus gates en `.github/workflows/ci.yml`; CI real requiere PR.
 
 ## Próxima acción exacta
 
-Consultar `gh pr checks 20`; squash-mergear cuando todos los checks requeridos del head estén verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, siguiente tarea independiente.
+1. Iniciar T020 tras leer su contrato en `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SPEC-policy-engine.md` y `docs/SOURCES.md`.
+2. Mantener cada incremento en <=5 archivos y crear un commit Conventional Commit con body válido después de test focal, fmt/Clippy aplicable y diff check.
+3. Si se obtiene autorización/instalación para Gitleaks 8.30.1, cerrar la integración real T019 sin secret material; de lo contrario registrar el bloqueo y seguir tareas independientes.
+4. Mantener C006/C005 abierto hasta evidencia de plataforma nativa; no reportar estado Linux/GPU por tests Windows.
 
-## Lecturas mínimas
+## Preservación y lecturas
 
-`tasks/todo.md` T016; `docs/CONTRACTS.md` process types; `docs/SECURITY.md` process; `docs/SOURCES.md` T016 process runtime; `docs/ARCHITECTURE.md` port/lifecycle.
-
-Preservar `target/` y `JameSkills-implementation-dossier.zip` sin seguimiento.
+Preservar `target/` y `JameSkills-implementation-dossier.zip` locales sin seguimiento. Revisar `AGENTS.md`, T020/C006 en `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SECURITY.md`, el spec pertinente y `.github/workflows/ci.yml` antes del siguiente incremento.
