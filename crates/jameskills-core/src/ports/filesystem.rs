@@ -4,10 +4,18 @@ use super::super::domain::{
 };
 use crate::Diagnostic;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// Raw bundle bytes keyed by canonical path: the single byte-map type shared
 /// by hashing, archives and staging, so no layer redefines the container.
 pub type BundleFiles = BTreeMap<PortablePath, Vec<u8>>;
+
+/// Read-only filesystem seam used to assemble a candidate bundle. The
+/// infrastructure adapter owns path traversal, entry-kind checks and byte
+/// limits; domain validation runs only after this returns.
+pub trait FileSystemPort: Send + Sync {
+    fn read_bundle_directory(&self, root: &Path) -> Result<BundleFiles, Vec<Diagnostic>>;
+}
 
 const LOCAL_HEADER_SIG: u32 = 0x0403_4b50;
 const LOCAL_HEADER_LEN: usize = 30;

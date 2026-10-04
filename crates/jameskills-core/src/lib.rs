@@ -5,6 +5,7 @@
 //! This crate deliberately has no GUI, database, filesystem, process, or network
 //! dependencies. Domain and application services are added in later slices.
 
+pub mod application;
 pub mod domain;
 mod error;
 pub mod ports;
