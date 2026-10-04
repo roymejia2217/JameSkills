@@ -716,9 +716,6 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T016.c: RED E0432 por collect_repository_facts/RepositoryState ausentes. GREEN repository_facts 3/3 Windows: ProcessPort fake verifica argv fijos con ruta `spaces; $(...)`, no-repo explícito; Git real temporal verifica attached/detached/linked-worktree/submodule. Core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes; commands de inspección solo rev-parse/symbolic-ref/version y hooks path deshabilitados en setup fixture.
 - [x] **T016.d — Checkpoint y documentación local** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Dejar evidencia local, PR remoto pendiente, T005 blocker y próxima tarea independiente.
 - Evidencia T016.d: deps/process/facts y suites Windows verificadas; C005 permanece abierto porque T005 no tiene smoke nativo demostrado. T016 padre sigue pendiente hasta que pase el CI del PR.
-- [x] **T016.d — Checkpoint local, bloqueo y siguiente DAG** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Registrar pruebas, fuentes del dependency slice, PR pendiente y T005 blocker.
-- Evidencia T016.d: local suites/clippy/fmt/diff verdes; PR T016 aún pendiente de CI remote, no marcar parent hasta gates verdes. C005 remains open por T005 native smoke; si sigue bloqueada, T017 es next independent task.
-
 **Aceptación:**
 - [x] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
 - [x] Process output/tamaño/timeout/cancel se acotan y secretos se redactan.

@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`; T016.d local.
+Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`, T016.d `9c672e9`.
 PR #19 T015 merged, CI 9/9. PR de T016 pendiente.
 
 ## Tarea activa
 
-T016.a–c completas localmente; T016.d registra evidencia/checkpoint. PR T016 pendiente de CI remoto; no marcar parent hasta CI Linux/Windows verde.
+T016.dep/a/b/c/d completas localmente. El código y facts están listos; crear PR #20 y esperar CI remoto antes de cerrar el parent.
 
 ## Evidencia T016.dep
 
@@ -28,10 +28,10 @@ T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue s
 
 ## Próxima acción exacta
 
-Revisar diff/commits, push `feat/t016-repository-facts`, crear PR y esperar CI Linux/Windows. No cerrar T016 hasta gates remotos verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, la siguiente tarea independiente.
+Revisar diff/commits, push `feat/t016-repository-facts`, crear PR #20 y esperar CI Linux/Windows. No cerrar T016 hasta gates remotos verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, la siguiente tarea independiente.
 
 ## Lecturas mínimas
 
-`tasks/todo.md` T016.a–c; `docs/CONTRACTS.md` process types; `docs/SECURITY.md` process; `docs/SOURCES.md` T016 process runtime; `docs/ARCHITECTURE.md` port/lifecycle.
+`tasks/todo.md` T016; `docs/CONTRACTS.md` process types; `docs/SECURITY.md` process; `docs/SOURCES.md` T016 process runtime; `docs/ARCHITECTURE.md` port/lifecycle.
 
 Preservar `target/` y `JameSkills-implementation-dossier.zip` sin seguimiento.
