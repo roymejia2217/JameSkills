@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+async-trait = "=0.1.92"
 serde = { version = "=1.0.229", features = ["derive"] }
 semver = { version = "=1.0.28", features = ["serde"] }
 sha2 = "=0.10.9"

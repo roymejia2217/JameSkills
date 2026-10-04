@@ -63,6 +63,23 @@ local (MSVC, objeto `sqlite3.o` generado) y CI. Referencia versionada:
 [`rusqlite`](https://docs.rs/rusqlite/0.40.2/rusqlite/). El toolchain C lo
 aporta VS2022 en Windows y cc en Linux; `load_extension` queda desactivado.
 
+Process T016: `async-trait = 0.1.92` (MIT OR Apache-2.0, MSRV1.71) define el
+port async sin runtime en core; `tokio = 1.53.1` (MIT, MSRV1.71) con `rt`
+ejecuta IO bloqueante con `spawn_blocking`; `command-group = 5.0.1` (Apache-2.0
+OR MIT, MSRV1.68) cancela grupos POSIX/Windows. Los tres crates.io APIs reportan
+`yanked=false`; Tokio ya estaba resuelto en Cargo.lock por GPUI.
+Su API `group_spawn` crea process groups Unix y Job Objects Windows;
+`GroupChild::kill` termina el grupo. `wait_with_output` lee stdout antes que
+stderr en Windows y puede bloquear, por lo que el adaptador drenará ambas pipes
+concurrentemente.
+Fuentes de versión/license/MSRV: [async-trait crates.io](https://crates.io/api/v1/crates/async-trait/0.1.92),
+[`async-trait`](https://docs.rs/async-trait/0.1.92/async_trait/),
+[`tokio` crates.io](https://crates.io/api/v1/crates/tokio/1.53.1),
+[`Tokio spawn_blocking`](https://docs.rs/tokio/1.53.1/tokio/task/fn.spawn_blocking.html),
+[`command-group` crates.io](https://crates.io/api/v1/crates/command-group/5.0.1),
+[`command-group CommandGroup`](https://docs.rs/command-group/5.0.1/command_group/stdlib/trait.CommandGroup.html),
+[`command-group GroupChild`](https://docs.rs/command-group/5.0.1/command_group/struct.GroupChild.html).
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado

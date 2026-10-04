@@ -695,18 +695,21 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T016 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** en progreso.
 
 **Implementación y funciones:** ProcessSpec, ApprovedExecutable, ApprovedEnv, ProcessPort, RepositoryFacts, collect_repository_facts; Git executable resuelto/aprobado, cwd seguro, argv fijo y timeout. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** repository_facts path con espacios/metacaracteres no se interpreta como shell; repo inexistente, detached HEAD, worktree y submodule tienen estados explícitos.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/ports/process.rs`
-- `crates/jameskills-core/src/ports/mod.rs`
-- `crates/jameskills-infra/src/process.rs`
-- `crates/jameskills-infra/src/lib.rs`
-- `crates/jameskills-infra/tests/repository_facts.rs`
+**Archivos por incremento:** desglosados en T016.dep, T016.a–c; máximo cinco archivos en cada hijo.
+
+**Descomposición obligatoria:**
+- [x] **T016.dep — Pin de process runtime y evidencia upstream** (5 archivos): `crates/jameskills-core/Cargo.toml`; `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`. Pins exactos de async-trait, Tokio runtime y `command-group`; verificar versión/licencia/MSRV y process groups/job objects.
+- Evidencia T016.dep: RED `cargo check -p jameskills-core -p jameskills-infra --locked` requirió actualizar lock. GREEN `cargo check ...` resolvió/compiló async-trait 0.1.92 (MSRV1.71), Tokio 1.53.1 (MSRV1.71), command-group 5.0.1 (MSRV1.68, nix 0.27.1); crates.io yanked=false/licencias fijadas en `docs/SOURCES.md`; Windows MSVC compiló command-group/Job Object.
+- [ ] **T016.dep.e — Registrar evidencia de dependencias y reanudación** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`.
+- [ ] **T016.a — Contratos de proceso aprobados** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/process_contract.rs`; `tasks/todo.md`; `tasks/RESUME.md`. DTOs privados/validated, ProcessPort object-safe async, CancellationToken, argv/env/output budgets.
+- [ ] **T016.b — Runner de proceso con límite y cancelación de grupo** (5 archivos): `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/process_execution.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Usar group_spawn de `command-group`, stdout/stderr drenados concurrentes con cap, timeout/cancel terminan el grupo en Unix/Windows.
+- [ ] **T016.c — Capturar RepositoryFacts por Git readonly** (4 archivos): `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/repository_facts.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Sólo argv internos fijos; estados normal/detached/worktree/submodule; no hooks/fetch/push.
 
 **Aceptación:**
 - [ ] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
