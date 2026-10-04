@@ -9,6 +9,8 @@ const FOUNDATION_SKILL: &str =
     include_str!("../../../docs/examples/repository-foundation/SKILL.md");
 const FOUNDATION_POLICY: &str =
     include_str!("../../../docs/examples/repository-foundation/policies/repository.toml");
+const FOUNDATION_GUIDANCE: &str =
+    include_str!("../../../docs/examples/repository-foundation/guidance/repository.toml");
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -76,6 +78,99 @@ fn portable_repository_example_is_available_at_the_runtime_fixture_path() {
         parse_policy(&policy).unwrap().profile(),
         "repository-foundation"
     );
+}
+
+#[test]
+fn runtime_guidance_references_known_requirements_and_registered_actions() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/repository-foundation");
+    let policy_bytes = std::fs::read(root.join("policies/repository.toml")).unwrap();
+    let policy = parse_policy(&policy_bytes).unwrap();
+    let guidance_source = std::fs::read_to_string(root.join("guidance/repository.toml"))
+        .expect("canonical runtime guidance must exist");
+    let guidance: toml::Value = toml::from_str(&guidance_source).unwrap();
+    let source_guidance: toml::Value = toml::from_str(FOUNDATION_GUIDANCE).unwrap();
+    assert_eq!(guidance, source_guidance);
+    assert_eq!(guidance["schema_version"].as_integer(), Some(1));
+
+    let known_requirements: std::collections::BTreeSet<&str> = policy
+        .requirements()
+        .iter()
+        .map(|requirement| requirement.id())
+        .collect();
+    let plans = guidance["plans"].as_array().unwrap();
+    let plan_ids: std::collections::BTreeSet<&str> = plans
+        .iter()
+        .map(|plan| plan["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(plan_ids.len(), plans.len());
+    for requirement in policy.requirements() {
+        if let Some(guidance_id) = requirement.guidance_id() {
+            assert!(plan_ids.contains(guidance_id));
+        }
+    }
+
+    for plan in plans {
+        let requirements = plan["requirement_ids"].as_array().unwrap();
+        assert!(!requirements.is_empty());
+        for requirement in requirements {
+            assert!(known_requirements.contains(requirement.as_str().unwrap()));
+        }
+        let steps = plan["steps"].as_array().unwrap();
+        let step_ids: std::collections::BTreeSet<&str> = steps
+            .iter()
+            .map(|step| step["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(step_ids.len(), steps.len());
+        let mut remaining: std::collections::BTreeSet<String> = step_ids
+            .iter()
+            .map(|step_id| (*step_id).to_owned())
+            .collect();
+        while !remaining.is_empty() {
+            let ready: Vec<String> = steps
+                .iter()
+                .filter(|step| remaining.contains(step["id"].as_str().unwrap()))
+                .filter(|step| {
+                    step["requires"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|dependency| !remaining.contains(dependency.as_str().unwrap()))
+                })
+                .map(|step| step["id"].as_str().unwrap().to_owned())
+                .collect();
+            assert!(!ready.is_empty(), "guidance plan contains a step cycle");
+            for step_id in ready {
+                remaining.remove(&step_id);
+            }
+        }
+        for step in steps {
+            for dependency in step["requires"].as_array().unwrap() {
+                assert!(step_ids.contains(dependency.as_str().unwrap()));
+            }
+            for requirement in step["verification_requirement_ids"].as_array().unwrap() {
+                assert!(known_requirements.contains(requirement.as_str().unwrap()));
+            }
+            let action = step["action"].as_table().unwrap();
+            match action.get("kind").and_then(toml::Value::as_str) {
+                Some("manual-instruction" | "recheck") => assert_eq!(action.len(), 1),
+                Some("open-official-url") => {
+                    assert_eq!(action.len(), 2);
+                    assert!(matches!(
+                        action.get("source_id").and_then(toml::Value::as_str),
+                        Some(
+                            "git-install"
+                                | "gitleaks"
+                                | "conventional-commits"
+                                | "github-cli"
+                                | "github-rulesets"
+                        )
+                    ));
+                }
+                other => panic!("unsupported guidance action {other:?}"),
+            }
+        }
+    }
 }
 
 #[test]
