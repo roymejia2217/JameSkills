@@ -3,10 +3,15 @@ use command_group::CommandGroup;
 use jameskills_core::{
     AppError, AppResult,
     domain::ToolId,
-    ports::process::{ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec},
+    ports::process::{
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ProcessOutput,
+        ProcessPermission, ProcessPort, ProcessSpec, RepositoryFacts, RepositoryState,
+    },
 };
 use std::{
+    ffi::OsString,
     io::Read,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -22,6 +27,270 @@ const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// stdout/stderr concurrently under a shared byte budget, and kills the whole
 /// process group/job on timeout, cancellation or output overflow.
 pub struct SystemProcessPort;
+
+/// Reads repository metadata using only fixed, read-only Git argv. The selected
+/// path is passed as the process working directory rather than interpolated
+/// into command text.
+pub async fn collect_repository_facts(
+    root: &Path,
+    executable: &ApprovedExecutable,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+) -> AppResult<RepositoryFacts> {
+    let root = std::fs::canonicalize(root).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            AppError::NotFound
+        } else {
+            repository_facts_error("repository.path.unavailable")
+        }
+    })?;
+    if !root.is_dir() {
+        return Err(repository_facts_error("repository.path.not_directory"));
+    }
+    let approved_root =
+        ApprovedRoot::from_absolute_path(root.clone()).map_err(AppError::Validation)?;
+    let version = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["--version"],
+    )
+    .await?;
+    ensure_success(&version)?;
+    let git_version = read_text_line(&version)
+        .filter(|line| line.starts_with("git version "))
+        .ok_or_else(|| repository_facts_error("repository.git.version.invalid"))?;
+
+    let inside = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["rev-parse", "--is-inside-work-tree"],
+    )
+    .await?;
+    if inside.exit_code() != Some(0) {
+        return Ok(RepositoryFacts::new(
+            root,
+            None,
+            git_version,
+            None,
+            RepositoryState::NotRepository,
+            false,
+            false,
+        ));
+    }
+    if !read_bool(&inside)? {
+        let bare = run_git(
+            process,
+            executable,
+            &approved_root,
+            environment,
+            &["rev-parse", "--is-bare-repository"],
+        )
+        .await?;
+        ensure_success(&bare)?;
+        let state = if read_bool(&bare)? {
+            RepositoryState::Bare
+        } else {
+            RepositoryState::NotRepository
+        };
+        return Ok(RepositoryFacts::new(
+            root,
+            None,
+            git_version,
+            None,
+            state,
+            false,
+            false,
+        ));
+    }
+
+    let bare = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["rev-parse", "--is-bare-repository"],
+    )
+    .await?;
+    ensure_success(&bare)?;
+    if read_bool(&bare)? {
+        return Ok(RepositoryFacts::new(
+            root,
+            None,
+            git_version,
+            None,
+            RepositoryState::Bare,
+            false,
+            false,
+        ));
+    }
+
+    let top_level_output = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["rev-parse", "--show-toplevel"],
+    )
+    .await?;
+    ensure_success(&top_level_output)?;
+    let top_level = read_text_line(&top_level_output)
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| repository_facts_error("repository.path.invalid_utf8"))?;
+
+    let branch_output = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .await?;
+    let branch = match branch_output.exit_code() {
+        Some(0) => Some(
+            read_text_line(&branch_output)
+                .filter(|line| !line.is_empty())
+                .ok_or_else(|| repository_facts_error("repository.branch.invalid"))?,
+        ),
+        Some(1) => None,
+        _ => return Err(external_error("git", branch_output.exit_code())),
+    };
+
+    let git_dir = read_git_directory(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        "--git-dir",
+        &root,
+    )
+    .await?;
+    let common_dir = read_git_directory(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        "--git-common-dir",
+        &root,
+    )
+    .await?;
+    let superproject = run_git(
+        process,
+        executable,
+        &approved_root,
+        environment,
+        &["rev-parse", "--show-superproject-working-tree"],
+    )
+    .await?;
+    ensure_success(&superproject)?;
+    let is_submodule = read_text_line(&superproject).is_some_and(|line| !line.is_empty());
+
+    Ok(RepositoryFacts::new(
+        root,
+        Some(top_level),
+        git_version,
+        branch.clone(),
+        if branch.is_some() {
+            RepositoryState::Attached
+        } else {
+            RepositoryState::Detached
+        },
+        git_dir != common_dir,
+        is_submodule,
+    ))
+}
+
+async fn run_git(
+    process: &dyn ProcessPort,
+    executable: &ApprovedExecutable,
+    cwd: &ApprovedRoot,
+    environment: &ApprovedEnv,
+    args: &[&str],
+) -> AppResult<ProcessOutput> {
+    let executable = ApprovedExecutable::from_absolute_path(executable.path().to_path_buf())
+        .map_err(AppError::Validation)?;
+    let cwd =
+        ApprovedRoot::from_absolute_path(cwd.path().to_path_buf()).map_err(AppError::Validation)?;
+    let environment =
+        ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?;
+    let spec = ProcessSpec::new(
+        executable,
+        ToolId::Git,
+        args.iter().map(OsString::from).collect(),
+        cwd,
+        environment,
+        Duration::from_secs(5),
+        16 * 1024,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .map_err(AppError::Validation)?;
+    process.run(spec).await
+}
+
+async fn read_git_directory(
+    process: &dyn ProcessPort,
+    executable: &ApprovedExecutable,
+    cwd: &ApprovedRoot,
+    environment: &ApprovedEnv,
+    argument: &str,
+    root: &Path,
+) -> AppResult<PathBuf> {
+    let output = run_git(
+        process,
+        executable,
+        cwd,
+        environment,
+        &["rev-parse", argument],
+    )
+    .await?;
+    ensure_success(&output)?;
+    let value = read_text_line(&output)
+        .filter(|line| !line.is_empty())
+        .ok_or_else(|| repository_facts_error("repository.git.directory.invalid"))?;
+    let path = Path::new(&value);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    std::fs::canonicalize(path)
+        .map_err(|_| repository_facts_error("repository.git.directory.invalid"))
+}
+
+fn read_text_line(output: &ProcessOutput) -> Option<String> {
+    let text = std::str::from_utf8(output.stdout()).ok()?;
+    let line = text.trim_end_matches(['\r', '\n']);
+    (!line.contains('\r') && !line.contains('\n') && !line.contains('\0')).then(|| line.to_owned())
+}
+
+fn read_bool(output: &ProcessOutput) -> AppResult<bool> {
+    ensure_success(output)?;
+    match read_text_line(output).as_deref() {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        _ => Err(repository_facts_error("repository.git.boolean.invalid")),
+    }
+}
+
+fn ensure_success(output: &ProcessOutput) -> AppResult<()> {
+    if output.exit_code() == Some(0) {
+        Ok(())
+    } else {
+        Err(external_error("git", output.exit_code()))
+    }
+}
+
+fn repository_facts_error(code: &'static str) -> AppError {
+    AppError::Validation(vec![jameskills_core::Diagnostic::error(
+        code,
+        "Repository facts could not be read safely.",
+    )])
+}
 
 #[async_trait]
 impl ProcessPort for SystemProcessPort {

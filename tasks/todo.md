@@ -712,16 +712,17 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T016.a: RED E0432 porque `ports::process` y tipos aprobados no existían. GREEN `process_contract` 3/3; core 62/62 Windows, core Clippy `-D warnings`, fmt y diff check verdes. Rechaza env key `XAI_API_KEY`, rutas relativas, límites fuera de rango; argv conserva espacios/metacaracteres como valores separados.
 - [x] **T016.b — Runner de proceso con límite y cancelación de grupo** (5 archivos): `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/process_execution.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Usar group_spawn de `command-group`, stdout/stderr drenados concurrentes con cap, timeout/cancel terminan el grupo en Unix/Windows.
 - Evidencia T016.b: RED E0432 porque no existían `SystemProcessPort`/módulo infra process. GREEN `process_execution` 3/3 Windows: stdout+stderr simultáneos, overflow mata grupo, timeout/cancel mata child group. Infra 64/64 y core 62/62; workspace Clippy `-D warnings`, fmt y diff check verdes.
-- [ ] **T016.c — Capturar RepositoryFacts por Git readonly** (4 archivos): `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/repository_facts.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Sólo argv internos fijos; estados normal/detached/worktree/submodule; no hooks/fetch/push.
+- [x] **T016.c — Capturar RepositoryFacts por Git readonly** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/repository_facts.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Sólo argv internos fijos; estados normal/detached/worktree/submodule; no hooks/fetch/push.
+- Evidencia T016.c: RED E0432 por collect_repository_facts/RepositoryState ausentes. GREEN repository_facts 3/3 Windows: ProcessPort fake verifica argv fijos con ruta `spaces; $(...)`, no-repo explícito; Git real temporal verifica attached/detached/linked-worktree/submodule. Core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes; commands de inspección solo rev-parse/symbolic-ref/version y hooks path deshabilitados en setup fixture.
 
 **Aceptación:**
-- [ ] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
-- [ ] Process output/tamaño/timeout/cancel se acotan y secretos se redactan.
-- [ ] No ejecutar hooks ni fetch/push al inspeccionar; lectura conserva worktree.
+- [x] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
+- [x] Process output/tamaño/timeout/cancel se acotan y secretos se redactan.
+- [x] No ejecutar hooks ni fetch/push al inspeccionar; lectura conserva worktree.
 
 **Verificación:** cargo test -p jameskills-infra --locked repository_facts con repos temporales y ProcessPort fake; comprobar argv y kill/cancel de proceso hijo en ambos OS.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED E0432 por `collect_repository_facts`/`RepositoryState` ausentes. GREEN Windows: `repository_facts` 3/3; core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes. CI Linux/Windows del PR T016 pendiente.
 
 <a id="t017"></a>
 

@@ -222,6 +222,77 @@ pub struct ProcessOutput {
     stderr: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepositoryState {
+    NotRepository,
+    Bare,
+    Attached,
+    Detached,
+}
+
+/// Read-only facts collected from a local Git working tree.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RepositoryFacts {
+    root: PathBuf,
+    top_level: Option<PathBuf>,
+    git_version: String,
+    branch: Option<String>,
+    state: RepositoryState,
+    linked_worktree: bool,
+    submodule: bool,
+}
+
+impl RepositoryFacts {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        root: PathBuf,
+        top_level: Option<PathBuf>,
+        git_version: String,
+        branch: Option<String>,
+        state: RepositoryState,
+        linked_worktree: bool,
+        submodule: bool,
+    ) -> Self {
+        Self {
+            root,
+            top_level,
+            git_version,
+            branch,
+            state,
+            linked_worktree,
+            submodule,
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn top_level(&self) -> Option<&Path> {
+        self.top_level.as_deref()
+    }
+
+    pub fn git_version(&self) -> &str {
+        &self.git_version
+    }
+
+    pub fn branch(&self) -> Option<&str> {
+        self.branch.as_deref()
+    }
+
+    pub fn state(&self) -> RepositoryState {
+        self.state
+    }
+
+    pub fn is_linked_worktree(&self) -> bool {
+        self.linked_worktree
+    }
+
+    pub fn is_submodule(&self) -> bool {
+        self.submodule
+    }
+}
+
 impl ProcessOutput {
     pub fn new(exit_code: Option<i32>, stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
         Self {
