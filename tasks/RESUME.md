@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t020-commit-test-checks` / `caa9a23`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T020.a `1cd44fc`).
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
 
@@ -39,13 +39,23 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Slice activo T020.a
+## Slice actual T020.b1 (T020.a comprometido)
 
 - Se verificó la documentación oficial actual del CLI y la fuente/tag `@commitlint/cli` v21.2.2.
 - La fuente 21.2.2 implementa `--default-config` y `--edit <file>`; el CLI anterior 20.2.0 no implementa `--default-config`. La página viva ahora reporta v21.2.3, que no se acepta sin revisión/fixture propia.
 - RED: `cargo test -p jameskills-infra --locked --test tool_detection commitlint_profile_supports_the_reviewed_default_config_cli` falló porque `profiles/tools.toml` solo permitía `>=19,<21`.
 - GREEN: el test focal pasa 1/1 después de fijar `=21.2.2`; rechaza 20.2.0 y 21.2.3.
-- La prueba no invoca el binario todavía. Driver T020.b debe recuperar solo mensaje HEAD con Git aprobado, guardarlo temporalmente en ubicación privada, invocar `--default-config --edit` con cwd fuera del repo y no copiar stdout/stderr a evidencia.
+- RED T020.b1: E0599 por `check_conventional_commit` ausente. GREEN `cargo test -p jameskills-infra --locked --test commit_test_checks` 3/3; fake comprueba argv, archivo/config privados y limpieza, exit 0/1, salida no filtrada, version pin y PATH hacia Git aprobado.
+- HumanCrop/JamePrompt usan Husky `npm exec ... commitlint --edit "$1"`; JameFirewall lo usa en CI por rango; ImageMD valida metadata/subjects como datos en Python. El método reutiliza Commitlint oficial 21.2.2 (`--default-config --edit`) en vez de un parser sustituto.
+- `--edit` ejecuta internamente `git config core.commentChar`; el driver limita PATH para esa llamada al Git aprobado primero y revalida su fingerprint antes del spawn. Un JSON vacío explícito más `--default-config` evita cargar config JS de repositorio/ancestros.
+- El test es fake de ProcessPort, no ejecución real de Commitlint. En Windows el CLI npm estándar aparece como `.cmd` shim y sigue Blocked; T020.b2 debe resolver el entrypoint Node de forma aprobada y cablear el provider. No declarar Pass real todavía.
+
+## Patrones de repos relacionados revisados
+
+- HumanCrop y JamePrompt usan Husky `commit-msg` con `npm exec --no -- commitlint --config commitlint.config.cjs --edit "$1"`; ambos extienden `@commitlint/config-conventional`. HumanCrop fija CLI/config 21.2.3; JamePrompt fija 21.2.2 y tiene pruebas de mensajes aceptados/rechazados.
+- JameFirewall fija CLI/config 21.2.2, corre `npm exec --no -- commitlint --config ... --from <base> --to <head>` en CI y mantiene self-test del contrato; su gobernanza de título usa `action-semantic-pull-request`.
+- ImageMD no usa Commitlint: `ci/governance.py` valida títulos y subjects de commits como datos obtenidos por API, sin ejecutar su contenido.
+- T020 usa el CLI oficial 21.2.2, no un parser sustituto. `--edit` oficial invoca internamente `git config core.commentChar`; el driver actual solo admite Git/Commitlint nativos aprobados, coloca Git primero en PATH para ese comando fijo y usa cwd/config privados.
 
 ## Verificaciones locales acumuladas
 
@@ -59,9 +69,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar diff/status y cerrar el slice T020.a con test focal, fmt/diff y commit Conventional Commit.
-2. Diseñar y probar T020.b con Git aprobado y fichero temporal privado, sin leer configuración ejecutable del repo.
-3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts.
+1. Revisar el diff limitado a los cinco archivos T020.b1, ejecutar `repo_document_checks`/`commit_test_checks`, fmt, Clippy infra y diff check; crear commit Conventional Commit válido.
+2. T020.b2: resolver `@commitlint/cli/cli.js` por Node con identidad/hash aprobados, sin ejecutar wrapper `.cmd`, y conectar el provider.
+3. T020.c: acción explícita de test drivers; inspección normal no lanza Cargo/npm scripts.
 4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## Preservación y lecturas

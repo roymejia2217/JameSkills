@@ -203,6 +203,19 @@ el target y no ofrece un bypass independiente. `include_history=true` devuelve
 Unsupported hasta que el ejecutable Git hijo tenga un driver/identidad aprobada
 independiente. Ningún output crudo se copia a CheckEvidence.
 
+`LocalFileSystem::check_conventional_commit(root, git, commitlint, environment,
+process, observed_at, environment_fingerprint)` lee solo el mensaje HEAD con
+Git `--no-pager log -1 --format=%B` (máximo 64 KiB), lo escribe junto con una
+config JSON app-owned vacía en un directorio privado fuera del repo y ejecuta el
+CLI Commitlint 21.2.2 con `--default-config --config <private-json> --edit
+<private-message>`. El cwd privado y `--config` explícito evitan ejecutar
+configuración del proyecto. El `--edit` oficial consulta `git config
+core.commentChar`; el PATH de Commitlint antepone la carpeta del Git aprobado y
+su fingerprint se revalida antes del spawn. Exit 0/1 significa Pass/Fail como
+LocalCheck; otro código o CLI no registrado queda Blocked. Message, stdout y
+stderr no se copian a evidencia. Los npm `.cmd` shims no se ejecutan y quedan
+Blocked hasta que exista un driver nativo aprobado.
+
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.

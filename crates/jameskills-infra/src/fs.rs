@@ -36,9 +36,96 @@ use std::time::Duration;
 const MAX_README_BYTES: u64 = 1024 * 1024;
 const MAX_GITIGNORE_PROBES: usize = 32;
 const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
+const MAX_COMMIT_MESSAGE_BYTES: usize = 64 * 1024;
 const GITLEAKS_CONFIG_PLACEHOLDER: &str = "{APP_GITLEAKS_CONFIG}";
 const GITLEAKS_DEFAULT_CONFIG: &str = "[extend]\nuseDefault = true\n";
 static NEXT_GITLEAKS_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_COMMIT_MESSAGE_ID: AtomicU64 = AtomicU64::new(0);
+
+struct PrivateCommitMessage {
+    directory: PathBuf,
+    path: PathBuf,
+    config_path: PathBuf,
+}
+
+impl PrivateCommitMessage {
+    fn create(repository_root: &Path, message: &[u8]) -> std::io::Result<Self> {
+        for _ in 0..8 {
+            let directory = std::env::temp_dir().join(format!(
+                "jameskills-commitlint-{}-{}",
+                std::process::id(),
+                NEXT_COMMIT_MESSAGE_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            #[allow(unused_mut)]
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+            let canonical_directory = match std::fs::canonicalize(&directory) {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = std::fs::remove_dir_all(&directory);
+                    return Err(error);
+                }
+            };
+            if canonical_directory.starts_with(repository_root)
+                || repository_root.starts_with(&canonical_directory)
+            {
+                let _ = std::fs::remove_dir_all(&directory);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "private commit message directory overlaps the repository",
+                ));
+            }
+            let path = canonical_directory.join("message.txt");
+            if let Err(error) = write_private_file(&path, message) {
+                let _ = std::fs::remove_dir_all(&canonical_directory);
+                return Err(error);
+            }
+            let config_path = canonical_directory.join("commitlint.json");
+            if let Err(error) = write_private_file(&config_path, b"{\"rules\":{}}\n") {
+                let _ = std::fs::remove_dir_all(&canonical_directory);
+                return Err(error);
+            }
+            return Ok(Self {
+                directory: canonical_directory,
+                path,
+                config_path,
+            });
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "private commit message path is unavailable",
+        ))
+    }
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path).and_then(|mut file| {
+        file.write_all(bytes)?;
+        file.sync_all()
+    })
+}
+
+impl Drop for PrivateCommitMessage {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
 
 struct PrivateGitleaksConfig {
     directory: PathBuf,
@@ -102,6 +189,23 @@ fn repository_has_gitleaks_ignore(root: &ApprovedRoot) -> std::io::Result<bool> 
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error),
     }
+}
+
+fn candidate_for_approved_tool(
+    profile: &ToolProfile,
+    tool: &ApprovedRepositoryTool,
+    platform: crate::platform::HostPlatform,
+) -> Option<ToolCandidate> {
+    let search_path = tool.executable.path().parent()?.to_path_buf();
+    let approved_path = std::fs::canonicalize(tool.executable.path()).ok()?;
+    find_tool_candidates(std::slice::from_ref(profile), &[search_path], platform)
+        .into_iter()
+        .find(|candidate| {
+            candidate
+                .path()
+                .and_then(|path| std::fs::canonicalize(path).ok())
+                .is_some_and(|path| path == approved_path)
+        })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -383,6 +487,241 @@ impl LocalFileSystem {
             Some(Enforcement::LocalCheck),
             evidence,
         )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn check_conventional_commit(
+        &self,
+        root: &ApprovedRoot,
+        git: &ApprovedRepositoryTool,
+        commitlint: &ApprovedRepositoryTool,
+        environment: &ApprovedEnv,
+        process: &dyn ProcessPort,
+        observed_at: &str,
+        environment_fingerprint: &str,
+    ) -> AppResult<CheckObservation> {
+        let report = |status, enforcement, summary| {
+            let evidence = CheckEvidence::new(
+                "tool.commitlint.lint",
+                observed_at,
+                None,
+                environment_fingerprint,
+                summary,
+                None,
+            )
+            .map_err(AppError::Validation)?;
+            CheckObservation::new(status, enforcement, vec![evidence]).map_err(AppError::Validation)
+        };
+        let root_path = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+        if !root_path.is_dir() {
+            return Err(AppError::NotFound);
+        }
+        let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+        let Some(git_profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Git)
+        else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "The app-owned Git profile is unavailable.",
+            );
+        };
+        let Some(commitlint_profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Commitlint)
+        else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "The app-owned Commitlint profile is unavailable.",
+            );
+        };
+        let platform = PlatformFacts::detect().platform;
+        let Some(git_candidate) = candidate_for_approved_tool(git_profile, git, platform) else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "The approved Git executable is not a registered candidate.",
+            );
+        };
+        let Some(commitlint_candidate) =
+            candidate_for_approved_tool(commitlint_profile, commitlint, platform)
+        else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "The approved Commitlint executable is not a registered candidate.",
+            );
+        };
+        if git_candidate.kind() != ToolCandidateKind::NativeExecutable
+            || commitlint_candidate.kind() != ToolCandidateKind::NativeExecutable
+        {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Git and Commitlint command shims are not executed by this driver.",
+            );
+        }
+        let environment =
+            ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?;
+        for (profile, candidate, tool) in [
+            (git_profile, &git_candidate, git),
+            (commitlint_profile, &commitlint_candidate, commitlint),
+        ] {
+            let version = probe_registered_tool_version(
+                profile,
+                candidate,
+                Some(tool.fingerprint),
+                root,
+                &environment,
+                process,
+                observed_at,
+            )
+            .await?;
+            if version.availability() != ToolAvailability::Candidate
+                || version.version_status() != ToolVersionStatus::Compatible
+                || version.version().is_none()
+            {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Git or Commitlint version is outside the verified app-owned profile.",
+                );
+            }
+        }
+
+        let git_spec = ProcessSpec::new(
+            ApprovedExecutable::from_absolute_path(git.executable.path().to_path_buf())
+                .map_err(AppError::Validation)?,
+            ToolId::Git,
+            ["--no-pager", "log", "-1", "--format=%B"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+            ApprovedRoot::from_absolute_path(root_path.clone()).map_err(AppError::Validation)?,
+            ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+            Duration::from_secs(5),
+            MAX_COMMIT_MESSAGE_BYTES,
+            ProcessPermission::ReadOnlyCheck,
+            CancellationToken::new(),
+        )
+        .map_err(AppError::Validation)?
+        .with_approved_executable_fingerprint(git.fingerprint);
+        let message = match process.run(git_spec).await {
+            Ok(output) if output.exit_code() == Some(0) => output.stdout().to_vec(),
+            Ok(_) | Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Git could not safely provide the current commit message.",
+                );
+            }
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(error) => return Err(error),
+        };
+        if message.is_empty()
+            || message.len() > MAX_COMMIT_MESSAGE_BYTES
+            || message.contains(&0)
+            || std::str::from_utf8(&message).is_err()
+        {
+            return report(
+                CheckStatus::Unknown,
+                None,
+                "The current commit message is absent or outside safe UTF-8 limits.",
+            );
+        }
+        let message_file = match PrivateCommitMessage::create(&root_path, &message) {
+            Ok(message_file) => message_file,
+            Err(_) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "A private commit-message file could not be staged outside the repository.",
+                );
+            }
+        };
+        let observed_git_fingerprint =
+            crate::process::fingerprint_executable(git.executable.path());
+        if !matches!(observed_git_fingerprint, Ok(fingerprint) if fingerprint == git.fingerprint) {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "The approved Git executable changed before Commitlint ran.",
+            );
+        }
+        let mut commitlint_environment_entries = environment.entries().clone();
+        let git_directory = git.executable.path().parent().ok_or_else(|| {
+            AppError::Validation(vec![Diagnostic::error(
+                "tool.git.path.invalid",
+                "Approved Git executable has no parent directory.",
+            )])
+        })?;
+        let mut search_paths = vec![git_directory.to_path_buf()];
+        if let Some(existing_path) = commitlint_environment_entries.get(&OsString::from("PATH")) {
+            search_paths.extend(std::env::split_paths(existing_path));
+        }
+        let path = std::env::join_paths(search_paths).map_err(|_| {
+            AppError::Validation(vec![Diagnostic::error(
+                "process.env.path.invalid",
+                "Approved executable search path could not be constructed.",
+            )])
+        })?;
+        commitlint_environment_entries.insert(OsString::from("PATH"), path);
+        let commitlint_environment =
+            ApprovedEnv::new(commitlint_environment_entries).map_err(AppError::Validation)?;
+        let commitlint_args = ["--default-config", "--config"]
+            .into_iter()
+            .map(OsString::from)
+            .chain([message_file.config_path.as_os_str().to_os_string()])
+            .chain([OsString::from("--edit")])
+            .chain([message_file.path.as_os_str().to_os_string()])
+            .chain([OsString::from("--quiet"), OsString::from("--color=false")])
+            .collect();
+        let commitlint_spec = ProcessSpec::new(
+            ApprovedExecutable::from_absolute_path(commitlint.executable.path().to_path_buf())
+                .map_err(AppError::Validation)?,
+            ToolId::Commitlint,
+            commitlint_args,
+            ApprovedRoot::from_absolute_path(message_file.directory.clone())
+                .map_err(AppError::Validation)?,
+            commitlint_environment,
+            Duration::from_secs(10),
+            16 * 1024,
+            ProcessPermission::ReadOnlyCheck,
+            CancellationToken::new(),
+        )
+        .map_err(AppError::Validation)?
+        .with_approved_executable_fingerprint(commitlint.fingerprint);
+        let output = match process.run(commitlint_spec).await {
+            Ok(output) => output,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Commitlint could not run with the approved executable identity.",
+                );
+            }
+            Err(error) => return Err(error),
+        };
+        match output.exit_code() {
+            Some(0) => report(
+                CheckStatus::Pass,
+                Some(Enforcement::LocalCheck),
+                "Commitlint 21.2.2 accepted the current commit using built-in Conventional Commits rules.",
+            ),
+            Some(1) => report(
+                CheckStatus::Fail,
+                Some(Enforcement::LocalCheck),
+                "Commitlint 21.2.2 rejected the current commit; message details are withheld.",
+            ),
+            _ => report(
+                CheckStatus::Blocked,
+                None,
+                "Commitlint returned an unregistered exit status; output is withheld.",
+            ),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
