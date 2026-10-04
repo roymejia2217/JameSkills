@@ -17,6 +17,8 @@ const FOUNDATION_ENVIRONMENT: &str =
     include_str!("../../../docs/examples/repository-foundation/references/environment.md");
 const FOUNDATION_README_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/README.md");
+const FOUNDATION_GITIGNORE_TEMPLATE: &str =
+    include_str!("../../../docs/examples/repository-foundation/templates/gitignore.txt");
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -192,6 +194,20 @@ fn runtime_reference_material_matches_documented_sources() {
             .unwrap_or_else(|_| panic!("canonical resource {path} must exist"));
         assert_eq!(runtime.replace("\r\n", "\n"), source.replace("\r\n", "\n"));
     }
+}
+
+#[test]
+fn runtime_skill_links_to_the_user_safe_gitignore_template() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/repository-foundation");
+    let skill = std::fs::read_to_string(root.join("SKILL.md")).unwrap();
+    assert!(skill.contains("[gitignore](templates/.gitignore)"));
+    let runtime = std::fs::read_to_string(root.join("templates/.gitignore"))
+        .expect("the linked gitignore template must exist");
+    assert_eq!(
+        runtime.replace("\r\n", "\n"),
+        FOUNDATION_GITIGNORE_TEMPLATE.replace("\r\n", "\n")
+    );
 }
 
 #[test]
