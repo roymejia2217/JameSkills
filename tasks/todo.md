@@ -679,7 +679,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Verificación:** cargo test -p jameskills-cli --locked validate_bundle; cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED CLI Unsupported exit 3, d1 API ausente E0432, factory missing `library()` E0599. GREEN Windows local: core 58/58, infra 61/61, CLI 16/16; workspace clippy/fmt/diff clean; official example JSON/text valid; invalid manifest reports `jameskills.toml` + `manifest.invalid` without echo. PR CI Linux/Windows pendiente; T015 parent permanece abierto hasta checks remotos.
 
 ## C005 — Checkpoint tras T013–T015
 

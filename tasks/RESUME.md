@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`; T015.d3 local.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3), T015.c, T015.d1, T015.d2 y d2e completas localmente. Activa T015.d4: cablear validate JSON/text en CLI con errors/diagnostics reales. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3), T015.c y T015.d1–d4 completas localmente. Activa T015.d5: someter PR de T015 a CI remota, luego cerrar checklist/checkpoint. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -28,15 +28,18 @@ T015.a, T015.b (b1+b2+b3), T015.c, T015.d1, T015.d2 y d2e completas localmente. 
 - GREEN T015.d2: service tests 2/2; core 58/58; core Clippy/fmt/diff clean. El service usa provider inyectable y propaga diagnostics sin SQLite.
 - RED T015.d3: `RuntimeServices::library` no existía.
 - GREEN T015.d3: infra 61/61 Windows; factory compone LocalFileSystem/LibraryService y valida runtime fixture sin crear config/data/cache; workspace Clippy/fmt/diff green.
+- GREEN T015.d4: CLI validate tests 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON/text muestran summary o diagnostic relative path/code sin reflejar bytes de entrada; workspace Clippy/fmt/diff clean.
 
 ## Próximos pasos
 
-1. T015.d4 hace que main componga servicios para validate y que dispatch use LibraryService; respuesta JSON/texto incluye summary/diagnostics sin echo de entrada.
-2. Ejecutar test CLI oficial + bundle inválido, CLI/core/infra tests y los checks del workspace.
-3. Ejecutar T015 CLI/core/infra tests, actualizar checklist/evidencia, commit y PR verde; T005 continúa bloqueado con evidencia documentada.
+1. Revisar diff/commits, push `feat/t015a-canonical-example` y crear PR hacia `main`.
+2. Esperar CI Linux/Windows/Required CI. Si está verde, actualizar T015 padre/C005 y cerrar PR.
+3. Siguiente tarea topológica tras T015: reevaluar T005 interactivo; si sigue bloqueado, T016 es independiente y elegible.
 
 ## Lecturas y contratos
 
 `tasks/todo.md` T015; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; fuentes `docs/examples/repository-foundation/*`.
+
+Verificación acumulada Windows local: core 58/58, infra 61/61, CLI 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
 
 T005: `docs/PLATFORM-EVIDENCE.md` documenta Windows build sin captura/display/GPU observados y Linux contenedor sin sesión gráfica/GPU, además de libs `xcb`, `xkbcommon`, `xkbcommon-x11` ausentes. No afirmar smoke ni Pass por build. Preservar los artefactos locales sin seguimiento `target/` y `JameSkills-implementation-dossier.zip`.
