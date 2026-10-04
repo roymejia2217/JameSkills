@@ -1,34 +1,50 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commit: `feat/t038-blob-recovery` / `8389058`; PR #18 contra `main`.
-Última tarea completa en `main`: T037, T038 base (PR #17). T038.a implementada y localmente verificada; PR #18 tuvo CI Windows/Linux 9/9 verde. Se agregó evidencia/checklist al PR #18; esa actualización documental debe pasar sus checks antes de merge.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`, d1a `f5e0514`; PR #19.
+T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-Cerrar y squash-mergear PR #18 tras los checks de la actualización documental. Luego comenzar T015.a, primer incremento independiente elegible según el orden del DAG.
+T015 y sus acceptance están completos; PR #19 Required CI, Linux/Windows, tests, clippy, fmt, commitlint, README Policy y PR Governance pasaron 9/9. El update documental está en el working tree y requiere un último ciclo de CI antes del merge. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
-## Evidencia T038.a
+## T015.a1 RED/GREEN
 
-- RED: `cargo test -p jameskills-infra --locked --test revision_storage` falló con E0599 por ausencia de `orphan_blob_hashes`.
-- GREEN: `revision_storage` 14/14 Windows; `cargo test -p jameskills-infra --locked` 60/60.
-- `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked`, `cargo check -p jameskills-desktop --locked`, workspace Clippy `-D warnings`, fmt y diff check pasaron en el pre-push hook.
-- PR #18: build Linux/Windows, tests, clippy, fmt, commitlint, PR Governance, README Policy y Required CI pasaron (9/9).
-- Blobs nombrados por hash se verifican antes de escritura/commit y al abrir SQLite; los huérfanos se enumeran y retienen, el rollback conserva la head anterior y permite reintento. Revisiones con blob referenciado ausente/corrupto bloquean apertura.
+- RED fuente: test del ejemplo del dossier detectó `frontmatter.unknown_field` por `license` fuera del DTO estándar; tras corregirlo, detectó `policy.invalid` por campos/checks no compatibles con T010/T011.
+- RED destino: `cargo test -p jameskills-core --locked --test bundle_manifest portable_repository_example_is_available_at_the_runtime_fixture_path` falla porque falta `examples/repository-foundation/jameskills.toml`.
+- GREEN T015.a1: `official_repository_example_passes_manifest_skill_and_policy_parsers` 1/1; `policy_schema` 5/5. Fuente `docs/examples/repository-foundation` pasa manifest/frontmatter/policy.
+- GREEN T015.a2: `portable_repository_example_is_available_at_the_runtime_fixture_path` 1/1; `bundle_manifest` 15/15; core 49/49 Windows; core Clippy, workspace fmt y diff check pasan.
+- RED T015.b1: test runtime falla porque todavía no existe `examples/repository-foundation/guidance/repository.toml`.
+- GREEN T015.b1: guidance test 1/1; `bundle_manifest` 16/16, core 50/50, `policy_schema` 5/5; core Clippy/fmt/diff clean. Elimina plan `github-access-setup` porque el policy parser no soporta una requirement con ese ID; actions limitadas a enums y source IDs registrados.
+- RED T015.b2a: `runtime_reference_material_matches_documented_sources` falla porque aún no existe `references/standards.md` bajo la ruta runtime.
+- GREEN T015.b2b: `runtime_reference_material_matches_documented_sources` 1/1 al alinear referencias/README con fuentes del dossier.
+- RED T015.b3: test detectó link SKILL a `templates/gitignore.txt` que no existía en runtime ni coincidía con layout planeado.
+- GREEN T015.b3: `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1; core 52/52, Clippy/fmt/diff clean.
+- RED T015.c: `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` falla porque falta `templates/ci-rust.yml` runtime.
+- GREEN T015.c: 1/1 focused; `bundle_manifest` 19/19, core 53/53, core Clippy/fmt/diff clean. SVG es propio/static y el CI template conserva placeholders `exit 1` hasta resolver SHA/toolchain.
+- RED T015.d baseline: `cargo test -p jameskills-cli --locked --test validate_bundle` compila y falla porque `validate` aún responde Unsupported (exit 3) al ejemplo oficial.
+- RED T015.d1: import de test falló E0432 porque `validate_bundle` no existía.
+- GREEN T015.d1: core 56/56; bundle oficial entrega hash y summary, falta policy resource y acción guidance libre se rechazan; core Clippy/fmt/diff clean.
+- GREEN T015.d2: service tests 2/2; core 58/58; core Clippy/fmt/diff clean. El service usa provider inyectable y propaga diagnostics sin SQLite.
+- RED T015.d3: `RuntimeServices::library` no existía.
+- GREEN T015.d3: infra 61/61 Windows; factory compone LocalFileSystem/LibraryService y valida runtime fixture sin crear config/data/cache; workspace Clippy/fmt/diff green.
+- GREEN T015.d4: CLI validate tests 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON/text muestran summary o diagnostic relative path/code sin reflejar bytes de entrada; workspace Clippy/fmt/diff clean.
+- RED T015.d1a: split guidance válido fallaba al exigir todos los planes en cada archivo.
+- GREEN T015.d1a: core 59/59 y core Clippy/fmt/diff clean; los planes ahora se unen antes de validar guidance IDs.
+- GREEN T015.d5 pre-update: PR #19 9/9 remoto; checklist T015/C005 se está cerrando con evidencia, y los checks se repetirán tras ese commit documental.
 
-## Próximas tareas elegibles y bloqueos
+## Próximos pasos
 
-- T005 sigue pendiente: Windows compila, pero falta smoke de ventana visible/captura y display/GPU observados; Linux no tiene sesión gráfica/GPU ni libs de desarrollo `xcb`, `xkbcommon`, `xkbcommon-x11`. Evidencia detallada en `docs/PLATFORM-EVIDENCE.md`; T008 depende de T005.
-- T010/T011/T012/T013/T014 ya tienen acceptance y evidencia marcada; corregidos sus campos de estado en `tasks/todo.md`.
-- T015 (T015.a primero) tiene dependencias satisfechas: T009, T011, T014, T037. El fixture fuente ya existe bajo `docs/examples/repository-foundation`; no copiarlo hasta comparar sus contratos.
-- T039 depende de T037 y T038.a, pero aparece después en el orden del DAG y no precede T015.
+1. Commit del cierre documental, push a PR #19 y esperar segundo CI Linux/Windows/Required CI.
+2. Si queda verde, squash-mergear PR #19, actualizar `main` y limpiar ramas.
+3. Después, reevaluar T005 en host interactivo; si continúa bloqueada, T016 es la próxima tarea independiente elegible.
 
-## Próxima acción exacta
+## Lecturas y contratos
 
-Después de merge de PR #18: actualizar desde `main`, leer T015 y `docs/examples/repository-foundation`, ejecutar validación/red de T015.a y completar solo sus tres archivos con evidencia.
+`tasks/todo.md` T015; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; fuentes `docs/examples/repository-foundation/*`.
 
-## Lecturas mínimas
+Verificación acumulada Windows local: core 59/59, infra 61/61, CLI 16/16, desktop `test-support` 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
 
-`tasks/todo.md` T015.a; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; `docs/examples/repository-foundation/*`.
+`cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json` devuelve `valid=true`, 10 archivos y hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; la salida humana muestra el mismo summary.
 
-No hay credenciales o secretos requeridos para T015.a. Preservar los artefactos locales no seguidos `target/` y `JameSkills-implementation-dossier.zip`.
+T005: `docs/PLATFORM-EVIDENCE.md` documenta Windows build sin captura/display/GPU observados y Linux contenedor sin sesión gráfica/GPU, además de libs `xcb`, `xkbcommon`, `xkbcommon-x11` ausentes. No afirmar smoke ni Pass por build. Preservar los artefactos locales sin seguimiento `target/` y `JameSkills-implementation-dossier.zip`.

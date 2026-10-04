@@ -218,20 +218,43 @@ pub fn dispatch_cli(cli: Cli, runtime: Option<&RuntimeServices>) -> super::outpu
         );
     };
 
-    if matches!(command, CliCommand::Doctor)
-        && let Some(runtime) = runtime
-    {
-        let facts = runtime.facts();
-        let data = json!({
-            "platform": platform_name(facts.platform),
-            "architecture": facts.architecture,
-            "display_environment": observation_name(facts.display_environment),
-            "gpu_device": observation_name(facts.gpu_device),
-        });
-        return super::output::CliResponse::success("doctor", data);
+    match command {
+        CliCommand::Doctor => {
+            let Some(runtime) = runtime else {
+                return super::output::CliResponse::unsupported("doctor");
+            };
+            let facts = runtime.facts();
+            let data = json!({
+                "platform": platform_name(facts.platform),
+                "architecture": facts.architecture,
+                "display_environment": observation_name(facts.display_environment),
+                "gpu_device": observation_name(facts.gpu_device),
+            });
+            super::output::CliResponse::success("doctor", data)
+        }
+        CliCommand::Validate { path } => {
+            let Some(runtime) = runtime else {
+                return super::output::CliResponse::unsupported("validate");
+            };
+            match runtime.library().validate_import(&path) {
+                Ok(bundle) => {
+                    let manifest = bundle.manifest();
+                    let data = json!({
+                        "valid": true,
+                        "skill_id": manifest.id().as_uuid().to_string(),
+                        "slug": manifest.slug(),
+                        "version": manifest.version().to_string(),
+                        "file_count": bundle.file_count(),
+                        "content_hash": bundle.content_hash().as_str(),
+                        "warnings": [],
+                    });
+                    super::output::CliResponse::success("validate", data)
+                }
+                Err(diagnostics) => super::output::CliResponse::validation_failure(diagnostics),
+            }
+        }
+        command => super::output::CliResponse::unsupported(command.command_name()),
     }
-
-    super::output::CliResponse::unsupported(command.command_name())
 }
 
 fn platform_name(platform: HostPlatform) -> &'static str {

@@ -625,37 +625,59 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T015 — Añadir suite de ingeniería y validate CLI real
 
-- [ ] **T015 completada y verificada**
+- [x] **T015 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** completada.
 
-**Implementación y funciones:** validate_bundle_command; ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y limitaciones de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** `domain::validate_bundle`, `LibraryService::validate_import`, `FileSystemPort::read_bundle_directory`, comando `validate`. El ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y límites de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** validate_bundle fixture inválida falla con path/código; ejemplo oficial pasa validación real usando el codec/core.
 
-**Archivos del incremento:**
-- `examples/repository-foundation/SKILL.md`
-- `examples/repository-foundation/jameskills.toml`
-- `examples/repository-foundation/policies/repository.toml`
-- `crates/jameskills-cli/src/commands.rs`
-- `crates/jameskills-cli/tests/validate_bundle.rs`
+**Archivos del incremento:** ver los incrementos desglosados a continuación; cada uno mantiene un máximo de cinco archivos.
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T015.a — Ejemplo canónico mínimo** (3 archivos): `examples/repository-foundation/SKILL.md`; `examples/repository-foundation/jameskills.toml`; `examples/repository-foundation/policies/repository.toml`. Copiar/adaptar docs/examples/repository-foundation del dossier; usar UUID f9c0199f-c4ce-4b04-85dd-ae12a7db292b. No inventar política si falta fixture.
-- [ ] **T015.b — Guía y referencias del ejemplo** (5 archivos): `examples/repository-foundation/guidance/repository.toml`; `examples/repository-foundation/references/standards.md`; `examples/repository-foundation/references/environment.md`; `examples/repository-foundation/templates/README.md`; `examples/repository-foundation/templates/.gitignore`. DAG tipado y material de lectura/templates; validar references y ausencia de shell/tool registration arbitrary.
-- [ ] **T015.c — Template de CI y asset propio** (2 archivos): `examples/repository-foundation/templates/ci-rust.yml`; `examples/repository-foundation/assets/optional-brand.svg`. Assets seguros sin script/external href; template es dato; validación golden de suite completa.
-- [ ] **T015.d — Validate service y CLI** (5 archivos): `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/tests/validate_bundle.rs`. LibraryService::validate_import usa FileSystemPort y domain::validate_bundle sin exigir storage aún; CLI llama service, no infra directa.
+- [x] **T015.a — Ejemplo canónico mínimo** (completada con a1+a2): copia compatible con parsers reales T010/T011 y test de los tres archivos del runtime fixture. UUID `f9c0199f-c4ce-4b04-85dd-ae12a7db292b`; no inventar política si falta fixture.
+- [x] **T015.a1 — Adaptar fuentes y fijar RED/GREEN de parser** (4 archivos): `docs/examples/repository-foundation/SKILL.md`; `docs/examples/repository-foundation/policies/repository.toml`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`. Corrige solo desajustes del ejemplo fuente con contratos/parsers ya implementados; el test demuestra tanto el parse como la ausencia del destino runtime antes de copiar.
+- Evidencia T015.a1: RED source example: `frontmatter.unknown_field` por `license` no soportado, luego `policy.invalid` por keys/checks fuera de T010/T011. RED runtime path: test falla en tiempo de ejecución porque falta `examples/repository-foundation/jameskills.toml`. GREEN parser del ejemplo fuente `official_repository_example_passes_manifest_skill_and_policy_parsers` 1/1; `policy_schema` 5/5.
+- [x] **T015.a2 — Copiar fixture canónico runtime** (5 archivos): `examples/repository-foundation/SKILL.md`; `examples/repository-foundation/jameskills.toml`; `examples/repository-foundation/policies/repository.toml`; `tasks/todo.md`; `tasks/RESUME.md`. El test existente verifica manifest, frontmatter+par y policy desde esa ruta.
+- Evidencia T015.a2: RED `portable_repository_example_is_available_at_the_runtime_fixture_path` falló porque no existía el manifest en `examples/`; GREEN focused 1/1, `bundle_manifest` 15/15 y core completo 49/49 Windows. `cargo clippy -p jameskills-core --all-targets --locked -- -D warnings`, fmt y diff check pasan. Fuente oficial conservada bajo `docs/examples`; el runtime copia solo los tres archivos planificados.
+- [x] **T015.b — Guía y referencias del ejemplo** (completada con b1+b2+b3): guidance ligada a requirements existentes, referencias y templates inertes con rutas consistentes.
+- [x] **T015.b1 — Alinear guidance con policy y actions registradas** (5 archivos): `docs/examples/repository-foundation/guidance/repository.toml`; `examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Prueba verifica requisitos, references, DAG de steps y acciones registry-only; eliminar plan cuya requirement no existe.
+- Evidencia T015.b1: RED `runtime_guidance_references_known_requirements_and_registered_actions` por guidance runtime ausente. GREEN focused 1/1; `bundle_manifest` 16/16 y core 50/50 Windows; `policy_schema` 5/5; core Clippy, fmt y diff check limpios. La guía coincide semánticamente con la fuente; todas las plan/step refs pertenecen a policy; DAG acíclico; acciones se limitan a manual-instruction/recheck o URLs registradas. Se eliminó solo `github-access-setup`, que referenciaba una requirement no soportada; tool operations validadas por `parse_policy`.
+- [x] **T015.b2 — Copiar referencias y README template** (completada con b2a+b2b).
+- [x] **T015.b2a — Testear referencias/template ausentes** (3 archivos): `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Fixture-test exige destinos presentes y contenido alineado con las fuentes documentales.
+- Evidencia T015.b2a RED: `runtime_reference_material_matches_documented_sources` compila y falla en runtime porque falta `references/standards.md`; test normaliza CRLF/LF para comparar material de texto sin cambiar los bytes fuente.
+- [x] **T015.b2b — Copiar referencias y README template** (5 archivos): `examples/repository-foundation/references/standards.md`; `examples/repository-foundation/references/environment.md`; `examples/repository-foundation/templates/README.md`; `tasks/todo.md`; `tasks/RESUME.md`. Preservar advertencias sobre Unsupported/Unknown y no afirmar gates remotos.
+- Evidencia T015.b2: RED por destino ausente; al copiar, una discrepancia de texto `Conventional Commits1.0` vs `Conventional Commits 1.0` detectó copia no fiel. GREEN `runtime_reference_material_matches_documented_sources` 1/1 tras alinear; compara texto sin alterar line endings y cubre dos referencias + README template. Core 51/51 Windows; core Clippy `-D warnings`, fmt y diff check verdes.
+- [x] **T015.b3 — Copiar template gitignore inerte** (5 archivos): `examples/repository-foundation/templates/.gitignore`; `examples/repository-foundation/SKILL.md`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Mantener lockfiles/fixtures y exclusiones secretas; nunca sobreescribir gitignore de usuario.
+- Evidencia T015.b3: RED el link SKILL aún apuntaba `templates/gitignore.txt`; GREEN test `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1: link corregido, template copiado fiel y exclusiones/lockfile conservados. Core 52/52 Windows; core Clippy, fmt y diff check verdes.
+- [x] **T015.c — Template de CI y asset propio** (5 archivos): `examples/repository-foundation/templates/ci-rust.yml`; `examples/repository-foundation/assets/optional-brand.svg`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Asset propio sin script/event/foreignObject/external href; template sigue fail-closed e inerte.
+- Evidencia T015.c: RED `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` por template runtime ausente. GREEN 1/1; `bundle_manifest` 19/19 y core 53/53 Windows; CI template igual a fuente, conserva `run: exit 1` placeholder; SVG own/static sin script/event/foreignObject/href/image. Core Clippy, fmt y diff check verdes.
+- [x] **T015.d — Validate service y CLI** (completada con d1–d5): domain validator, FileSystemPort, LibraryService, composition real y CLI JSON/text sin success stubs.
+- [x] **T015.d1 — Validación pura de bundle** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Validar manifest/frontmatter/policy/guidance/resources sobre `BundleFiles` y producir hash canónico/summary.
+- Evidencia T015.d1: RED E0432 por `validate_bundle` ausente; GREEN core 56/56 Windows, con bundle oficial hash canónico, policy resource ausente y action guidance no registrada rechazadas. Clippy core `-D warnings`, fmt y diff check verdes. La validación semántica actual solo admite fuentes/action IDs del contrato registry.
+- [x] **T015.d1a — Unir guidance de varios archivos referenciados** (4 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Los manifiestos permiten múltiples guidance_files; validar referencias contra su unión global sin exigir que cada archivo replique todos los planes.
+- Evidencia T015.d1a: RED `bundle_validation_combines_guidance_plans_from_multiple_manifest_files` detecta rechazo falso cuando los planes están repartidos entre dos archivos. GREEN core 59/59 Windows, incluida cobertura de split; core Clippy `-D warnings`, fmt y diff check verdes.
+- [x] **T015.d2 — Port filesystem y LibraryService** (4 archivos): `crates/jameskills-core/src/ports/filesystem.rs`; `crates/jameskills-core/src/lib.rs`; `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-core/src/application/mod.rs`. Servicio inyectable y sin SQLite/filesystem directo en core; tests inline en `application/library.rs`.
+- [x] **T015.d2e — Registrar evidencia del service slice** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Cerrar d2 tras su test RED/GREEN y focused check.
+- Evidencia T015.d2: tests `validation_uses_the_injected_filesystem_and_returns_domain_summary` y `validation_preserves_filesystem_diagnostics` 2/2; core 58/58 Windows; core Clippy `-D warnings`, fmt y diff check verdes. El service no depende de storage ni lee filesystem directamente.
+- [x] **T015.d3 — Adaptador filesystem y factory** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/library_validation.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Implementar lectura segura existente y wiring del provider real; no crear carpetas de usuario al validar.
+- Evidencia T015.d3: RED E0599 porque `RuntimeServices::library` no existía. GREEN `cargo test -p jameskills-infra --locked` 61/61 Windows; composición valida el fixture runtime por walk+bytes reales sin crear config/data/cache. Workspace Clippy `-D warnings`, fmt y diff check verdes.
+- [x] **T015.d4 — Comando validate JSON/text real** (5 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/main.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/validate_bundle.rs`; `tasks/todo.md`. Exit/error conserva diagnostics con paths/codes y no echoa contenido externo.
+- Evidencia T015.d4: RED `validate_bundle` oficial devolvía Unsupported/exit 3; fixture inválida también no exponía path/code. GREEN CLI focused 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON éxito incluye slug/version/count/hash/warnings; error y texto reportan path/code/mensaje relativo sin reflejar contenido. Workspace Clippy `-D warnings`, fmt y diff check verdes.
+- [x] **T015.d5 — Cierre documental y checkpoint** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Capturar evidencia local/remota y próximo DAG; no marcar T015 padre hasta test CLI/fixture y CI verde.
+- Evidencia d5: Windows local core 59/59, infra 61/61, CLI 16/16 y desktop test-support 16/16; workspace Clippy `-D warnings`, fmt y diff check verdes. `cargo run` JSON/human valida la suite oficial (10 archivos, SHA-256 `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`); inválido informa `jameskills.toml` / `manifest.invalid` sin echo. PR #19 Required CI, Linux/Windows build, tests, clippy, fmt, commitlint, README Policy y PR Governance 9/9.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] validate conecta CLI→ApplicationServices/validador→FileSystemPort sin duplicar parseo.
-- [ ] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
-- [ ] JSON y salida humana muestran warnings/errores concretos y límites del formato.
+- [x] `validate` conecta CLI → RuntimeServices/LibraryService → domain validator + FileSystemPort sin duplicar parseo.
+- [x] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
+- [x] JSON y salida humana muestran warnings/errores concretos y límites del formato.
 
 **Verificación:** cargo test -p jameskills-cli --locked validate_bundle; cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED CLI Unsupported exit 3, d1 API ausente E0432, factory missing `library()` E0599. GREEN Windows: core 59/59, infra 61/61, CLI 16/16, desktop test-support 16/16; workspace Clippy/fmt/diff clean. PR #19 CI Linux/Windows 9/9.
 
 ## C005 — Checkpoint tras T013–T015
 
@@ -665,7 +687,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Hash y .jskill roundtrip; suite oficial y validate CLI real funcionan.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia parcial:** tras T013–T015 pasan core/infra/CLI suites, desktop test-support, workspace checks, hash/codec y validate CLI; PR #19 CI 9/9. C005 permanece sin marcar: T005 carece del smoke de ventana visible/captura y display/GPU observados; bloqueo documentado en `docs/PLATFORM-EVIDENCE.md`. Continuar una tarea independiente si T005 sigue bloqueada.
 
 <a id="t016"></a>
 

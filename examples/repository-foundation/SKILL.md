@@ -22,4 +22,4 @@ Usa esta suite al iniciar un repositorio, hacer cambios, configurar CI o prepara
 
 [Políticas tipadas](policies/repository.toml) definen los gates verificables. [Guía](guidance/repository.toml) define pasos adaptables. Las instrucciones solas no acreditan que exista protección remota. Informa Pass, Fail, Blocked, Unknown o Unsupported con evidencia y la acción necesaria; nunca conviertas "ya lo hice" en un check aprobado sin comprobar.
 
-Plantillas: [README](templates/README.md), [gitignore](templates/gitignore.txt), [CI Rust](templates/ci-rust.yml). Adáptalas al proyecto; no sustituyas contenido existente automáticamente.
+Plantillas: [README](templates/README.md), [gitignore](templates/.gitignore), [CI Rust](templates/ci-rust.yml). Adáptalas al proyecto; no sustituyas contenido existente automáticamente.

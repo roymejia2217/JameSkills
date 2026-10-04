@@ -1,6 +1,11 @@
-use crate::platform::{PlatformFacts, UserDirectories};
+use crate::{
+    fs::LocalFileSystem,
+    platform::{PlatformFacts, UserDirectories},
+};
 use chrono::{SecondsFormat, Utc};
-use jameskills_core::{AppError, AppResult, Diagnostic, ports::ClockPort};
+use jameskills_core::{
+    AppError, AppResult, Diagnostic, application::LibraryService, ports::ClockPort,
+};
 use std::{sync::Arc, time::Instant};
 
 /// Process-local monotonic reference and UTC wall clock.
@@ -38,6 +43,7 @@ pub struct RuntimeServices {
     facts: PlatformFacts,
     directories: UserDirectories,
     clock: Arc<SystemClock>,
+    library: Arc<LibraryService>,
 }
 
 impl RuntimeServices {
@@ -52,6 +58,10 @@ impl RuntimeServices {
     pub fn clock(&self) -> &dyn ClockPort {
         self.clock.as_ref()
     }
+
+    pub fn library(&self) -> &LibraryService {
+        self.library.as_ref()
+    }
 }
 
 /// Build the available runtime adapters after validating caller-supplied paths.
@@ -62,6 +72,7 @@ pub fn build_services(directories: UserDirectories) -> AppResult<RuntimeServices
         facts: PlatformFacts::detect(),
         directories,
         clock: Arc::new(SystemClock::new()),
+        library: Arc::new(LibraryService::new(Arc::new(LocalFileSystem))),
     })
 }
 
