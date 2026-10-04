@@ -2,11 +2,11 @@
 
 Fecha UTC: 2026-10-04
 Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`, T016.d `9c672e9`.
-PR #19 T015 merged, CI 9/9. PR de T016 pendiente.
+PR #19 T015 merged, CI 9/9. PR #20 T016 CI 9/9 green; cierre documental actualizado después de los checks, falta repetir CI antes del merge.
 
 ## Tarea activa
 
-T016.dep/a/b/c/d completas localmente. El código y facts están listos; crear PR #20 y esperar CI remoto antes de cerrar el parent.
+T016 completada localmente; PR #20 tiene todos los checks requeridos verdes. T016 padre ya está marcado en checklist; el update documental activa un último CI antes del merge.
 
 ## Evidencia T016.dep
 
@@ -21,6 +21,7 @@ T016.dep/a/b/c/d completas localmente. El código y facts están listos; crear P
 - RED T016.c: `repository_facts` no compila porque faltan `RepositoryState` y `collect_repository_facts`.
 - GREEN T016.c: repository_facts 3/3 Windows; fake comprueba args/cwd con metacaracteres y real Git temporal cubre attached/detached/worktree/submodule. Core 62/62, infra 67/67; workspace Clippy/fmt/diff clean.
 - GREEN T016.d local: lock/runtime deps fijados, test execution/facts y suites acumuladas verificadas; C005 permanece abierto por el smoke de ventana T005.
+- PR #20 Required CI, Linux/Windows build, tests, clippy, fmt, commitlint, README Policy y PR Governance 9/9.
 
 ## T005 blocker y próxima elegibilidad
 
@@ -28,7 +29,7 @@ T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue s
 
 ## Próxima acción exacta
 
-Revisar diff/commits, push `feat/t016-repository-facts`, crear PR #20 y esperar CI Linux/Windows. No cerrar T016 hasta gates remotos verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, la siguiente tarea independiente.
+Commit/push del cierre documental a PR #20, esperar el nuevo CI y hacer squash-merge. Después reevaluar T005; si sigue bloqueada, comenzar T017, siguiente tarea independiente.
 
 ## Lecturas mínimas
 

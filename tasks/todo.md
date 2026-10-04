@@ -693,9 +693,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T016 — Obtener hechos locales de un repositorio
 
-- [ ] **T016 completada y verificada**
+- [x] **T016 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** en progreso.
+**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** completada.
 
 **Implementación y funciones:** ProcessSpec, ApprovedExecutable, ApprovedEnv, ProcessPort, RepositoryFacts, collect_repository_facts; Git executable resuelto/aprobado, cwd seguro, argv fijo y timeout. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -715,7 +715,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - [x] **T016.c — Capturar RepositoryFacts por Git readonly** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/repository_facts.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Sólo argv internos fijos; estados normal/detached/worktree/submodule; no hooks/fetch/push.
 - Evidencia T016.c: RED E0432 por collect_repository_facts/RepositoryState ausentes. GREEN repository_facts 3/3 Windows: ProcessPort fake verifica argv fijos con ruta `spaces; $(...)`, no-repo explícito; Git real temporal verifica attached/detached/linked-worktree/submodule. Core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes; commands de inspección solo rev-parse/symbolic-ref/version y hooks path deshabilitados en setup fixture.
 - [x] **T016.d — Checkpoint y documentación local** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Dejar evidencia local, PR remoto pendiente, T005 blocker y próxima tarea independiente.
-- Evidencia T016.d: deps/process/facts y suites Windows verificadas; C005 permanece abierto porque T005 no tiene smoke nativo demostrado. T016 padre sigue pendiente hasta que pase el CI del PR.
+- Evidencia T016.d: deps/process/facts y suites Windows verificadas; PR #20 CI Linux/Windows 9/9. C005 permanece abierto porque T005 no tiene smoke nativo demostrado.
 
 **Aceptación:**
 - [x] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
@@ -724,7 +724,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Verificación:** cargo test -p jameskills-infra --locked repository_facts con repos temporales y ProcessPort fake; comprobar argv y kill/cancel de proceso hijo en ambos OS.
 
-**Evidencia al ejecutar:** RED E0432 por `collect_repository_facts`/`RepositoryState` ausentes. GREEN Windows: `repository_facts` 3/3; core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes. CI Linux/Windows del PR T016 pendiente.
+**Evidencia al ejecutar:** RED E0432 por `collect_repository_facts`/`RepositoryState` ausentes. GREEN Windows: core 62/62, infra 67/67, incluyendo argv fake/real Git, timeout/cancel, output cap, attached/detached/worktree/submodule y not-a-repository; workspace Clippy `-D warnings`, fmt y diff check. PR #20 CI Linux/Windows 9/9.
 
 <a id="t017"></a>
 
