@@ -629,16 +629,11 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** pendiente.
 
-**Implementación y funciones:** validate_bundle_command; ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y limitaciones de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** `domain::validate_bundle`, `LibraryService::validate_import`, `FileSystemPort::read_bundle_directory`, comando `validate`. El ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y límites de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** validate_bundle fixture inválida falla con path/código; ejemplo oficial pasa validación real usando el codec/core.
 
-**Archivos del incremento:**
-- `examples/repository-foundation/SKILL.md`
-- `examples/repository-foundation/jameskills.toml`
-- `examples/repository-foundation/policies/repository.toml`
-- `crates/jameskills-cli/src/commands.rs`
-- `crates/jameskills-cli/tests/validate_bundle.rs`
+**Archivos del incremento:** ver los incrementos desglosados a continuación; cada uno mantiene un máximo de cinco archivos.
 
 **Descomposición obligatoria y wiring adicional:**
 - [x] **T015.a — Ejemplo canónico mínimo** (completada con a1+a2): copia compatible con parsers reales T010/T011 y test de los tres archivos del runtime fixture. UUID `f9c0199f-c4ce-4b04-85dd-ae12a7db292b`; no inventar política si falta fixture.
@@ -676,7 +671,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] validate conecta CLI→ApplicationServices/validador→FileSystemPort sin duplicar parseo.
+- [ ] `validate` conecta CLI → RuntimeServices/LibraryService → domain validator + FileSystemPort sin duplicar parseo.
 - [ ] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
 - [ ] JSON y salida humana muestran warnings/errores concretos y límites del formato.
 
