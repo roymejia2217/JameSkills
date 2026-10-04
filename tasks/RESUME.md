@@ -2,11 +2,11 @@
 
 Fecha UTC: 2026-10-04
 Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`, T016.d `9c672e9`.
-PR #19 T015 merged, CI 9/9. PR #20 T016 CI 9/9 green; cierre documental actualizado después de los checks, falta repetir CI antes del merge.
+PR #19 T015 merged, CI 9/9. PR #20 T016 current head `ccd713d` passed the final Linux/Windows checks 9/9; ready to squash-merge.
 
 ## Tarea activa
 
-T016 completada localmente; PR #20 tiene todos los checks requeridos verdes. T016 padre ya está marcado en checklist; el update documental activa un último CI antes del merge.
+T016 completa con aceptación/evidencia marcada y todos los checks requeridos del head actual verdes. C005 continúa abierto por la ventana nativa de T005.
 
 ## Evidencia T016.dep
 
@@ -29,7 +29,7 @@ T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue s
 
 ## Próxima acción exacta
 
-Commit/push del cierre documental a PR #20, esperar el nuevo CI y hacer squash-merge. Después reevaluar T005; si sigue bloqueada, comenzar T017, siguiente tarea independiente.
+Squash-mergear PR #20, actualizar `main` y limpiar la rama. Después reevaluar T005; si sigue bloqueada, comenzar T017, siguiente tarea independiente.
 
 ## Lecturas mínimas
 
