@@ -87,6 +87,26 @@ pendientes en las tareas de spike/QA correspondientes;
 ningún check del producto podrá presentar esas plataformas como `Pass` por esta
 tabla documental.
 
+## Revisión de fuentes del toolchain — 2026-10-04
+
+En esta sesión se volvió a leer la guía actual de instalación GPUI Kit, el tag
+`v0.7.0`, el README publicado en ese tag y la documentación de Cargo 1.95. La
+guía de instalación selecciona `v0.7.0` y declara Rust 1.92+ para su grafo; el
+README del tag conserva un ejemplo `gpui-kit = "0.6"`. Ninguno reemplaza el pin
+del workspace (`gpui-kit = "=0.7.0"`) ni la evidencia de compilador 1.95 que
+requiere el snapshot `gpui-pre 0.3.7` por `std::hint::cold_path`. `cargo tree`
+confirma gpui-kit/base/component/assets `0.7.0` y `gpui-pre`/
+`gpui-pre-platform` `0.3.7`; `gpui` no es el nombre de paquete crates.io para
+seleccionar con `cargo tree -p`. El host de esta sesión volvió a reportar
+`rustc 1.95.0 (59807616e 2026-04-14)` y `cargo 1.95.0 (f2d3ce0bd 2026-03-21)`.
+
+La referencia de instalación ha cambiado desde la consulta inicial: ya no se
+describe como una página de 0.6.5. Para firmas se conserva la fuente del tag y
+la API versionada; para MSRV se conserva el resultado comprobado sobre el
+workspace, no la cifra general de la guía. Cargo 1.95 documenta que `--locked`
+rechaza modificar la resolución del lockfile; CI todavía debe ejecutar sus
+checks explícitos de formato, Clippy, tests y builds.
+
 ## Diagnóstico T004 en Debian 13
 
 `setup-linux.sh --check` es de solo lectura y emite JSON con estados separados

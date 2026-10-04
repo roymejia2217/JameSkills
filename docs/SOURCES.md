@@ -96,7 +96,9 @@ desde 1.95.0; `gpui-pre 0.3.7` llama a esta última. Pruebas de compilación
 negativas en 1.92 y 1.94, positiva de `jameskills-desktop` en 1.95 con el modo
 dlopen upstream de fontconfig están detalladas en `docs/PLATFORM-EVIDENCE.md`.
 
-Discrepancia resuelta: la página installation aún describe 0.6.5 y ejemplos versionados 0.6.0; el registro y el release ofrecen 0.7.0. Las URLs /versions/v0.7.0/docs/... devolvieron 404. El ejecutor debe usar fuente tag v0.7.0/docs.rs versión específica para firmas de código. No convertir 0.6.5 en dependencia por copiar esa página.
+Revisión 2026-10-04: la página actual de installation ofrece v0.7.0 y cita Rust 1.92+ para su grafo vigente; el README publicado en el tag v0.7.0 todavía muestra `gpui-kit = "0.6"`, por lo que ese ejemplo no sirve para seleccionar la versión del producto. Para JameSkills prevalecen la dependencia exacta `gpui-kit = "=0.7.0"`, el Cargo.lock y la evidencia de compilación del snapshot `gpui-pre 0.3.7`: el workspace requiere Rust 1.95 por `std::hint::cold_path`, aunque la página de instalación cite 1.92. Las URLs de documentación `/versions/v0.7.0/docs/...` previamente consultadas devolvieron 404; firmas/APIs se verifican contra el tag y los crates versionados, no contra ejemplos ambiguos.
+
+Cargo 1.95: [`cargo test --locked`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-test.html) asegura que no cambie la resolución existente del lockfile; [`cargo clippy`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-clippy.html) es un subcomando externo distribuido como componente del toolchain. CI y los comandos locales usan Rust/Cargo fijados en 1.95.0; el modo `--locked` no sustituye la ejecución de tests, lint ni build.
 
 Licencias: software y ejemplos Kit Apache-2.0; prosa/ilustraciones originales de docs bajo CC BY4.0 según sitio. Este dossier resume requisitos, no copia ilustraciones. Conservar atribuciones de Lucide/Isocons y dependencias en THIRD-PARTY-NOTICES.
 
@@ -144,6 +146,7 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GitHub rulesets: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets
 - REST rulesets: https://docs.github.com/en/rest/repos/rules
 - Git hooks: https://git-scm.com/docs/githooks
+- Git ignore probe: https://git-scm.com/docs/git-check-ignore
 - Commitlint: https://commitlint.js.org/reference/cli.html
 - Gitleaks: https://github.com/gitleaks/gitleaks
 - cargo-deny: https://embarkstudios.github.io/cargo-deny/
@@ -154,5 +157,38 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GPUI headless recipes y APIs: fuente v0.7.0 indicada arriba.
 - MSRV/toolchain: https://doc.rust-lang.org/cargo/reference/rust-version.html
 - GitHub Actions permissions: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication
+
+## Guías oficiales de instalación para el registry de tools
+
+Los IDs siguientes son app-owned y se usan como fuentes inertes de guía. Los
+enlaces de probe/documentación describen comandos versionados; no autorizan a
+descargar, instalar ni ejecutar herramientas automáticamente.
+
+| Tool | Windows | Linux | Probe/documentación del comando |
+|---|---|---|---|
+| Git | [git-install-windows](https://git-scm.com/install/windows) | [git-install-linux](https://git-scm.com/install/linux) | [Git SCM](https://git-scm.com/docs/git) |
+| Node.js | [node-install-windows](https://nodejs.org/en/download) | [node-install-linux](https://nodejs.org/en/download) | [npm: instalar y comprobar node/npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) |
+| npm | [npm-install-windows](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) | [npm-install-linux](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) | [npm CLI](https://docs.npmjs.com/cli/v12/commands/npm) |
+| Rust (`cargo`, `rustc`) | [rust-install-windows](https://rust-lang.github.io/rustup/installation/windows-msvc.html) | [rust-install-linux](https://rust-lang.github.io/rustup/installation/other.html) | [rustup](https://rustup.rs/) |
+| GitHub CLI | [gh-install-windows](https://github.com/cli/cli/blob/trunk/docs/install_windows.md) | [gh-install-linux](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) | [GitHub CLI](https://cli.github.com/) |
+| Gitleaks | [gitleaks-install-windows](https://github.com/gitleaks/gitleaks#installing) | [gitleaks-install-linux](https://github.com/gitleaks/gitleaks#installing) | [Gitleaks releases](https://github.com/gitleaks/gitleaks/releases) |
+| Commitlint | [commitlint-install-windows](https://commitlint.js.org/guides/getting-started.html) | [commitlint-install-linux](https://commitlint.js.org/guides/getting-started.html) | [Commitlint CLI](https://commitlint.js.org/reference/cli.html) |
+| cargo-audit | [cargo-audit-install-windows](https://github.com/rustsec/rustsec/tree/main/cargo-audit) | [cargo-audit-install-linux](https://github.com/rustsec/rustsec/tree/main/cargo-audit) | [RustSec](https://rustsec.org/) |
+| cargo-deny | [cargo-deny-install-windows](https://embarkstudios.github.io/cargo-deny/) | [cargo-deny-install-linux](https://embarkstudios.github.io/cargo-deny/) | [cargo-deny CLI](https://embarkstudios.github.io/cargo-deny/cli/index.html) |
+
+Gitleaks v8.30.1 CLI contract: [README at tag v8.30.1](https://github.com/gitleaks/gitleaks/blob/v8.30.1/README.md) documents `dir`, `--config` precedence over repository `.gitleaks.toml`, default `useDefault` rules, redaction, JSON output, and exit-code override. Only 8.30.1 is currently accepted: it is the exact tag whose CLI and JSON fixture were reviewed; all other versions remain Blocked until separately evidenced. The [tagged `cmd/root.go`](https://github.com/gitleaks/gitleaks/blob/v8.30.1/cmd/root.go) also shows that `.gitleaksignore` is loaded from the scan source independently of `--config`; therefore the check blocks when that file exists rather than treating its suppressions as trusted. The repository test fixture is sanitized; findings values are never returned or logged.
+
+La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
+`npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
+`--version`. Para los subcomandos Cargo, sus README oficiales documentan su
+instalación como Cargo subcommands. Los resultados de versión siguen siendo
+Candidate hasta verificar otras capacidades.
+
+### Parser Markdown para README checks
+
+- `markdown = "=1.0.0"`: [documentación versionada](https://docs.rs/markdown/1.0.0/markdown/)
+  y [`to_mdast`](https://docs.rs/markdown/1.0.0/markdown/fn.to_mdast.html).
+  Devuelve AST CommonMark desde `&str`; los checks examinan headings y contenido
+  visible, sin renderizar HTML ni ejecutar nodos.
 
 Las fuentes de esta última sección son referencias de implementación, no todas APIs específicas fueron ejecutadas aquí. T001 registra versiones exactas; cada driver guarda help/source y fixtures antes de declarar compatibilidad. Si cambia un contrato, actualizar docs + tarea afectada + tests; no improvisar flags.
