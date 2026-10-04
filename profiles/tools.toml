@@ -1,0 +1,107 @@
+schema_version = 1
+
+[[tools]]
+tool_id = "git"
+executable = "git"
+source_id = "tool.git.version"
+install_guides = { windows = "git-install-windows", linux = "git-install-linux" }
+version_range = ">=2.0.0, <3.0.0"
+version_args = ["--version"]
+version_prefix = "git version "
+operations = ["version", "repository-root", "ignore-check"]
+
+[[tools]]
+tool_id = "cargo"
+executable = "cargo"
+source_id = "tool.cargo.version"
+install_guides = { windows = "rust-install-windows", linux = "rust-install-linux" }
+version_range = ">=1.80.0, <2.0.0"
+version_args = ["--version"]
+version_prefix = "cargo "
+operations = ["version", "quality-suite"]
+
+[[tools]]
+tool_id = "npm"
+executable = "npm"
+source_id = "tool.npm.version"
+install_guides = { windows = "npm-install-windows", linux = "npm-install-linux" }
+version_range = ">=9.0.0, <12.0.0"
+version_args = ["--version"]
+version_prefix = ""
+operations = ["version", "quality-suite"]
+
+[[tools]]
+tool_id = "node"
+executable = "node"
+source_id = "tool.node.version"
+install_guides = { windows = "node-install-windows", linux = "node-install-linux" }
+version_range = ">=18.0.0, <23.0.0"
+version_args = ["--version"]
+version_prefix = ""
+operations = ["version"]
+
+[[tools]]
+tool_id = "rustc"
+executable = "rustc"
+source_id = "tool.rustc.version"
+install_guides = { windows = "rust-install-windows", linux = "rust-install-linux" }
+version_range = ">=1.80.0, <2.0.0"
+version_args = ["--version"]
+version_prefix = "rustc "
+operations = ["version"]
+
+[[tools]]
+tool_id = "gh"
+executable = "gh"
+source_id = "tool.gh.version"
+install_guides = { windows = "gh-install-windows", linux = "gh-install-linux" }
+version_range = ">=2.0.0, <3.0.0"
+version_args = ["--version"]
+version_prefix = "gh version "
+operations = ["version", "branch-rules", "check-runs"]
+
+[[tools]]
+tool_id = "gitleaks"
+executable = "gitleaks"
+source_id = "tool.gitleaks.version"
+install_guides = { windows = "gitleaks-install-windows", linux = "gitleaks-install-linux" }
+version_range = "=8.30.1"
+version_args = ["version"]
+version_prefix = ""
+operations = ["version", "scan-tracked"]
+
+[tools.scan_probe]
+args = ["dir", "--config", "{APP_GITLEAKS_CONFIG}", "--redact", "--no-banner", "--no-color", "--report-format", "json", "--exit-code", "3"]
+findings_exit_code = 3
+output_limit_bytes = 65536
+output_schema = "gitleaks-json-array-v1"
+
+[[tools]]
+tool_id = "commitlint"
+executable = "commitlint"
+source_id = "tool.commitlint.version"
+install_guides = { windows = "commitlint-install-windows", linux = "commitlint-install-linux" }
+version_range = ">=19.0.0, <21.0.0"
+version_args = ["--version"]
+version_prefix = "@commitlint/cli@"
+operations = ["version", "lint-message"]
+
+[[tools]]
+tool_id = "cargo-audit"
+executable = "cargo-audit"
+source_id = "tool.cargo-audit.version"
+install_guides = { windows = "cargo-audit-install-windows", linux = "cargo-audit-install-linux" }
+version_range = ">=0.21.0, <1.0.0"
+version_args = ["--version"]
+version_prefix = "cargo-audit "
+operations = ["version", "audit"]
+
+[[tools]]
+tool_id = "cargo-deny"
+executable = "cargo-deny"
+source_id = "tool.cargo-deny.version"
+install_guides = { windows = "cargo-deny-install-windows", linux = "cargo-deny-install-linux" }
+version_range = ">=0.18.0, <1.0.0"
+version_args = ["--version"]
+version_prefix = "cargo-deny "
+operations = ["version", "deny"]
