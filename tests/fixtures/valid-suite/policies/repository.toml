@@ -36,6 +36,11 @@ tool_id = "cargo"
 operation = "quality-suite"
 version = ">=1.80.0"
 
+[[tool_requirements]]
+tool_id = "cargo"
+operation = "version"
+version = ">=1.80.0"
+
 [[requirements]]
 id = "repo.readme"
 description = "El README explica el inicio, la arquitectura y la contribución."
