@@ -1,4 +1,5 @@
 pub mod bundle;
+pub mod guidance;
 mod ids;
 pub mod library;
 pub mod policy;
@@ -7,6 +8,9 @@ pub mod skill;
 
 pub use bundle::{
     BundleEntry, EntryKind, ValidatedFile, ValidatedInventory, validate_bundle_inventory,
+};
+pub use guidance::{
+    ToolAvailability, ToolCapabilitySupport, ToolDetection, ToolEvidence, ToolVersionStatus,
 };
 pub use ids::{
     ContentHash, IdValidationError, OperationId, PathValidationError, PortablePath, RevisionId,

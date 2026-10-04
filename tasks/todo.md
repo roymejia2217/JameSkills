@@ -746,7 +746,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/tool_detection.rs`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T017.a — Facts/capacidades de herramientas** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/tool_capabilities.rs`. tool_detection tables missing/incompatible/unknown, IDs y versions/source.
+- [x] **T017.a — Facts/capacidades de herramientas** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/tool_capabilities.rs`; `tasks/todo.md`; `tasks/RESUME.md`. tool_detection tables missing/incompatible/unknown/blocked, IDs, versions, capability y evidence source/date.
+- Evidencia T017.a: RED E0432 porque `domain::guidance::ToolDetection` aún no existía. GREEN `tool_capabilities` 3/3; core 65/65 Windows; core Clippy `-D warnings`, fmt/diff clean. Missing/Blocked/Unknown/Candidate/Verified e incompatible version se distinguen; Candidate compatible no pasa capability hasta verificación; source IDs/observed_at validan formato y summary es app-authored bounded.
 - [ ] **T017.b — Registry y probes reales** (4 archivos): `profiles/tools.toml`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/tool_detection.rs`. drivers Git/cargo/npm/node/gh/Gitleaks/Commitlint/audit/deny; argv y output limits; wrapper npm .cmd seguro sin shell arbitrary.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
