@@ -330,6 +330,22 @@ fn candidate_discovery_never_executes_path_entries_and_marks_windows_shims() {
 }
 
 #[test]
+fn commitlint_profile_supports_the_reviewed_default_config_cli() {
+    let profiles = load_tool_profiles().unwrap();
+    let commitlint = profile(&profiles, ToolId::Commitlint);
+    let reviewed = semver::Version::parse("21.2.2").unwrap();
+    let prior_major = semver::Version::parse("20.2.0").unwrap();
+    let unreviewed_minor = semver::Version::parse("21.2.3").unwrap();
+
+    assert!(
+        commitlint.version_range().matches(&reviewed),
+        "the reviewed --default-config CLI must be within the app-owned range"
+    );
+    assert!(!commitlint.version_range().matches(&prior_major));
+    assert!(!commitlint.version_range().matches(&unreviewed_minor));
+}
+
+#[test]
 fn version_parser_accepts_registered_formats_and_rejects_unknown_output() {
     let profiles = load_tool_profiles().unwrap();
     let git = profiles

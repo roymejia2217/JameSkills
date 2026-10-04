@@ -178,6 +178,8 @@ descargar, instalar ni ejecutar herramientas automáticamente.
 
 Gitleaks v8.30.1 CLI contract: [README at tag v8.30.1](https://github.com/gitleaks/gitleaks/blob/v8.30.1/README.md) documents `dir`, `--config` precedence over repository `.gitleaks.toml`, default `useDefault` rules, redaction, JSON output, and exit-code override. Only 8.30.1 is currently accepted: it is the exact tag whose CLI and JSON fixture were reviewed; all other versions remain Blocked until separately evidenced. The [tagged `cmd/root.go`](https://github.com/gitleaks/gitleaks/blob/v8.30.1/cmd/root.go) also shows that `.gitleaksignore` is loaded from the scan source independently of `--config`; therefore the check blocks when that file exists rather than treating its suppressions as trusted. The repository test fixture is sanitized; findings values are never returned or logged.
 
+Commitlint T020 source/API: [`@commitlint/cli` v21.2.2](https://github.com/conventional-changelog/commitlint/tree/v21.2.2/%40commitlint/cli) implements `--default-config` with built-in `@commitlint/config-conventional` and `--edit <file>` input. Its [`cli.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/src/cli.ts) source confirms config-file discovery and exit behavior. JameSkills pins this driver to 21.2.2; the checker must run with an app-owned private cwd so repository Commitlint configs are not loaded. The official current CLI page reports 21.2.3, which is outside the verified pin and remains Blocked.
+
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
 `--version`. Para los subcomandos Cargo, sus README oficiales documentan su

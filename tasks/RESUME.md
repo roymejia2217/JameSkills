@@ -1,9 +1,9 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t017-tool-capabilities` / `HEAD` (último commit de implementación `d27cb5c`; después se registraron checkpoints docs-only).
-Base: `main`=`b53ed68`; rama local sin upstream.
-PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run list` vacíos).
+Rama / HEAD: `feat/t020-commit-test-checks` / `caa9a23`.
+Base: `main`=`caa9a23`, merge squash de PR #21.
+PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
 
 ## Estado real
 
@@ -20,7 +20,7 @@ PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run lis
 - Cada commit tuvo test focal y mensaje aceptado por el hook local. Las capas anteriores al punto de recuperación fueron reconstruidas desde el working tree; no hay CI remota para ellas.
 - T017/T018 están implementadas, verificadas localmente y comprometidas. C006 sigue abierto por límites Linux/native de T005/C005.
 - T019.a1/a1b/a2, b1/b1a, b2a/b2a2/b2b/b2c y c1–c3 están implementadas. T019 parent sigue incompleta porque el host no tiene Gitleaks instalado; falta contrato de integración real con el binario exacto 8.30.1.
-- T020 es elegible por DAG y no depende de cerrar T019; continuar tareas independientes mientras el smoke real Gitleaks queda bloqueado con evidencia.
+- T020 es la tarea activa y no depende de cerrar T019. T019 permanece incompleta solo por la integración real Gitleaks 8.30.1 no disponible en este host.
 
 ## T019: verificación actual
 
@@ -39,6 +39,14 @@ PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run lis
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
+## Slice activo T020.a
+
+- Se verificó la documentación oficial actual del CLI y la fuente/tag `@commitlint/cli` v21.2.2.
+- La fuente 21.2.2 implementa `--default-config` y `--edit <file>`; el CLI anterior 20.2.0 no implementa `--default-config`. La página viva ahora reporta v21.2.3, que no se acepta sin revisión/fixture propia.
+- RED: `cargo test -p jameskills-infra --locked --test tool_detection commitlint_profile_supports_the_reviewed_default_config_cli` falló porque `profiles/tools.toml` solo permitía `>=19,<21`.
+- GREEN: el test focal pasa 1/1 después de fijar `=21.2.2`; rechaza 20.2.0 y 21.2.3.
+- La prueba no invoca el binario todavía. Driver T020.b debe recuperar solo mensaje HEAD con Git aprobado, guardarlo temporalmente en ubicación privada, invocar `--default-config --edit` con cwd fuera del repo y no copiar stdout/stderr a evidencia.
+
 ## Verificaciones locales acumuladas
 
 - `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked`: pasó.
@@ -51,10 +59,10 @@ PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run lis
 
 ## Próxima acción exacta
 
-1. Iniciar T020 tras leer su contrato en `tasks/todo.md`, `docs/CONTRACTS.md`, `docs/SPEC-policy-engine.md` y `docs/SOURCES.md`.
-2. Mantener cada incremento en <=5 archivos y crear un commit Conventional Commit con body válido después de test focal, fmt/Clippy aplicable y diff check.
-3. Si se obtiene autorización/instalación para Gitleaks 8.30.1, cerrar la integración real T019 sin secret material; de lo contrario registrar el bloqueo y seguir tareas independientes.
-4. Mantener C006/C005 abierto hasta evidencia de plataforma nativa; no reportar estado Linux/GPU por tests Windows.
+1. Revisar diff/status y cerrar el slice T020.a con test focal, fmt/diff y commit Conventional Commit.
+2. Diseñar y probar T020.b con Git aprobado y fichero temporal privado, sin leer configuración ejecutable del repo.
+3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts.
+4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## Preservación y lecturas
 

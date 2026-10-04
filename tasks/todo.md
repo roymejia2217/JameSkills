@@ -890,9 +890,16 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Módulo:** `policy-engine`. **Dependencias:** T018, T016, T017. **Estado:** pendiente.
 
-**Implementación y funciones:** check_conventional_commits usa Commitlint CLI/config Conventional Commits con mensaje temporal seguro; check_test_commands usa drivers Rust/Node de registry (trust repo explícito). Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** `check_conventional_commits` obtiene el mensaje de HEAD con Git aprobado, lo escribe en archivo temporal privado y ejecuta Commitlint 21.2.2 con su config convencional embebida (`--default-config`) desde cwd privado; nunca carga config JS del repo. `check_test_commands` usa drivers Rust/Node registrados y solo corre tras acción explícita con trust del repo. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** commit_test_checks Commitlint fixture acepta/rechaza subjects/scopes/footer; tool missing/incompatible Blocked, exit code1 fallo real; package script repo no reviewed no se ejecuta. Mensaje válido sin core.hooksPath efectivo+hook own hash/executable+driver invocado solo LocalCheck, no LocalHook.
+
+**Descomposición obligatoria:**
+- [x] **T020.a — Pin de Commitlint con default config verificado** (5 archivos): `profiles/tools.toml`; `crates/jameskills-infra/tests/tool_detection.rs`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Aceptar solo CLI 21.2.2, cuya fuente confirma `--default-config` y `--edit`; versiones sin este contrato quedan Blocked.
+- Evidencia RED T020.a: `cargo test -p jameskills-infra --locked --test tool_detection commitlint_profile_supports_the_reviewed_default_config_cli` falla porque el profile existente limita Commitlint a `<21.0.0` y no admite la versión fuente 21.2.2.
+- Evidencia GREEN T020.a: el mismo test focal pasa 1/1 tras fijar `=21.2.2`; rechaza tanto 20.2.0 como 21.2.3 no revisada. Fuente oficial tag v21.2.2 documenta `--default-config` y `--edit <file>`.
+- [ ] **T020.b — Validar mensaje HEAD sin exponerlo** (5 archivos): mensaje via Git aprobado, archivo temporal privado, cwd fuera del repo, Commitlint argv fijo, reportes redacted y LocalCheck separado de LocalHook.
+- [ ] **T020.c — Ejecutar suites solo bajo acción explícita** (5 archivos): driver Rust/Node de registry, trust explícito, cwd/argv/timeout acotados, salida separada de evidencia de existencia de tests.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
@@ -904,10 +911,11 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - [ ] Conventional Commits se verifica vía Commitlint; LocalHook exige evidencia de hook efectivo/config/hash/ejecutable/driver y sigue eludible; no convertir un mensaje válido en hook aplicado.
 - [ ] Pruebas se ejecutan solo mediante acción explícita con cwd/argv/timeout conocidos; inspección no las dispara.
 - [ ] Logs acotados/saneados y evidencia del exit code no se confunde con existencia de tests.
+- [ ] Commitlint no carga configuración ejecutable del repositorio y solo prueba LocalCheck; LocalHook exige evidencia independiente de hook efectivo.
 
 **Verificación:** cargo test -p jameskills-infra --locked commit_test_checks; ejecutar check sobre repo fixture con test registrado que pasa y otro que falla.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T020.a RED/GREEN registrada arriba. T020 parent permanece incompleta hasta que los drivers de mensaje y tests tengan sus tests/contrato de acción explícita.
 
 <a id="t021"></a>
 
