@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`; T015.b3 cambios locales.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`; T015.c cambios locales.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a y T015.b (b1+b2+b3) completas localmente. Activa T015.c: template CI y asset SVG del ejemplo, inertes y seguros. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3) y T015.c completas localmente. Activa T015.d: validate service/CLI a través de FileSystemPort. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -20,11 +20,13 @@ T015.a y T015.b (b1+b2+b3) completas localmente. Activa T015.c: template CI y as
 - GREEN T015.b2b: `runtime_reference_material_matches_documented_sources` 1/1 al alinear referencias/README con fuentes del dossier.
 - RED T015.b3: test detectó link SKILL a `templates/gitignore.txt` que no existía en runtime ni coincidía con layout planeado.
 - GREEN T015.b3: `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1; core 52/52, Clippy/fmt/diff clean.
+- RED T015.c: `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` falla porque falta `templates/ci-rust.yml` runtime.
+- GREEN T015.c: 1/1 focused; `bundle_manifest` 19/19, core 53/53, core Clippy/fmt/diff clean. SVG es propio/static y el CI template conserva placeholders `exit 1` hasta resolver SHA/toolchain.
 
 ## Próximos pasos
 
-1. Revisar T015.c, fuente template CI y SVG del dossier frente a seguridad/contratos; comprobar que el asset no contiene elementos activos o href externos.
-2. Copiar los dos recursos runtime y actualizar evidencia; después implementar T015.d validate service/CLI con FileSystemPort real.
+1. Implementar T015.d RED/GREEN: validar bundle por LibraryService/FileSystemPort y CLI, usando errores con paths/codes y sin false success.
+2. Comprobar la suite runtime completa con validate CLI; luego actualizar checklist/evidencia y preparar el PR T015.
 3. Commit convencional y PR verde a `main`; el smoke visual T005 continúa bloqueado con evidencia documentada.
 
 ## Lecturas y contratos

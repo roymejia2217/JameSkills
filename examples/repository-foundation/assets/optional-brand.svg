@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-labelledby="title">
+  <title id="title">JameSkills</title>
+  <rect x="12" y="12" width="136" height="96" rx="18" fill="#243b53"/>
+  <path d="M48 40h24c8 0 12 4 12 12v34c-4-5-9-7-16-7H48z" fill="#f0f4f8"/>
+  <path d="M112 40H88c-3 0-5 1-7 3v43c4-5 9-7 16-7h15z" fill="#d9e2ec"/>
+  <circle cx="80" cy="34" r="5" fill="#48bb78"/>
+</svg>

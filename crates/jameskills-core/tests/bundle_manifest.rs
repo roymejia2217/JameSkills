@@ -19,6 +19,8 @@ const FOUNDATION_README_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/README.md");
 const FOUNDATION_GITIGNORE_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/gitignore.txt");
+const FOUNDATION_CI_TEMPLATE: &str =
+    include_str!("../../../docs/examples/repository-foundation/templates/ci-rust.yml");
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -208,6 +210,36 @@ fn runtime_skill_links_to_the_user_safe_gitignore_template() {
         runtime.replace("\r\n", "\n"),
         FOUNDATION_GITIGNORE_TEMPLATE.replace("\r\n", "\n")
     );
+}
+
+#[test]
+fn runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/repository-foundation");
+    let ci_template = std::fs::read_to_string(root.join("templates/ci-rust.yml"))
+        .expect("canonical CI template must exist");
+    assert_eq!(
+        ci_template.replace("\r\n", "\n"),
+        FOUNDATION_CI_TEMPLATE.replace("\r\n", "\n")
+    );
+    assert!(ci_template.contains("run: exit 1"));
+    assert!(ci_template.contains("No publicable"));
+
+    let svg = std::fs::read_to_string(root.join("assets/optional-brand.svg"))
+        .expect("canonical SVG asset must exist");
+    let lower = svg.to_ascii_lowercase();
+    for forbidden in [
+        "<script",
+        "foreignobject",
+        "href=",
+        "onload=",
+        "onclick=",
+        "onerror=",
+        "<image",
+    ] {
+        assert!(!lower.contains(forbidden), "SVG contains {forbidden}");
+    }
+    assert!(lower.contains("<svg "));
 }
 
 #[test]
