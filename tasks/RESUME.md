@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`; T015.d3 local.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3), T015.c, T015.d1 y T015.d2 completas localmente. Activa T015.d3: implementar LocalFileSystem::read_bundle_directory y exponer LibraryService en runtime composition sin crear directorios de usuario. El CLI aún necesita composition/dispatch/output. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3), T015.c, T015.d1, T015.d2 y d2e completas localmente. Activa T015.d4: cablear validate JSON/text en CLI con errors/diagnostics reales. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -26,11 +26,13 @@ T015.a, T015.b (b1+b2+b3), T015.c, T015.d1 y T015.d2 completas localmente. Activ
 - RED T015.d1: import de test falló E0432 porque `validate_bundle` no existía.
 - GREEN T015.d1: core 56/56; bundle oficial entrega hash y summary, falta policy resource y acción guidance libre se rechazan; core Clippy/fmt/diff clean.
 - GREEN T015.d2: service tests 2/2; core 58/58; core Clippy/fmt/diff clean. El service usa provider inyectable y propaga diagnostics sin SQLite.
+- RED T015.d3: `RuntimeServices::library` no existía.
+- GREEN T015.d3: infra 61/61 Windows; factory compone LocalFileSystem/LibraryService y valida runtime fixture sin crear config/data/cache; workspace Clippy/fmt/diff green.
 
 ## Próximos pasos
 
-1. T015.d3 conecta el walk/byte read validado al port y al `RuntimeServices` factory.
-2. T015.d4 CLI recibe el service y emite validación JSON/texto; conserva path/code de diagnósticos.
+1. T015.d4 hace que main componga servicios para validate y que dispatch use LibraryService; respuesta JSON/texto incluye summary/diagnostics sin echo de entrada.
+2. Ejecutar test CLI oficial + bundle inválido, CLI/core/infra tests y los checks del workspace.
 3. Ejecutar T015 CLI/core/infra tests, actualizar checklist/evidencia, commit y PR verde; T005 continúa bloqueado con evidencia documentada.
 
 ## Lecturas y contratos

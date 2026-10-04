@@ -5,7 +5,8 @@ use jameskills_core::{
         validate_bundle_inventory,
     },
     ports::filesystem::{
-        BundleFiles, bundle_entry_from_path, extract_archive_files, validate_archive_entries,
+        BundleFiles, FileSystemPort, bundle_entry_from_path, extract_archive_files,
+        validate_archive_entries,
     },
 };
 use std::collections::BTreeMap;
@@ -19,6 +20,13 @@ pub struct LocalFileSystem;
 impl LocalFileSystem {
     pub fn inspect_bundle(&self, root: &Path) -> Result<ValidatedInventory, Vec<Diagnostic>> {
         validate_bundle_inventory(&inspect_bundle_tree(root)?)
+    }
+}
+
+impl FileSystemPort for LocalFileSystem {
+    fn read_bundle_directory(&self, root: &Path) -> Result<BundleFiles, Vec<Diagnostic>> {
+        let inventory = self.inspect_bundle(root)?;
+        read_bundle_bytes(root, &inventory)
     }
 }
 
