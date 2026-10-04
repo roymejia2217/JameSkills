@@ -9,12 +9,11 @@ use jameskills_core::{
     },
 };
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-/// Local filesystem adapter: read-only walks and validation live here so
-/// core never touches the disk. Nothing here writes: staging happens only
-/// after validation, in a later slice.
+/// Local filesystem adapter: validation, explicit staging, and content-addressed
+/// blob IO live here so core never touches the disk. Writes follow validation.
 pub struct LocalFileSystem;
 
 impl LocalFileSystem {
@@ -47,37 +46,95 @@ pub fn store_blob_bytes(
     hash: &ContentHash,
     archive: &[u8],
 ) -> Result<PathBuf, Vec<Diagnostic>> {
+    read_verified_blob_archive(hash, archive)?;
     let path = blob_path(blobs_root, hash);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|_| blob_io("Bundle blob directory is not writable."))?;
-        restrict_directory(parent).map_err(|_| blob_io("Bundle blob directory is not private."))?;
+    ensure_private_directory(blobs_root)?;
+    ensure_private_directory(&blobs_root.join(&hash.as_str()[..2]))?;
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => return Err(blob_io("Bundle blob path is not a regular file.")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(blob_io("Bundle blob path is not readable.")),
     }
     match std::fs::read(&path) {
-        Ok(existing) if existing == archive => return Ok(path),
+        Ok(existing) if existing == archive => {
+            restrict_file(&path).map_err(|_| blob_io("Bundle blob is not private."))?;
+            return Ok(path);
+        }
         Ok(_) => {
             return Err(vec![Diagnostic::error(
                 "bundle.blob.conflict",
                 "Different bundle bytes share one hash.",
             )]);
         }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(blob_io("Bundle blob is not readable."));
+        }
         Err(_) => {}
     }
-    std::fs::write(&path, archive).map_err(|_| blob_io("Bundle blob is not writable."))?;
-    restrict_file(&path).map_err(|_| blob_io("Bundle blob is not private."))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|_| blob_io("Bundle blob path is not readable."))?;
+            if !metadata.file_type().is_file() {
+                return Err(blob_io("Bundle blob path is not a regular file."));
+            }
+            let existing =
+                std::fs::read(&path).map_err(|_| blob_io("Bundle blob is not readable."))?;
+            if existing == archive {
+                restrict_file(&path).map_err(|_| blob_io("Bundle blob is not private."))?;
+                return Ok(path);
+            }
+            return Err(vec![Diagnostic::error(
+                "bundle.blob.conflict",
+                "Different bundle bytes share one hash.",
+            )]);
+        }
+        Err(_) => return Err(blob_io("Bundle blob is not writable.")),
+    };
+    let result = file
+        .write_all(archive)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| restrict_file(&path));
+    drop(file);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&path);
+        return Err(blob_io("Bundle blob could not be durably stored."));
+    }
     Ok(path)
 }
 
-/// Verifies blob bytes end to end: the archive must parse, its canonical
-/// hash must match, and the recovered files return for callers that keep
-/// going. Anything else fails closed.
-pub fn verify_blob_bytes(
-    blobs_root: &Path,
+fn ensure_private_directory(path: &Path) -> Result<(), Vec<Diagnostic>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => return Err(blob_io("Bundle blob path is not a regular directory.")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir(path)
+                .map_err(|_| blob_io("Bundle blob directory is not writable."))?;
+        }
+        Err(_) => return Err(blob_io("Bundle blob directory is not readable.")),
+    }
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+    if !metadata.file_type().is_dir() {
+        return Err(blob_io("Bundle blob path is not a regular directory."));
+    }
+    restrict_directory(path).map_err(|_| blob_io("Bundle blob directory is not private."))
+}
+
+fn read_verified_blob_archive(
     expected: &ContentHash,
+    archive: &[u8],
 ) -> Result<BundleFiles, Vec<Diagnostic>> {
-    let bytes = std::fs::read(blob_path(blobs_root, expected))
-        .map_err(|_| blob_io("Bundle blob is not readable."))?;
-    let (inventory, files) = read_bundle(&bytes)?;
+    let (inventory, files) = read_bundle(archive)?;
     let actual = hash_bundle(&inventory, &files).map_err(|_| {
         vec![Diagnostic::error(
             "bundle.blob.unverifiable",
@@ -91,6 +148,100 @@ pub fn verify_blob_bytes(
         )]);
     }
     Ok(files)
+}
+
+/// Verifies blob bytes end to end: the archive must parse, its canonical
+/// hash must match, and the recovered files return for callers that keep
+/// going. Anything else fails closed.
+pub fn verify_blob_bytes(
+    blobs_root: &Path,
+    expected: &ContentHash,
+) -> Result<BundleFiles, Vec<Diagnostic>> {
+    let path = blob_path(blobs_root, expected);
+    let prefix = path
+        .parent()
+        .ok_or_else(|| blob_io("Bundle blob path is invalid."))?;
+    for directory in [blobs_root, prefix] {
+        let metadata = std::fs::symlink_metadata(directory)
+            .map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+        if !metadata.file_type().is_dir() {
+            return Err(blob_io("Bundle blob path is not a regular directory."));
+        }
+    }
+    let metadata =
+        std::fs::symlink_metadata(&path).map_err(|_| blob_io("Bundle blob is not readable."))?;
+    if !metadata.file_type().is_file() {
+        return Err(blob_io("Bundle blob path is not a regular file."));
+    }
+    let bytes = std::fs::read(path).map_err(|_| blob_io("Bundle blob is not readable."))?;
+    read_verified_blob_archive(expected, &bytes)
+}
+
+/// Lists only canonical content-addressed blob files. Unknown filesystem
+/// entries are ignored; symlinks/reparse-like entries at the enumerated
+/// levels fail closed instead of being followed.
+pub fn list_blob_hashes(blobs_root: &Path) -> Result<Vec<ContentHash>, Vec<Diagnostic>> {
+    let root_meta = match std::fs::symlink_metadata(blobs_root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err(blob_io("Bundle blob directory is not readable.")),
+    };
+    if !root_meta.file_type().is_dir() || root_meta.file_type().is_symlink() {
+        return Err(blob_io("Bundle blob directory is not a regular directory."));
+    }
+    let mut hashes = Vec::new();
+    let prefixes = std::fs::read_dir(blobs_root)
+        .map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+    for prefix in prefixes {
+        let prefix = prefix.map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+        let prefix_name = prefix.file_name();
+        let Some(prefix_name) = prefix_name.to_str() else {
+            continue;
+        };
+        if prefix_name.len() != 2
+            || !prefix_name
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            continue;
+        }
+        let prefix_meta = std::fs::symlink_metadata(prefix.path())
+            .map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+        if prefix_meta.file_type().is_symlink() {
+            return Err(blob_io("Bundle blob path contains a symlink."));
+        }
+        if !prefix_meta.file_type().is_dir() {
+            continue;
+        }
+        let entries = std::fs::read_dir(prefix.path())
+            .map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+        for entry in entries {
+            let entry = entry.map_err(|_| blob_io("Bundle blob directory is not readable."))?;
+            let metadata = std::fs::symlink_metadata(entry.path())
+                .map_err(|_| blob_io("Bundle blob is not readable."))?;
+            if metadata.file_type().is_symlink() {
+                return Err(blob_io("Bundle blob path contains a symlink."));
+            }
+            if !metadata.file_type().is_file() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(hex) = name.strip_suffix(".bundle") else {
+                continue;
+            };
+            let Ok(hash) = ContentHash::parse_hex(hex) else {
+                continue;
+            };
+            if &hex[..2] == prefix_name {
+                hashes.push(hash);
+            }
+        }
+    }
+    hashes.sort();
+    hashes.dedup();
+    Ok(hashes)
 }
 
 fn blob_io(message: &'static str) -> Vec<Diagnostic> {

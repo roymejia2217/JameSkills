@@ -445,7 +445,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [x] **T010 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T007. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T007. **Estado:** completada.
 
 **Implementación y funciones:** SkillManifest, CapabilityDeclaration, parse_manifest, parse_frontmatter y validate_skill_pair; validación de UUID/schema_version/semver y Agent Skills. SkillId ya está implementado y validado por T007.a. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -481,7 +481,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [x] **T011 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T010. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T010. **Estado:** completada.
 
 **Implementación y funciones:** PolicyDeclaration, Requirement, ToolRequirement, Scope, parse_policy; registry IDs/argumentos tipados, no shell strings. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1332,9 +1332,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T037 — Crear SQLite y migraciones transaccionales
 
-- [ ] **T037 completada y verificada**
+- [x] **T037 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T007, T010, T013. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T007, T010, T013. **Estado:** completada.
 
 **Implementación y funciones:** StoragePort, SqliteStore::open, migrate, with_transaction; tablas skill/revision/blob refs/bindings/receipts/snapshot DAG según arquitectura, índices y schema version. StoragePort introduce ahora solo métodos/tipos usados por storage real; capture_snapshot/merge_snapshot se añaden en T059/T061 cuando DTO/providers existen, con firmas finales CONTRACTS. Nunca success placeholder. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1358,21 +1358,21 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Migrations versionadas hacen backup antes de mutación irreversible y no se ejecutan en render UI.
-- [ ] Foreign keys/transacciones/constraints preservan IDs y refs sin truncamiento.
-- [ ] Version futura se abre bloqueada/read-only según spec, nunca downgraded a fuerza.
+- [x] Migrations versionadas hacen backup antes de mutación irreversible y no se ejecutan en render UI.
+- [x] Foreign keys/transacciones/constraints preservan IDs y refs sin truncamiento.
+- [x] Version futura se abre bloqueada/read-only según spec, nunca downgraded a fuerza.
 
 **Verificación:** cargo test -p jameskills-infra --locked sqlite_migrations con DB temporal en Linux y Windows; registrar journal/WAL y estrategia de locks.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T037.dep/a/b completos: SQLite bundled versionado; 11 tablas/migrations; actor single-writer con WAL, FK, busy timeout, backup antes upgrade, rollback e incompatibilidad futura read-only. Windows local 6/6 migrations + 12/12 actor; CI remota PR #13 9/9 y PR #15 9/9. Squashes `6c0324c` y `08f4ddd`.
 
 <a id="t038"></a>
 
 ## T038 — Persistir blobs y revisiones inmutables
 
-- [ ] **T038 completada y verificada**
+- [x] **T038 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T037, T013, T012. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T037, T013, T012. **Estado:** completada.
 
 **Implementación y funciones:** SkillRevision, RevisionId, store_bundle_blob, commit_revision, verify_blob; hash+size+parent causal y commit DB/FS recuperable. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1386,13 +1386,27 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/revision_storage.rs`
 
 **Aceptación:**
-- [ ] Blobs/revisiones inmutables y referenciados por hash; commit acepta expected_heads esperada.
-- [ ] Orphans locales quedan identificados para recuperación segura; no borrar parent aún usado.
-- [ ] Reabrir biblioteca verifica consistencia con errores y recuperación, sin sobrescribir contenido.
+- [x] Blobs/revisiones inmutables y referenciados por hash; commit acepta expected_heads esperada (base T038, PR #17).
+- [x] Orphans locales quedan identificados para recuperación segura; no borrar parent aún usado.
+- [x] Reabrir biblioteca verifica consistencia con errores y recuperación, sin sobrescribir contenido.
 
 **Verificación:** cargo test -p jameskills-infra --locked revision_storage con failure injection; comprobar manifest/hash roundtrip frente T013.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED inicial E0432/E0599 para DTO/blob/commit; T038.a RED E0599 para `orphan_blob_hashes`. GREEN 14/14 `revision_storage` y 60/60 infra Windows; hash mismatches y commits sin blob rechazados; huérfanos inventariados/preservados/reintentables; rollback mantiene head anterior; re-open rechaza referencias ausentes/corruptas; parents y tombstone observed-heads deben cubrir las heads vigentes. Workspace core+infra+CLI tests, desktop check, Clippy, fmt y diff check verdes. PR #17 base `c81fa73` 9/9; PR #18 `8389058` con CI Windows/Linux 9/9.
+
+### T038.a — Verificar y recuperar el almacén de blobs
+
+- [x] **T038.a completada y verificada**
+
+**Dependencias:** T038 base (PR #17). **Archivos (4):** `crates/jameskills-infra/src/fs.rs`, `crates/jameskills-infra/src/sqlite.rs`, `crates/jameskills-infra/tests/revision_storage.rs`, `tasks/todo.md`.
+
+**RED primero:** blobs huérfanos identificables sin borrado automático; al reabrir, referencias ausentes/corruptas se informan y bloquean escrituras; reintento de commit puede reutilizar blob verificado. Fallo transaccional no publica revisión ni destruye una revisión anterior.
+
+**Aceptación:** inventario separa blobs referenciados y huérfanos; apertura verifica cada blob referenciado y no limpia bytes automáticamente; recuperación segura es repetible/no destructiva y ninguna revisión parent se borra.
+
+**Verificación:** `cargo test -p jameskills-infra --locked --test revision_storage`; luego suite infra, clippy y fmt. Registrar RED/GREEN y ejecución Windows + CI Linux.
+
+**Evidencia al ejecutar:** RED `cargo test -p jameskills-infra --locked --test revision_storage` falló con E0599 porque faltaba `orphan_blob_hashes`. GREEN 14/14 focused Windows; `cargo test -p jameskills-infra --locked` 60/60; workspace Clippy `-D warnings`, fmt y `git diff --check` limpios. Incluye blob hash mismatch rechazado, huérfano listado/preservado/reutilizado tras rollback, y re-open bloquea referencias ausentes o corruptas. CI Linux/Windows PR #18 9/9.
 
 <a id="t039"></a>
 
@@ -1400,7 +1414,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T039 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T037, T038. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T037, T038.a. **Estado:** pendiente.
 
 **Implementación y funciones:** LibraryService::list_skills, search_skills, load_skill, load_history; filtros/sort/page cursor estables sin cargar blobs completos. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 

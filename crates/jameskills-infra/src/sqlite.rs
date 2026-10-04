@@ -1,12 +1,15 @@
+use crate::fs::{list_blob_hashes, verify_blob_bytes};
 use chrono::{SecondsFormat, Utc};
 use jameskills_core::{
     AppError, AppResult,
     domain::{
-        RevisionId, RevisionKind, RevisionRecord, SaveRevisionRequest, SaveRevisionResult, SkillId,
+        ContentHash, RevisionId, RevisionKind, RevisionRecord, SaveRevisionRequest,
+        SaveRevisionResult, SkillId,
     },
     ports::{CURRENT_SCHEMA_VERSION, StoragePort},
 };
 use rusqlite::{Connection, OpenFlags, Transaction};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +34,7 @@ fn storage_error(code: &'static str) -> AppError {
 pub struct SqliteStore {
     connection: Mutex<Connection>,
     path: PathBuf,
+    blob_root: PathBuf,
     read_only: bool,
 }
 
@@ -71,11 +75,19 @@ impl SqliteStore {
                 .map_err(|_| storage_error("storage.migrate.failed"))?;
             set_user_version(&connection, *number)?;
         }
-        Ok(Self {
+        let blob_root = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .join("blobs");
+        let store = Self {
             connection: Mutex::new(connection),
             path: path.to_path_buf(),
+            blob_root,
             read_only: false,
-        })
+        };
+        store.verify_referenced_blobs()?;
+        Ok(store)
     }
 
     /// Opens a future schema without writing: migrations are skipped, every
@@ -89,6 +101,11 @@ impl SqliteStore {
         Ok(Self {
             connection: Mutex::new(connection),
             path: path.to_path_buf(),
+            blob_root: path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .join("blobs"),
             read_only: true,
         })
     }
@@ -122,6 +139,60 @@ impl SqliteStore {
         } else {
             Err(storage_error("storage.integrity.failed"))
         }
+    }
+
+    /// Lists valid content-addressed blobs with no committed content revision.
+    /// Results are informational and never removed automatically: a writer
+    /// may have staged a blob before a transaction failed or the process
+    /// stopped.
+    pub fn orphan_blob_hashes(&self) -> AppResult<Vec<ContentHash>> {
+        let referenced = self.referenced_blob_hashes()?;
+        let present = list_blob_hashes(&self.blob_root)
+            .map_err(|_| storage_error("storage.blob.inventory.failed"))?;
+        Ok(present
+            .into_iter()
+            .filter(|hash| !referenced.contains(hash))
+            .collect())
+    }
+
+    fn referenced_blob_hashes(&self) -> AppResult<BTreeSet<ContentHash>> {
+        let guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let mut statement = guard
+            .prepare(
+                "SELECT DISTINCT bundle_hash, state FROM revisions ORDER BY bundle_hash, state",
+            )
+            .map_err(|_| storage_error("storage.data.corrupt"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| storage_error("storage.data.corrupt"))?;
+        let mut referenced = BTreeSet::new();
+        for row in rows {
+            let (value, state) = row.map_err(|_| storage_error("storage.data.corrupt"))?;
+            let hash = ContentHash::parse_hex(&value)
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+            match state.as_str() {
+                "content" => {
+                    referenced.insert(hash);
+                }
+                "tombstone" if hash == ContentHash::from_digest([0; 32]) => {}
+                "tombstone" => return Err(storage_error("storage.data.corrupt")),
+                _ => return Err(storage_error("storage.data.corrupt")),
+            }
+        }
+        Ok(referenced)
+    }
+
+    fn verify_referenced_blobs(&self) -> AppResult<()> {
+        for hash in self.referenced_blob_hashes()? {
+            verify_blob_bytes(&self.blob_root, &hash)
+                .map_err(|_| storage_error("storage.blob.invalid"))?;
+        }
+        Ok(())
     }
 
     /// Runs work inside one transaction on the single writer. A returned
@@ -164,6 +235,10 @@ impl SqliteStore {
             request.kind().clone(),
             request.semantic_version().to_owned(),
         )?;
+        if matches!(request.kind(), RevisionKind::Content) {
+            verify_blob_bytes(&self.blob_root, record.bundle_hash())
+                .map_err(|_| storage_error("storage.blob.invalid"))?;
+        }
         let mut guard = self
             .connection
             .lock()
@@ -188,6 +263,39 @@ impl SqliteStore {
             return Err(AppError::Conflict {
                 current: conflicting,
             });
+        }
+        let parents: Vec<String> = record
+            .parents()
+            .iter()
+            .map(|parent| parent.as_str().to_owned())
+            .collect();
+        if parents != current {
+            let conflicting = current
+                .iter()
+                .map(|hex| RevisionId::parse_hex(hex))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+            return Err(AppError::Conflict {
+                current: conflicting,
+            });
+        }
+        if let RevisionKind::Tombstone { observed_heads } = request.kind() {
+            let mut observed: Vec<String> = observed_heads
+                .iter()
+                .map(|head| head.as_str().to_owned())
+                .collect();
+            observed.sort();
+            observed.dedup();
+            if observed != current {
+                let conflicting = current
+                    .iter()
+                    .map(|hex| RevisionId::parse_hex(hex))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| storage_error("storage.data.corrupt"))?;
+                return Err(AppError::Conflict {
+                    current: conflicting,
+                });
+            }
         }
         let state = match request.kind() {
             RevisionKind::Content => "content",
