@@ -11,6 +11,12 @@ const FOUNDATION_POLICY: &str =
     include_str!("../../../docs/examples/repository-foundation/policies/repository.toml");
 const FOUNDATION_GUIDANCE: &str =
     include_str!("../../../docs/examples/repository-foundation/guidance/repository.toml");
+const FOUNDATION_STANDARDS: &str =
+    include_str!("../../../docs/examples/repository-foundation/references/standards.md");
+const FOUNDATION_ENVIRONMENT: &str =
+    include_str!("../../../docs/examples/repository-foundation/references/environment.md");
+const FOUNDATION_README_TEMPLATE: &str =
+    include_str!("../../../docs/examples/repository-foundation/templates/README.md");
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -170,6 +176,21 @@ fn runtime_guidance_references_known_requirements_and_registered_actions() {
                 other => panic!("unsupported guidance action {other:?}"),
             }
         }
+    }
+}
+
+#[test]
+fn runtime_reference_material_matches_documented_sources() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/repository-foundation");
+    for (path, source) in [
+        ("references/standards.md", FOUNDATION_STANDARDS),
+        ("references/environment.md", FOUNDATION_ENVIRONMENT),
+        ("templates/README.md", FOUNDATION_README_TEMPLATE),
+    ] {
+        let runtime = std::fs::read_to_string(root.join(path))
+            .unwrap_or_else(|_| panic!("canonical resource {path} must exist"));
+        assert_eq!(runtime.replace("\r\n", "\n"), source.replace("\r\n", "\n"));
     }
 }
 
