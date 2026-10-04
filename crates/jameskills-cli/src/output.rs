@@ -1,6 +1,6 @@
-use jameskills_core::AppError;
+use jameskills_core::{AppError, Diagnostic};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CliResponse {
@@ -41,6 +41,16 @@ impl CliResponse {
             "This command is not available in this build.",
             3,
         )
+    }
+
+    pub fn validation_failure(diagnostics: Vec<Diagnostic>) -> Self {
+        let mut response =
+            Self::error("validate", "bundle.invalid", "Bundle validation failed.", 2);
+        response.data = Some(json!({
+            "valid": false,
+            "diagnostics": diagnostics,
+        }));
+        response
     }
 
     // Wired when the policy check provider is implemented; this pure mapping is exercised now.
@@ -133,6 +143,42 @@ pub fn render_json(response: &CliResponse) -> Result<String, serde_json::Error> 
 }
 
 pub fn render_text(response: &CliResponse) -> String {
+    if response.command == "validate"
+        && let Some(data) = &response.data
+        && data["valid"].as_bool() == Some(true)
+    {
+        return format!(
+            "Valid bundle: {} {} ({} files, SHA-256 {}, {} warnings)",
+            data["slug"].as_str().unwrap_or("unknown"),
+            data["version"].as_str().unwrap_or("unknown"),
+            data["file_count"].as_u64().unwrap_or_default(),
+            data["content_hash"].as_str().unwrap_or("unknown"),
+            data["warnings"]
+                .as_array()
+                .map_or(0, |warnings| warnings.len()),
+        );
+    }
+    if response.command == "validate"
+        && let Some(diagnostics) = response
+            .data
+            .as_ref()
+            .and_then(|data| data["diagnostics"].as_array())
+    {
+        let mut text = String::from("Bundle validation failed:");
+        for diagnostic in diagnostics {
+            let path = diagnostic["path"].as_str().unwrap_or("bundle");
+            let line = diagnostic["line"]
+                .as_u64()
+                .map(|line| format!(":{line}"))
+                .unwrap_or_default();
+            let code = diagnostic["code"].as_str().unwrap_or("validation.error");
+            let message = diagnostic["message"]
+                .as_str()
+                .unwrap_or("Input is invalid.");
+            text.push_str(&format!("\n  {path}{line}: {code}: {message}"));
+        }
+        return text;
+    }
     if let Some(error) = &response.error {
         return format!("{}: {} ({})", response.command, error.message, error.code);
     }

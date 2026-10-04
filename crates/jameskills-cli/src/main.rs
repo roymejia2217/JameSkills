@@ -48,7 +48,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         return 0;
     };
 
-    if matches!(command, CliCommand::Doctor) {
+    if matches!(command, CliCommand::Doctor | CliCommand::Validate { .. }) {
         let runtime = match resolve_user_dirs()
             .map_err(|_| AppError::CapabilityUnavailable {
                 id: "platform.user_directories".to_owned(),
