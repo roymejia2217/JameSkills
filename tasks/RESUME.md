@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`; T016.b local.
+Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`; T016.d local.
 PR #19 T015 merged, CI 9/9. PR de T016 pendiente.
 
 ## Tarea activa
 
-T016.a y T016.b completas localmente. Activa T016.c: collect_repository_facts por argv Git fijo y fixtures de repo real/fake ProcessPort.
+T016.a–c completas localmente; T016.d registra evidencia/checkpoint. PR T016 pendiente de CI remoto; no marcar parent hasta CI Linux/Windows verde.
 
 ## Evidencia T016.dep
 
@@ -18,6 +18,9 @@ T016.a y T016.b completas localmente. Activa T016.c: collect_repository_facts po
 - GREEN T016.a: process_contract 3/3; core 62/62 Windows; core Clippy/fmt/diff clean.
 - RED T016.b: `process_execution` no compila porque `SystemProcessPort` no existía.
 - GREEN T016.b: `process_execution` 3/3 Windows (streams simultáneos, límite, timeout/cancel); infra 64/64, core 62/62, workspace Clippy/fmt/diff clean.
+- RED T016.c: `repository_facts` no compila porque faltan `RepositoryState` y `collect_repository_facts`.
+- GREEN T016.c: repository_facts 3/3 Windows; fake comprueba args/cwd con metacaracteres y real Git temporal cubre attached/detached/worktree/submodule. Core 62/62, infra 67/67; workspace Clippy/fmt/diff clean.
+- GREEN T016.d local: lock/runtime deps fijados, test execution/facts y suites acumuladas verificadas; C005 permanece abierto por el smoke de ventana T005.
 
 ## T005 blocker y próxima elegibilidad
 
@@ -25,7 +28,7 @@ T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue s
 
 ## Próxima acción exacta
 
-T016.c: implementar RepositoryFacts/collect_repository_facts usando solo subcomandos rev-parse/symbolic-ref fijos; probar repo ordinario, detached HEAD, worktree, submodule y ruta con espacios/metacaracteres sin writes.
+Revisar diff/commits, push `feat/t016-repository-facts`, crear PR y esperar CI Linux/Windows. No cerrar T016 hasta gates remotos verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, la siguiente tarea independiente.
 
 ## Lecturas mínimas
 
