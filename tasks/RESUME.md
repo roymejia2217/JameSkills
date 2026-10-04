@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`; T015.c cambios locales.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`; T015.d1 local.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3) y T015.c completas localmente. Activa T015.d: validate service/CLI a través de FileSystemPort. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3), T015.c y T015.d1 completas localmente. Activa T015.d2: FileSystemPort + LibraryService inyectable. El RED original CLI aún requiere provider/composition/CLI para pasar. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -22,12 +22,15 @@ T015.a, T015.b (b1+b2+b3) y T015.c completas localmente. Activa T015.d: validate
 - GREEN T015.b3: `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1; core 52/52, Clippy/fmt/diff clean.
 - RED T015.c: `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` falla porque falta `templates/ci-rust.yml` runtime.
 - GREEN T015.c: 1/1 focused; `bundle_manifest` 19/19, core 53/53, core Clippy/fmt/diff clean. SVG es propio/static y el CI template conserva placeholders `exit 1` hasta resolver SHA/toolchain.
+- RED T015.d baseline: `cargo test -p jameskills-cli --locked --test validate_bundle` compila y falla porque `validate` aún responde Unsupported (exit 3) al ejemplo oficial.
+- RED T015.d1: import de test falló E0432 porque `validate_bundle` no existía.
+- GREEN T015.d1: core 56/56; bundle oficial entrega hash y summary, falta policy resource y acción guidance libre se rechazan; core Clippy/fmt/diff clean.
 
 ## Próximos pasos
 
-1. Implementar T015.d RED/GREEN: validar bundle por LibraryService/FileSystemPort y CLI, usando errores con paths/codes y sin false success.
-2. Comprobar la suite runtime completa con validate CLI; luego actualizar checklist/evidencia y preparar el PR T015.
-3. Commit convencional y PR verde a `main`; el smoke visual T005 continúa bloqueado con evidencia documentada.
+1. T015.d2 agrega FileSystemPort y LibraryService con provider inyectable; testea errors sin depender de SQLite.
+2. T015.d3 cablea adapter/factory; d4 CLI salida JSON/texto, diagnostics con path/code.
+3. Ejecutar T015 CLI/core/infra tests, actualizar checklist/evidencia, commit y PR verde; T005 continúa bloqueado con evidencia documentada.
 
 ## Lecturas y contratos
 

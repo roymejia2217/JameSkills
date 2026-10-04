@@ -1,5 +1,9 @@
+use jameskills_core::PortablePath;
 use jameskills_core::domain::policy::parse_policy;
-use jameskills_core::domain::skill::{parse_frontmatter, parse_manifest, validate_skill_pair};
+use jameskills_core::domain::skill::{
+    parse_frontmatter, parse_manifest, validate_bundle, validate_skill_pair,
+};
+use std::collections::BTreeMap;
 
 const MANIFEST: &str = include_str!("../../../tests/fixtures/valid-suite/jameskills.toml");
 const SKILL: &str = include_str!("../../../tests/fixtures/valid-suite/SKILL.md");
@@ -21,6 +25,23 @@ const FOUNDATION_GITIGNORE_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/gitignore.txt");
 const FOUNDATION_CI_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/ci-rust.yml");
+
+fn official_bundle_files() -> BTreeMap<PortablePath, Vec<u8>> {
+    [
+        ("SKILL.md", FOUNDATION_SKILL),
+        ("jameskills.toml", FOUNDATION_MANIFEST),
+        ("policies/repository.toml", FOUNDATION_POLICY),
+        ("guidance/repository.toml", FOUNDATION_GUIDANCE),
+    ]
+    .into_iter()
+    .map(|(path, content)| {
+        (
+            PortablePath::new(path.to_owned()).unwrap(),
+            content.as_bytes().to_vec(),
+        )
+    })
+    .collect()
+}
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -53,6 +74,59 @@ fn standard_fixture_parses_and_preserves_skill_markdown_and_metadata() {
     assert_eq!(frontmatter.metadata()["jameskills-version"], "1.0.0");
     assert_eq!(frontmatter.source(), SKILL);
     assert!(frontmatter.body().starts_with("# Repositorio seguro"));
+}
+
+#[test]
+fn validates_official_bundle_and_returns_canonical_hash() {
+    let validated = match validate_bundle(&official_bundle_files()) {
+        Ok(validated) => validated,
+        Err(diagnostics) => panic!("official bundle rejected: {diagnostics:?}"),
+    };
+
+    assert_eq!(validated.manifest().slug(), "repository-foundation");
+    assert_eq!(validated.manifest().version().to_string(), "1.0.0");
+    assert_eq!(validated.file_count(), 4);
+    assert_eq!(validated.content_hash().as_str().len(), 64);
+}
+
+#[test]
+fn bundle_validation_rejects_a_missing_manifest_resource() {
+    let mut files = official_bundle_files();
+    files.remove(&PortablePath::new("policies/repository.toml".to_owned()).unwrap());
+
+    let diagnostics = match validate_bundle(&files) {
+        Ok(_) => panic!("bundle with a missing manifest resource must fail"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code() == "bundle.resource.missing")
+    );
+}
+
+#[test]
+fn bundle_validation_rejects_an_unregistered_guidance_command_field() {
+    let mut files = official_bundle_files();
+    let guidance = FOUNDATION_GUIDANCE.replacen(
+        "kind = \"manual-instruction\"",
+        "kind = \"manual-instruction\"\ncommand = \"echo untrusted\"",
+        1,
+    );
+    files.insert(
+        PortablePath::new("guidance/repository.toml".to_owned()).unwrap(),
+        guidance.into_bytes(),
+    );
+
+    let diagnostics = match validate_bundle(&files) {
+        Ok(_) => panic!("unregistered guidance command fields must fail"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code() == "bundle.guidance.action.invalid")
+    );
 }
 
 #[test]

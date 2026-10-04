@@ -21,5 +21,6 @@ pub use policy::{
 };
 pub use scope::Scope;
 pub use skill::{
-    CapabilityDeclaration, SkillFrontmatter, SkillManifest, canonical_inventory, hash_bundle,
+    CapabilityDeclaration, SkillFrontmatter, SkillManifest, ValidatedBundle, canonical_inventory,
+    hash_bundle, validate_bundle,
 };
