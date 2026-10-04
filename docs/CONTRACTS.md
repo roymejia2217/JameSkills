@@ -313,9 +313,14 @@ ApprovedRoot, ApprovedExecutable y SecretInput tienen constructores controlados;
 el proveedor vuelve a calcularlo con lectura limitada antes de spawn. Los probes de
 tools registrados no ejecutan candidatos sin fingerprint aprobado; presencia o PATH
 por sí solos solo producen `Candidate`.
-ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint> }.
+ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint>, approved_script: Option<(ApprovedScript, ExecutableFingerprint)> }.
 ProcessPermission = ReadOnlyCheck | ExplicitMutation(OperationId). Allowlist driver's args verificada, logs solo tool_id/timing/exit.
 ApprovedEnv mínimo; rutas PATH necesarias, HOME/USERPROFILE por driver, idioma fijo cuando parseador depende. No heredar XAI_API_KEY/GEMINI_API_KEY ni credenciales ajenas.
+`ProcessSpec::with_approved_script(ApprovedScript, ExecutableFingerprint)` ata
+un entrypoint JavaScript aprobado al runtime aprobado. `SystemProcessPort`
+revalida que siga siendo un archivo regular, canónico y con el mismo SHA-256
+inmediatamente antes del spawn. El contrato cubre el entrypoint; no sustituye
+la verificación del paquete/dependencias declarados por el driver.
 Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+entrypoint aprobado cuando sea posible; fallback oficial específico explícito limitado y testeado, sin construir una línea arbitraria shell. tools/COMMITLINT y drivers git son del proyecto, no importados de skills.
 
 ## Servicios

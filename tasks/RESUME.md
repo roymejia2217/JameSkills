@@ -70,10 +70,18 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Empezar T020.b2: resolver `@commitlint/cli/cli.js` con Node y fingerprint del script en Windows sin ejecutar `.cmd`; mantener Blocked hasta aprobación/verificación completa.
-2. Conectar `conventional-commit` en `RepositoryPolicyCheckProvider`, manteniendo LocalCheck distinto de LocalHook.
+1. Commit de T020.b2.a tras revisión final de diff y estado.
+2. Implementar T020.b2.b en <=5 archivos: resolver `@commitlint/cli/cli.js` con Node aprobado, validar la versión exacta y cablear `conventional-commit` como LocalCheck; tests fake no equivalen a integración real.
 3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts. Cada slice <=5 archivos y commit tras verificación.
 4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
+
+## T020.b2.a completado localmente; pendiente commit
+
+- Git verificado al iniciar: rama `feat/t020-commit-test-checks`, HEAD `0342d39`, working tree limpia.
+- RED de comportamiento: `cargo test -p jameskills-infra --locked --lib process_rejects_modified_approved_script_before_spawning_runtime` falla porque el proceso se ejecutó a pesar de que el fingerprint del entrypoint no coincidía. Un intento previo con `unwrap_err` no compiló porque `ProcessOutput` no implementa `Debug`; no cuenta como RED.
+- GREEN: `cargo test -p jameskills-infra --locked --lib process_rejects_modified_approved_script_before_spawning_runtime` pasa 1/1; `cargo clippy -p jameskills-infra --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check` y `git diff --check` pasan.
+- Cambios locales del slice: tipo `ApprovedScript`, fingerprint asociado en `ProcessSpec` y validación del archivo canónico regular en `SystemProcessPort` justo antes del spawn.
+- `ProcessSpec` protege el entrypoint aprobado; la confianza del paquete y sus dependencias debe resolverse por separado en el driver Commitlint. No afirmar integración real.
 
 ## Preservación y lecturas
 

@@ -373,6 +373,25 @@ fn run_blocking(spec: ProcessSpec) -> AppResult<ProcessOutput> {
             });
         }
     }
+    if let Some((script, expected)) = spec.approved_script() {
+        let script_path =
+            std::fs::canonicalize(script.path()).map_err(|_| AppError::PermissionDenied {
+                operation: "process.script.identity_unavailable".to_owned(),
+            })?;
+        let metadata =
+            std::fs::symlink_metadata(&script_path).map_err(|_| AppError::PermissionDenied {
+                operation: "process.script.identity_unavailable".to_owned(),
+            })?;
+        let observed = fingerprint_executable(&script_path);
+        if !metadata.file_type().is_file()
+            || script_path != script.path()
+            || !matches!(observed, Ok(fingerprint) if &fingerprint == expected)
+        {
+            return Err(AppError::PermissionDenied {
+                operation: "process.script.identity_changed".to_owned(),
+            });
+        }
+    }
     let cwd = std::fs::canonicalize(spec.cwd().path()).map_err(|_| AppError::PermissionDenied {
         operation: "process.cwd.unavailable".to_owned(),
     })?;
@@ -541,5 +560,70 @@ fn external_error(tool_id: &str, exit_code: Option<i32>) -> AppError {
 fn executable_identity_error() -> AppError {
     AppError::PermissionDenied {
         operation: "process.executable.identity_unavailable".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fingerprint_executable, run_blocking};
+    use jameskills_core::{
+        AppError,
+        domain::ToolId,
+        ports::process::{
+            ApprovedEnv, ApprovedExecutable, ApprovedRoot, ApprovedScript, CancellationToken,
+            ExecutableFingerprint, ProcessPermission, ProcessSpec,
+        },
+    };
+    use std::{
+        collections::BTreeMap,
+        ffi::OsString,
+        sync::atomic::{AtomicU64, Ordering},
+        time::Duration,
+    };
+
+    static NEXT_SCRIPT_ID: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn process_rejects_modified_approved_script_before_spawning_runtime() {
+        let directory = std::env::temp_dir().join(format!(
+            "jameskills-approved-script-{}-{}",
+            std::process::id(),
+            NEXT_SCRIPT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let script_path = directory.join("cli.js");
+        std::fs::write(&script_path, b"modified entrypoint").unwrap();
+        let script_path = std::fs::canonicalize(script_path).unwrap();
+        let executable_path = std::env::current_exe().unwrap();
+        let executable_fingerprint = fingerprint_executable(&executable_path).unwrap();
+        let wrong_script_fingerprint = ExecutableFingerprint::from_sha256([0xA5; 32]);
+        let spec = ProcessSpec::new(
+            ApprovedExecutable::from_absolute_path(executable_path).unwrap(),
+            ToolId::Node,
+            vec![OsString::from("--version")],
+            ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap(),
+            ApprovedEnv::new(BTreeMap::new()).unwrap(),
+            Duration::from_secs(5),
+            4096,
+            ProcessPermission::ReadOnlyCheck,
+            CancellationToken::new(),
+        )
+        .unwrap()
+        .with_approved_executable_fingerprint(executable_fingerprint)
+        .with_approved_script(
+            ApprovedScript::from_absolute_path(script_path).unwrap(),
+            wrong_script_fingerprint,
+        );
+
+        let error = match run_blocking(spec) {
+            Ok(_) => panic!("modified approved script was allowed to spawn"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            AppError::PermissionDenied { operation } if operation == "process.script.identity_changed"
+        ));
+
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
