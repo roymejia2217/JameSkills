@@ -1,7 +1,6 @@
 ---
 name: repository-foundation
 description: Aplica y verifica estándares Git, seguridad, CI y releases.
-license: Apache-2.0
 compatibility: Requiere Git y herramientas del perfil de proyecto. Las reglas remotas requieren acceso al proveedor.
 metadata:
   jameskills-id: f9c0199f-c4ce-4b04-85dd-ae12a7db292b

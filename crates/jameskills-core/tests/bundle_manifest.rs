@@ -1,7 +1,14 @@
+use jameskills_core::domain::policy::parse_policy;
 use jameskills_core::domain::skill::{parse_frontmatter, parse_manifest, validate_skill_pair};
 
 const MANIFEST: &str = include_str!("../../../tests/fixtures/valid-suite/jameskills.toml");
 const SKILL: &str = include_str!("../../../tests/fixtures/valid-suite/SKILL.md");
+const FOUNDATION_MANIFEST: &str =
+    include_str!("../../../docs/examples/repository-foundation/jameskills.toml");
+const FOUNDATION_SKILL: &str =
+    include_str!("../../../docs/examples/repository-foundation/SKILL.md");
+const FOUNDATION_POLICY: &str =
+    include_str!("../../../docs/examples/repository-foundation/policies/repository.toml");
 
 fn first_code<T>(result: &Result<T, Vec<jameskills_core::Diagnostic>>) -> &'static str {
     match result {
@@ -34,6 +41,41 @@ fn standard_fixture_parses_and_preserves_skill_markdown_and_metadata() {
     assert_eq!(frontmatter.metadata()["jameskills-version"], "1.0.0");
     assert_eq!(frontmatter.source(), SKILL);
     assert!(frontmatter.body().starts_with("# Repositorio seguro"));
+}
+
+#[test]
+fn official_repository_example_passes_manifest_skill_and_policy_parsers() {
+    let manifest = parse_manifest(FOUNDATION_MANIFEST).unwrap();
+    let skill = parse_frontmatter(FOUNDATION_SKILL.as_bytes()).unwrap();
+    validate_skill_pair(&manifest, &skill).unwrap();
+    let policy = parse_policy(FOUNDATION_POLICY.as_bytes()).unwrap();
+
+    assert_eq!(
+        manifest.id().as_uuid().to_string(),
+        "f9c0199f-c4ce-4b04-85dd-ae12a7db292b"
+    );
+    assert_eq!(policy.profile(), "repository-foundation");
+    assert!(!policy.requirements().is_empty());
+}
+
+#[test]
+fn portable_repository_example_is_available_at_the_runtime_fixture_path() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/repository-foundation");
+    let manifest = std::fs::read_to_string(root.join("jameskills.toml"))
+        .expect("canonical runtime example manifest must exist");
+    let skill =
+        std::fs::read(root.join("SKILL.md")).expect("canonical runtime example skill must exist");
+    let policy = std::fs::read(root.join("policies/repository.toml"))
+        .expect("canonical runtime example policy must exist");
+
+    let parsed_manifest = parse_manifest(&manifest).unwrap();
+    let parsed_skill = parse_frontmatter(&skill).unwrap();
+    validate_skill_pair(&parsed_manifest, &parsed_skill).unwrap();
+    assert_eq!(
+        parse_policy(&policy).unwrap().profile(),
+        "repository-foundation"
+    );
 }
 
 #[test]
