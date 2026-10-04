@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`; T015.d1 local.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
@@ -28,7 +28,7 @@ T015.a, T015.b (b1+b2+b3), T015.c y T015.d1 completas localmente. Activa T015.d2
 
 ## Próximos pasos
 
-1. T015.d2 agrega FileSystemPort y LibraryService con provider inyectable; testea errors sin depender de SQLite.
+1. T015.d2 agrega FileSystemPort y LibraryService con provider inyectable; tests inline prueban provider válido y propagación de diagnostics sin depender de SQLite.
 2. T015.d3 cablea adapter/factory; d4 CLI salida JSON/texto, diagnostics con path/code.
 3. Ejecutar T015 CLI/core/infra tests, actualizar checklist/evidencia, commit y PR verde; T005 continúa bloqueado con evidencia documentada.
 
