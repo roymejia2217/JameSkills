@@ -1,50 +1,38 @@
 # Reanudación JameSkills
 
-Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`, d1a `f5e0514`; PR #19.
-T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
+Fecha UTC: 2026-10-04
+Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`, T016.b `441ffbc`, T016.c `677423d`, T016.d `9c672e9`.
+PR #19 T015 merged, CI 9/9. PR #20 T016 is open; prior code checks passed 9/9, and the current head must be checked before merge.
 
 ## Tarea activa
 
-T015 y sus acceptance están completos; PR #19 Required CI, Linux/Windows, tests, clippy, fmt, commitlint, README Policy y PR Governance pasaron 9/9. El update documental está en el working tree y requiere un último ciclo de CI antes del merge. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T016 completa localmente con aceptación/evidencia. C005 continúa abierto por la ventana nativa de T005; merge depende de los checks requeridos del head actual de PR #20.
 
-## T015.a1 RED/GREEN
+## Evidencia T016.dep
 
-- RED fuente: test del ejemplo del dossier detectó `frontmatter.unknown_field` por `license` fuera del DTO estándar; tras corregirlo, detectó `policy.invalid` por campos/checks no compatibles con T010/T011.
-- RED destino: `cargo test -p jameskills-core --locked --test bundle_manifest portable_repository_example_is_available_at_the_runtime_fixture_path` falla porque falta `examples/repository-foundation/jameskills.toml`.
-- GREEN T015.a1: `official_repository_example_passes_manifest_skill_and_policy_parsers` 1/1; `policy_schema` 5/5. Fuente `docs/examples/repository-foundation` pasa manifest/frontmatter/policy.
-- GREEN T015.a2: `portable_repository_example_is_available_at_the_runtime_fixture_path` 1/1; `bundle_manifest` 15/15; core 49/49 Windows; core Clippy, workspace fmt y diff check pasan.
-- RED T015.b1: test runtime falla porque todavía no existe `examples/repository-foundation/guidance/repository.toml`.
-- GREEN T015.b1: guidance test 1/1; `bundle_manifest` 16/16, core 50/50, `policy_schema` 5/5; core Clippy/fmt/diff clean. Elimina plan `github-access-setup` porque el policy parser no soporta una requirement con ese ID; actions limitadas a enums y source IDs registrados.
-- RED T015.b2a: `runtime_reference_material_matches_documented_sources` falla porque aún no existe `references/standards.md` bajo la ruta runtime.
-- GREEN T015.b2b: `runtime_reference_material_matches_documented_sources` 1/1 al alinear referencias/README con fuentes del dossier.
-- RED T015.b3: test detectó link SKILL a `templates/gitignore.txt` que no existía en runtime ni coincidía con layout planeado.
-- GREEN T015.b3: `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1; core 52/52, Clippy/fmt/diff clean.
-- RED T015.c: `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` falla porque falta `templates/ci-rust.yml` runtime.
-- GREEN T015.c: 1/1 focused; `bundle_manifest` 19/19, core 53/53, core Clippy/fmt/diff clean. SVG es propio/static y el CI template conserva placeholders `exit 1` hasta resolver SHA/toolchain.
-- RED T015.d baseline: `cargo test -p jameskills-cli --locked --test validate_bundle` compila y falla porque `validate` aún responde Unsupported (exit 3) al ejemplo oficial.
-- RED T015.d1: import de test falló E0432 porque `validate_bundle` no existía.
-- GREEN T015.d1: core 56/56; bundle oficial entrega hash y summary, falta policy resource y acción guidance libre se rechazan; core Clippy/fmt/diff clean.
-- GREEN T015.d2: service tests 2/2; core 58/58; core Clippy/fmt/diff clean. El service usa provider inyectable y propaga diagnostics sin SQLite.
-- RED T015.d3: `RuntimeServices::library` no existía.
-- GREEN T015.d3: infra 61/61 Windows; factory compone LocalFileSystem/LibraryService y valida runtime fixture sin crear config/data/cache; workspace Clippy/fmt/diff green.
-- GREEN T015.d4: CLI validate tests 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON/text muestran summary o diagnostic relative path/code sin reflejar bytes de entrada; workspace Clippy/fmt/diff clean.
-- RED T015.d1a: split guidance válido fallaba al exigir todos los planes en cada archivo.
-- GREEN T015.d1a: core 59/59 y core Clippy/fmt/diff clean; los planes ahora se unen antes de validar guidance IDs.
-- GREEN T015.d5 pre-update: PR #19 9/9 remoto; checklist T015/C005 se está cerrando con evidencia, y los checks se repetirán tras ese commit documental.
+- RED: `cargo check -p jameskills-core -p jameskills-infra --locked` pidió actualizar lock.
+- GREEN: sin `--locked` resolvió `command-group 5.0.1` + `nix 0.27.1`; `cargo check -p jameskills-core -p jameskills-infra --locked` 0 en Windows MSVC.
+- `async-trait 0.1.92`, Tokio 1.53.1 y command-group 5.0.1 tienen fuentes, versiones, yanked/license/MSRV registrados en `docs/SOURCES.md`.
+- command-group documenta group_spawn con Unix process group y Windows Job Object; no usar wait_with_output por su lectura secuencial de stdout/stderr en Windows.
+- RED T016.a: `process_contract` test no compila porque `ports::process` y DTOs faltaban.
+- GREEN T016.a: process_contract 3/3; core 62/62 Windows; core Clippy/fmt/diff clean.
+- RED T016.b: `process_execution` no compila porque `SystemProcessPort` no existía.
+- GREEN T016.b: `process_execution` 3/3 Windows (streams simultáneos, límite, timeout/cancel); infra 64/64, core 62/62, workspace Clippy/fmt/diff clean.
+- RED T016.c: `repository_facts` no compila porque faltan `RepositoryState` y `collect_repository_facts`.
+- GREEN T016.c: repository_facts 3/3 Windows; fake comprueba args/cwd con metacaracteres y real Git temporal cubre attached/detached/worktree/submodule. Core 62/62, infra 67/67; workspace Clippy/fmt/diff clean.
+- GREEN T016.d local: lock/runtime deps fijados, test execution/facts y suites acumuladas verificadas; C005 permanece abierto por el smoke de ventana T005.
+- PR #20 Required CI, Linux/Windows build, tests, clippy, fmt, commitlint, README Policy y PR Governance 9/9.
 
-## Próximos pasos
+## T005 blocker y próxima elegibilidad
 
-1. Commit del cierre documental, push a PR #19 y esperar segundo CI Linux/Windows/Required CI.
-2. Si queda verde, squash-mergear PR #19, actualizar `main` y limpiar ramas.
-3. Después, reevaluar T005 en host interactivo; si continúa bloqueada, T016 es la próxima tarea independiente elegible.
+T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue sin demostrar en Windows, y Linux carece sesión gráfica/GPU y development libs `xcb`, `xkbcommon`, `xkbcommon-x11`. Evidencia: `docs/PLATFORM-EVIDENCE.md`. T008 depende de T005. T016 es la siguiente tarea independiente elegible; no presentar build/test-support como smoke nativo.
 
-## Lecturas y contratos
+## Próxima acción exacta
 
-`tasks/todo.md` T015; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; fuentes `docs/examples/repository-foundation/*`.
+Consultar `gh pr checks 20`; squash-mergear cuando todos los checks requeridos del head estén verdes. Después reevaluar T005; si sigue bloqueada, comenzar T017, siguiente tarea independiente.
 
-Verificación acumulada Windows local: core 59/59, infra 61/61, CLI 16/16, desktop `test-support` 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
+## Lecturas mínimas
 
-`cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json` devuelve `valid=true`, 10 archivos y hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; la salida humana muestra el mismo summary.
+`tasks/todo.md` T016; `docs/CONTRACTS.md` process types; `docs/SECURITY.md` process; `docs/SOURCES.md` T016 process runtime; `docs/ARCHITECTURE.md` port/lifecycle.
 
-T005: `docs/PLATFORM-EVIDENCE.md` documenta Windows build sin captura/display/GPU observados y Linux contenedor sin sesión gráfica/GPU, además de libs `xcb`, `xkbcommon`, `xkbcommon-x11` ausentes. No afirmar smoke ni Pass por build. Preservar los artefactos locales sin seguimiento `target/` y `JameSkills-implementation-dossier.zip`.
+Preservar `target/` y `JameSkills-implementation-dossier.zip` sin seguimiento.

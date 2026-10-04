@@ -693,29 +693,38 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T016 — Obtener hechos locales de un repositorio
 
-- [ ] **T016 completada y verificada**
+- [x] **T016 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T012, T007. **Estado:** completada.
 
 **Implementación y funciones:** ProcessSpec, ApprovedExecutable, ApprovedEnv, ProcessPort, RepositoryFacts, collect_repository_facts; Git executable resuelto/aprobado, cwd seguro, argv fijo y timeout. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** repository_facts path con espacios/metacaracteres no se interpreta como shell; repo inexistente, detached HEAD, worktree y submodule tienen estados explícitos.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/ports/process.rs`
-- `crates/jameskills-core/src/ports/mod.rs`
-- `crates/jameskills-infra/src/process.rs`
-- `crates/jameskills-infra/src/lib.rs`
-- `crates/jameskills-infra/tests/repository_facts.rs`
+**Archivos por incremento:** desglosados en T016.dep, T016.a–c; máximo cinco archivos en cada hijo.
+
+**Descomposición obligatoria:**
+- [x] **T016.dep — Pin de process runtime y evidencia upstream** (5 archivos): `crates/jameskills-core/Cargo.toml`; `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`. Pins exactos de async-trait, Tokio runtime y `command-group`; verificar versión/licencia/MSRV y process groups/job objects.
+- Evidencia T016.dep: RED `cargo check -p jameskills-core -p jameskills-infra --locked` requirió actualizar lock. GREEN `cargo check ...` resolvió/compiló async-trait 0.1.92 (MSRV1.71), Tokio 1.53.1 (MSRV1.71), command-group 5.0.1 (MSRV1.68, nix 0.27.1); crates.io yanked=false/licencias fijadas en `docs/SOURCES.md`; Windows MSVC compiló command-group/Job Object.
+- [x] **T016.dep.e — Registrar evidencia de dependencias y reanudación** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`.
+- Evidencia T016.dep: RED locked check requirió actualizar `Cargo.lock`; GREEN `cargo check -p jameskills-core -p jameskills-infra --locked` pasó Windows MSVC. Crates.io/docs.rs fuentes y MSRV/licencias registradas; CI procesa Linux/Windows en PR.
+- [x] **T016.a — Contratos de proceso aprobados** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/process_contract.rs`; `tasks/todo.md`; `tasks/RESUME.md`. DTOs privados/validated, ProcessPort object-safe async, CancellationToken, argv/env/output budgets.
+- Evidencia T016.a: RED E0432 porque `ports::process` y tipos aprobados no existían. GREEN `process_contract` 3/3; core 62/62 Windows, core Clippy `-D warnings`, fmt y diff check verdes. Rechaza env key `XAI_API_KEY`, rutas relativas, límites fuera de rango; argv conserva espacios/metacaracteres como valores separados.
+- [x] **T016.b — Runner de proceso con límite y cancelación de grupo** (5 archivos): `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/process_execution.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Usar group_spawn de `command-group`, stdout/stderr drenados concurrentes con cap, timeout/cancel terminan el grupo en Unix/Windows.
+- Evidencia T016.b: RED E0432 porque no existían `SystemProcessPort`/módulo infra process. GREEN `process_execution` 3/3 Windows: stdout+stderr simultáneos, overflow mata grupo, timeout/cancel mata child group. Infra 64/64 y core 62/62; workspace Clippy `-D warnings`, fmt y diff check verdes.
+- [x] **T016.c — Capturar RepositoryFacts por Git readonly** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/repository_facts.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Sólo argv internos fijos; estados normal/detached/worktree/submodule; no hooks/fetch/push.
+- Evidencia T016.c: RED E0432 por collect_repository_facts/RepositoryState ausentes. GREEN repository_facts 3/3 Windows: ProcessPort fake verifica argv fijos con ruta `spaces; $(...)`, no-repo explícito; Git real temporal verifica attached/detached/linked-worktree/submodule. Core 62/62, infra 67/67; workspace Clippy `-D warnings`, fmt y diff check verdes; commands de inspección solo rev-parse/symbolic-ref/version y hooks path deshabilitados en setup fixture.
+- [x] **T016.d — Checkpoint y documentación local** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Dejar evidencia local, PR remoto pendiente, T005 blocker y próxima tarea independiente.
+- Evidencia T016.d: deps/process/facts y suites Windows verificadas; PR #20 CI Linux/Windows 9/9. C005 permanece abierto porque T005 no tiene smoke nativo demostrado.
 
 **Aceptación:**
-- [ ] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
-- [ ] Process output/tamaño/timeout/cancel se acotan y secretos se redactan.
-- [ ] No ejecutar hooks ni fetch/push al inspeccionar; lectura conserva worktree.
+- [x] Hechos Git/paths/versiones se obtienen sin comandos arbitrarios de políticas.
+- [x] Process output/tamaño/timeout/cancel se acotan y secretos se redactan.
+- [x] No ejecutar hooks ni fetch/push al inspeccionar; lectura conserva worktree.
 
 **Verificación:** cargo test -p jameskills-infra --locked repository_facts con repos temporales y ProcessPort fake; comprobar argv y kill/cancel de proceso hijo en ambos OS.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED E0432 por `collect_repository_facts`/`RepositoryState` ausentes. GREEN Windows: core 62/62, infra 67/67, incluyendo argv fake/real Git, timeout/cancel, output cap, attached/detached/worktree/submodule y not-a-repository; workspace Clippy `-D warnings`, fmt y diff check. PR #20 CI Linux/Windows 9/9.
 
 <a id="t017"></a>
 
