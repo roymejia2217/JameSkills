@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t017-tool-capabilities` / `d27cb5c`.
+Rama / HEAD: `feat/t017-tool-capabilities` / `HEAD` (último commit de implementación `d27cb5c`; después se registraron checkpoints docs-only).
 Base: `main`=`b53ed68`; rama local sin upstream.
 PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run list` vacíos).
 
@@ -16,6 +16,7 @@ PR / CI remota: sin PR ni ejecuciones para esta rama (`gh pr list` y `gh run lis
   - `1497ccf` — profiles/probes app-owned y stack desde manifests.
   - `ecf7025` — checks README/gitignore/Gitleaks.
   - `d27cb5c` — contratos, fuentes oficiales y evidencia de plataforma.
+  - `5969cbe` — reconciliación de checklist y evidencia local/CI.
 - Cada commit tuvo test focal y mensaje aceptado por el hook local. Las capas anteriores al punto de recuperación fueron reconstruidas desde el working tree; no hay CI remota para ellas.
 - T017/T018 están implementadas, verificadas localmente y comprometidas. C006 sigue abierto por límites Linux/native de T005/C005.
 - T019.a1/a1b/a2, b1/b1a, b2a/b2a2/b2b/b2c y c1–c3 están implementadas. T019 parent sigue incompleta porque el host no tiene Gitleaks instalado; falta contrato de integración real con el binario exacto 8.30.1.
