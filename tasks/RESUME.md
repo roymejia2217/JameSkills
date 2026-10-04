@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3), T015.c y T015.d1 completas localmente. Activa T015.d2: FileSystemPort + LibraryService inyectable. El RED original CLI aún requiere provider/composition/CLI para pasar. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3), T015.c, T015.d1 y T015.d2 completas localmente. Activa T015.d3: implementar LocalFileSystem::read_bundle_directory y exponer LibraryService en runtime composition sin crear directorios de usuario. El CLI aún necesita composition/dispatch/output. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -25,11 +25,12 @@ T015.a, T015.b (b1+b2+b3), T015.c y T015.d1 completas localmente. Activa T015.d2
 - RED T015.d baseline: `cargo test -p jameskills-cli --locked --test validate_bundle` compila y falla porque `validate` aún responde Unsupported (exit 3) al ejemplo oficial.
 - RED T015.d1: import de test falló E0432 porque `validate_bundle` no existía.
 - GREEN T015.d1: core 56/56; bundle oficial entrega hash y summary, falta policy resource y acción guidance libre se rechazan; core Clippy/fmt/diff clean.
+- GREEN T015.d2: service tests 2/2; core 58/58; core Clippy/fmt/diff clean. El service usa provider inyectable y propaga diagnostics sin SQLite.
 
 ## Próximos pasos
 
-1. T015.d2 agrega FileSystemPort y LibraryService con provider inyectable; tests inline prueban provider válido y propagación de diagnostics sin depender de SQLite.
-2. T015.d3 cablea adapter/factory; d4 CLI salida JSON/texto, diagnostics con path/code.
+1. T015.d3 conecta el walk/byte read validado al port y al `RuntimeServices` factory.
+2. T015.d4 CLI recibe el service y emite validación JSON/texto; conserva path/code de diagnósticos.
 3. Ejecutar T015 CLI/core/infra tests, actualizar checklist/evidencia, commit y PR verde; T005 continúa bloqueado con evidencia documentada.
 
 ## Lecturas y contratos
