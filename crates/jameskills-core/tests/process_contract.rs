@@ -1,8 +1,8 @@
 use jameskills_core::{
     domain::ToolId,
     ports::process::{
-        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ProcessPermission,
-        ProcessSpec,
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
+        ProcessPermission, ProcessSpec,
     },
 };
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, time::Duration};
@@ -36,6 +36,7 @@ fn process_arguments_preserve_spaces_and_metacharacters_as_separate_argv() {
 
     assert_eq!(spec.args(), args);
     assert_eq!(spec.output_limit_bytes(), 4096);
+    assert!(spec.approved_executable_fingerprint().is_none());
     assert!(matches!(
         spec.permission(),
         ProcessPermission::ReadOnlyCheck
@@ -61,4 +62,25 @@ fn cancellation_token_is_shared_across_process_owners() {
     assert!(!worker.is_cancelled());
     token.cancel();
     assert!(worker.is_cancelled());
+}
+
+#[test]
+fn process_spec_carries_the_explicitly_approved_executable_fingerprint() {
+    let fingerprint = ExecutableFingerprint::from_sha256([0x42; 32]);
+    let spec = ProcessSpec::new(
+        approved_executable(),
+        ToolId::Git,
+        vec![OsString::from("--version")],
+        approved_root(),
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+        Duration::from_secs(2),
+        4096,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .unwrap()
+    .with_approved_executable_fingerprint(fingerprint);
+
+    assert!(spec.approved_executable_fingerprint() == Some(&fingerprint));
+    assert_eq!(fingerprint.as_bytes(), &[0x42; 32]);
 }
