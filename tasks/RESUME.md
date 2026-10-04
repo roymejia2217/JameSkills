@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T020.a `1cd44fc`).
+Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T020.a `1cd44fc`, T020.b1 `d304f64`).
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
 
@@ -21,6 +21,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T017/T018 están implementadas, verificadas localmente y comprometidas. C006 sigue abierto por límites Linux/native de T005/C005.
 - T019.a1/a1b/a2, b1/b1a, b2a/b2a2/b2b/b2c y c1–c3 están implementadas. T019 parent sigue incompleta porque el host no tiene Gitleaks instalado; falta contrato de integración real con el binario exacto 8.30.1.
 - T020 es la tarea activa y no depende de cerrar T019. T019 permanece incompleta solo por la integración real Gitleaks 8.30.1 no disponible en este host.
+- T020.a y T020.b1 están comprometidas; T020 parent sigue abierta hasta wiring del provider, adaptación Node segura en Windows y T020.c.
 
 ## T019: verificación actual
 
@@ -69,9 +70,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar el diff limitado a los cinco archivos T020.b1, ejecutar `repo_document_checks`/`commit_test_checks`, fmt, Clippy infra y diff check; crear commit Conventional Commit válido.
-2. T020.b2: resolver `@commitlint/cli/cli.js` por Node con identidad/hash aprobados, sin ejecutar wrapper `.cmd`, y conectar el provider.
-3. T020.c: acción explícita de test drivers; inspección normal no lanza Cargo/npm scripts.
+1. Empezar T020.b2: resolver `@commitlint/cli/cli.js` con Node y fingerprint del script en Windows sin ejecutar `.cmd`; mantener Blocked hasta aprobación/verificación completa.
+2. Conectar `conventional-commit` en `RepositoryPolicyCheckProvider`, manteniendo LocalCheck distinto de LocalHook.
+3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts. Cada slice <=5 archivos y commit tras verificación.
 4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## Preservación y lecturas
