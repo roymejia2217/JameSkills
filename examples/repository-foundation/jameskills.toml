@@ -1,0 +1,11 @@
+schema_version = 1
+id = "f9c0199f-c4ce-4b04-85dd-ae12a7db292b"
+slug = "repository-foundation"
+display_name = "Repositorio seguro y estandarizado"
+version = "1.0.0"
+description = "Aplica y verifica estándares Git, seguridad, CI y releases."
+license = "Apache-2.0"
+minimum_app_version = "0.1.0"
+policy_files = ["policies/repository.toml"]
+guidance_files = ["guidance/repository.toml"]
+tags = ["git", "ci", "security"]
