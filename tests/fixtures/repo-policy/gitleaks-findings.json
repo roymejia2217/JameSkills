@@ -1,0 +1,22 @@
+[
+  {
+    "RuleID": "synthetic-fixture-rule",
+    "Description": "sanitized parser fixture",
+    "StartLine": 1,
+    "EndLine": 1,
+    "StartColumn": 1,
+    "EndColumn": 4,
+    "Match": "[REDACTED-FIXTURE]",
+    "Secret": "[REDACTED-FIXTURE]",
+    "File": "src/example.rs",
+    "SymlinkFile": "",
+    "Commit": "0000000000000000000000000000000000000000",
+    "Entropy": 0,
+    "Author": "fixture",
+    "Email": "",
+    "Date": "2026-01-01T00:00:00Z",
+    "Message": "synthetic fixture",
+    "Tags": [],
+    "Fingerprint": "0000000000000000000000000000000000000000:src/example.rs:synthetic-fixture-rule:1"
+  }
+]

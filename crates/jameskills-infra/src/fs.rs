@@ -1,17 +1,161 @@
+use crate::platform::{
+    PlatformFacts, ToolCandidate, ToolCandidateKind, ToolProfile, find_tool_candidates,
+    load_tool_profiles, probe_registered_tool_version,
+};
 use jameskills_core::{
-    Diagnostic,
+    AppError, AppResult, Diagnostic,
+    application::policy::PolicyCheckProvider,
     domain::{
-        BundleEntry, ContentHash, EntryKind, PortablePath, ValidatedInventory, hash_bundle,
+        BundleEntry, Check, ContentHash, EntryKind, PortablePath, Requirement, ToolId,
+        ValidatedInventory,
+        guidance::{ToolAvailability, ToolVersionStatus},
+        hash_bundle,
+        policy::{CheckEvidence, CheckObservation, CheckStatus, Enforcement},
         validate_bundle_inventory,
     },
+    ports::ClockPort,
     ports::filesystem::{
         BundleFiles, FileSystemPort, bundle_entry_from_path, extract_archive_files,
         validate_archive_entries,
     },
+    ports::process::{
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
+        ProcessPermission, ProcessPort, ProcessSpec,
+    },
 };
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+use std::time::Duration;
+
+const MAX_README_BYTES: u64 = 1024 * 1024;
+const MAX_GITIGNORE_PROBES: usize = 32;
+const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
+const GITLEAKS_CONFIG_PLACEHOLDER: &str = "{APP_GITLEAKS_CONFIG}";
+const GITLEAKS_DEFAULT_CONFIG: &str = "[extend]\nuseDefault = true\n";
+static NEXT_GITLEAKS_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
+
+struct PrivateGitleaksConfig {
+    directory: PathBuf,
+    path: PathBuf,
+}
+
+impl PrivateGitleaksConfig {
+    fn create() -> std::io::Result<Self> {
+        for _ in 0..8 {
+            let directory = std::env::temp_dir().join(format!(
+                "jameskills-gitleaks-{}-{}",
+                std::process::id(),
+                NEXT_GITLEAKS_CONFIG_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            #[allow(unused_mut)]
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+            let path = directory.join("gitleaks.toml");
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let write_result = options.open(&path).and_then(|mut file| {
+                file.write_all(GITLEAKS_DEFAULT_CONFIG.as_bytes())?;
+                file.sync_all()
+            });
+            if let Err(error) = write_result {
+                let _ = std::fs::remove_dir_all(&directory);
+                return Err(error);
+            }
+            return Ok(Self { directory, path });
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "private Gitleaks config path is unavailable",
+        ))
+    }
+}
+
+impl Drop for PrivateGitleaksConfig {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+fn repository_has_gitleaks_ignore(root: &ApprovedRoot) -> std::io::Result<bool> {
+    match std::fs::symlink_metadata(root.path().join(".gitleaksignore")) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitleaksReportStatus {
+    NoFindings,
+    Findings,
+    Unknown,
+}
+
+/// Parses only the bounded report shape and returns no report fields, which may
+/// contain secret material even when the driver requested redaction.
+pub fn parse_gitleaks_report(output: &[u8]) -> GitleaksReportStatus {
+    if output.is_empty() || output.len() > MAX_GITLEAKS_REPORT_BYTES || output.contains(&0) {
+        return GitleaksReportStatus::Unknown;
+    }
+    let Ok(report) = serde_json::from_slice::<serde_json::Value>(output) else {
+        return GitleaksReportStatus::Unknown;
+    };
+    let Some(findings) = report.as_array() else {
+        return GitleaksReportStatus::Unknown;
+    };
+    let valid_finding = findings.iter().all(|finding| {
+        let Some(finding) = finding.as_object() else {
+            return false;
+        };
+        finding
+            .get("RuleID")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+            && finding
+                .get("File")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+            && finding
+                .get("StartLine")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|value| value > 0)
+            && finding
+                .get("Secret")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+            && finding
+                .get("Fingerprint")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+    });
+    if !valid_finding {
+        GitleaksReportStatus::Unknown
+    } else if findings.is_empty() {
+        GitleaksReportStatus::NoFindings
+    } else {
+        GitleaksReportStatus::Findings
+    }
+}
 
 /// Local filesystem adapter: validation, explicit staging, and content-addressed
 /// blob IO live here so core never touches the disk. Writes follow validation.
@@ -21,6 +165,712 @@ impl LocalFileSystem {
     pub fn inspect_bundle(&self, root: &Path) -> Result<ValidatedInventory, Vec<Diagnostic>> {
         validate_bundle_inventory(&inspect_bundle_tree(root)?)
     }
+
+    pub fn check_readme_sections(
+        &self,
+        root: &ApprovedRoot,
+        path: &PortablePath,
+        required_headings: &[String],
+        observed_at: &str,
+        environment_fingerprint: &str,
+    ) -> AppResult<CheckObservation> {
+        let evidence = CheckEvidence::new(
+            "repo.readme",
+            observed_at,
+            None,
+            environment_fingerprint,
+            "Required README sections were checked.",
+            None,
+        )
+        .map_err(AppError::Validation)?;
+        let root_path = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+        if !root_path.is_dir() {
+            return Err(AppError::NotFound);
+        }
+        let status = match read_repository_document(&root_path, path) {
+            ReadmeFile::Missing => CheckStatus::Fail,
+            ReadmeFile::Blocked => CheckStatus::Blocked,
+            ReadmeFile::Bytes(bytes) => match std::str::from_utf8(&bytes) {
+                Ok(source) if readme_has_required_sections(source, required_headings) => {
+                    CheckStatus::Pass
+                }
+                Ok(_) | Err(_) => CheckStatus::Fail,
+            },
+        };
+        CheckObservation::new(
+            status,
+            Some(jameskills_core::domain::policy::Enforcement::LocalCheck),
+            vec![evidence],
+        )
+        .map_err(AppError::Validation)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn check_gitignore_patterns(
+        &self,
+        root: &ApprovedRoot,
+        path: &PortablePath,
+        patterns: &[String],
+        git_driver: Option<(&ApprovedExecutable, ExecutableFingerprint)>,
+        environment: &ApprovedEnv,
+        process: &dyn ProcessPort,
+        observed_at: &str,
+        environment_fingerprint: &str,
+    ) -> AppResult<CheckObservation> {
+        let make_evidence = |source_id: &str, summary| {
+            CheckEvidence::new(
+                source_id,
+                observed_at,
+                None,
+                environment_fingerprint,
+                summary,
+                None,
+            )
+            .map_err(AppError::Validation)
+        };
+        if path.as_str() != ".gitignore" {
+            return observation(
+                CheckStatus::Unsupported,
+                None,
+                vec![make_evidence(
+                    "repo.gitignore",
+                    "Only the root .gitignore check is registered.",
+                )?],
+            );
+        }
+        if patterns.is_empty() || patterns.len() > MAX_GITIGNORE_PROBES {
+            return observation(
+                CheckStatus::Unsupported,
+                None,
+                vec![make_evidence(
+                    "repo.gitignore",
+                    "Declared ignore patterns exceed the registered probe set.",
+                )?],
+            );
+        }
+        let mut probes = Vec::with_capacity(patterns.len());
+        for pattern in patterns {
+            let Some((synthetic_path, evidence_source)) = synthetic_ignore_path(pattern) else {
+                return observation(
+                    CheckStatus::Unsupported,
+                    None,
+                    vec![make_evidence(
+                        "repo.gitignore",
+                        "An ignore pattern has no registered synthetic probe.",
+                    )?],
+                );
+            };
+            probes.push((pattern.as_str(), synthetic_path, evidence_source));
+        }
+        let root_path = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+        if !root_path.is_dir() {
+            return Err(AppError::NotFound);
+        }
+        match read_repository_document(&root_path, path) {
+            ReadmeFile::Missing => {
+                return observation(
+                    CheckStatus::Fail,
+                    Some(Enforcement::LocalCheck),
+                    vec![make_evidence(
+                        "repo.gitignore",
+                        "The declared .gitignore file is missing.",
+                    )?],
+                );
+            }
+            ReadmeFile::Blocked => {
+                return observation(
+                    CheckStatus::Blocked,
+                    None,
+                    vec![make_evidence(
+                        "repo.gitignore",
+                        "The declared .gitignore file is not safely readable.",
+                    )?],
+                );
+            }
+            ReadmeFile::Bytes(_) => {}
+        }
+        let Some((executable, fingerprint)) = git_driver else {
+            return observation(
+                CheckStatus::Blocked,
+                None,
+                vec![make_evidence(
+                    "repo.gitignore",
+                    "Git executable fingerprint approval is unavailable.",
+                )?],
+            );
+        };
+
+        let executable = ApprovedExecutable::from_absolute_path(executable.path().to_path_buf())
+            .map_err(AppError::Validation)?;
+        let cwd = ApprovedRoot::from_absolute_path(root_path).map_err(AppError::Validation)?;
+        let environment =
+            ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?;
+        let mut evidence = Vec::with_capacity(probes.len());
+        let mut all_matched = true;
+        for (pattern, synthetic_path, evidence_source) in probes {
+            let args = [
+                "check-ignore",
+                "--no-index",
+                "-v",
+                "-z",
+                "--",
+                synthetic_path,
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect();
+            let spec = ProcessSpec::new(
+                ApprovedExecutable::from_absolute_path(executable.path().to_path_buf())
+                    .map_err(AppError::Validation)?,
+                ToolId::Git,
+                args,
+                ApprovedRoot::from_absolute_path(cwd.path().to_path_buf())
+                    .map_err(AppError::Validation)?,
+                ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+                Duration::from_secs(5),
+                4096,
+                ProcessPermission::ReadOnlyCheck,
+                CancellationToken::new(),
+            )
+            .map_err(AppError::Validation)?
+            .with_approved_executable_fingerprint(fingerprint);
+            let output = match process.run(spec).await {
+                Ok(output) => output,
+                Err(AppError::PermissionDenied { .. } | AppError::ExternalTool { .. }) => {
+                    return observation(
+                        CheckStatus::Blocked,
+                        None,
+                        vec![make_evidence(
+                            "repo.gitignore",
+                            "Git process or approved identity is unavailable.",
+                        )?],
+                    );
+                }
+                Err(error) => return Err(error),
+            };
+            let matched = match output.exit_code() {
+                Some(0) => {
+                    git_ignore_match(output.stdout(), pattern, synthetic_path, path.as_str())
+                }
+                Some(1) => false,
+                _ => {
+                    return observation(
+                        CheckStatus::Blocked,
+                        None,
+                        vec![make_evidence(
+                            "repo.gitignore",
+                            "Git returned an unrecognized gitignore exit status.",
+                        )?],
+                    );
+                }
+            };
+            all_matched &= matched;
+            evidence.push(make_evidence(
+                evidence_source,
+                if matched {
+                    "A registered gitignore pattern matched its synthetic path."
+                } else {
+                    "A registered gitignore pattern did not match its synthetic path."
+                },
+            )?);
+        }
+        observation(
+            if all_matched {
+                CheckStatus::Pass
+            } else {
+                CheckStatus::Fail
+            },
+            Some(Enforcement::LocalCheck),
+            evidence,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn check_tracked_secrets(
+        &self,
+        root: &ApprovedRoot,
+        profile: &ToolProfile,
+        candidate: &ToolCandidate,
+        approved_fingerprint: Option<ExecutableFingerprint>,
+        include_history: bool,
+        environment: &ApprovedEnv,
+        process: &dyn ProcessPort,
+        observed_at: &str,
+        environment_fingerprint: &str,
+    ) -> AppResult<CheckObservation> {
+        let report = |status, enforcement, summary| {
+            let evidence = CheckEvidence::new(
+                "tool.gitleaks.scan",
+                observed_at,
+                None,
+                environment_fingerprint,
+                summary,
+                None,
+            )
+            .map_err(AppError::Validation)?;
+            CheckObservation::new(status, enforcement, vec![evidence]).map_err(AppError::Validation)
+        };
+        if profile.tool_id() != ToolId::Gitleaks || candidate.tool_id() != ToolId::Gitleaks {
+            return Err(AppError::Validation(vec![Diagnostic::error(
+                "tool.profile.mismatch",
+                "Gitleaks profile and candidate identifiers do not match.",
+            )]));
+        }
+        if include_history {
+            return report(
+                CheckStatus::Unsupported,
+                None,
+                "Gitleaks profile supports current-tree scanning only; history is Unsupported without approved nested Git.",
+            );
+        }
+        match repository_has_gitleaks_ignore(root) {
+            Ok(false) => {}
+            Ok(true) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Repository .gitleaksignore is unsupported because Gitleaks applies it during scanning.",
+                );
+            }
+            Err(_) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Repository .gitleaksignore could not be checked safely; Gitleaks was not run.",
+                );
+            }
+        }
+        let Some(scan) = profile.scan_probe() else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Gitleaks scan profile is unavailable; only version 8.30.1 is verified.",
+            );
+        };
+        if candidate.kind() != ToolCandidateKind::NativeExecutable {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "A native Gitleaks 8.30.1 candidate is required.",
+            );
+        }
+        let Some(fingerprint) = approved_fingerprint else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Gitleaks 8.30.1 requires an approved executable fingerprint.",
+            );
+        };
+        let version = probe_registered_tool_version(
+            profile,
+            candidate,
+            Some(fingerprint),
+            root,
+            environment,
+            process,
+            observed_at,
+        )
+        .await?;
+        if version.availability() != ToolAvailability::Candidate
+            || version.version_status() != ToolVersionStatus::Compatible
+            || version.version().is_none()
+        {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Gitleaks version is not 8.30.1 or identity verification failed.",
+            );
+        }
+
+        let Some(path) = candidate.path() else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Gitleaks compatible candidate has no executable path.",
+            );
+        };
+        let executable = ApprovedExecutable::from_absolute_path(path.to_path_buf())
+            .map_err(AppError::Validation)?;
+        let environment =
+            ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?;
+        let cwd = ApprovedRoot::from_absolute_path(root.path().to_path_buf())
+            .map_err(AppError::Validation)?;
+        let config = match PrivateGitleaksConfig::create() {
+            Ok(config) => config,
+            Err(_) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "A private app-owned Gitleaks config could not be staged.",
+                );
+            }
+        };
+        let args = scan
+            .args()
+            .iter()
+            .map(|argument| {
+                if argument == GITLEAKS_CONFIG_PLACEHOLDER {
+                    config.path.as_os_str().to_os_string()
+                } else {
+                    OsString::from(argument)
+                }
+            })
+            .collect();
+        let spec = ProcessSpec::new(
+            executable,
+            ToolId::Gitleaks,
+            args,
+            cwd,
+            environment,
+            Duration::from_secs(60),
+            scan.output_limit_bytes(),
+            ProcessPermission::ReadOnlyCheck,
+            CancellationToken::new(),
+        )
+        .map_err(AppError::Validation)?
+        .with_approved_executable_fingerprint(fingerprint);
+        let output = match process.run(spec).await {
+            Ok(output) => output,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return report(
+                    CheckStatus::Blocked,
+                    None,
+                    "Gitleaks process failed or executable identity changed; output cap is 65536 bytes.",
+                );
+            }
+            Err(error) => return Err(error),
+        };
+        let report_status = parse_gitleaks_report(output.stdout());
+        let (status, summary) = match (output.exit_code(), report_status) {
+            (Some(code), GitleaksReportStatus::NoFindings) if code == scan.clean_exit_code() => (
+                CheckStatus::Pass,
+                "Gitleaks 8.30.1 checked current tree; history excluded; JSON cap 65536 bytes.",
+            ),
+            (Some(code), GitleaksReportStatus::Findings) if code == scan.findings_exit_code() => (
+                CheckStatus::Fail,
+                "Gitleaks 8.30.1 found current-tree findings; JSON cap 65536 bytes; redacted details withheld.",
+            ),
+            (_, GitleaksReportStatus::Unknown)
+            | (Some(_), GitleaksReportStatus::Findings | GitleaksReportStatus::NoFindings) => (
+                CheckStatus::Unknown,
+                "Gitleaks 8.30.1 report unknown; current-tree JSON cap 65536 bytes; history excluded.",
+            ),
+            _ => (
+                CheckStatus::Blocked,
+                "Gitleaks returned an unregistered exit status; output cap is 65536 bytes.",
+            ),
+        };
+        report(status, Some(Enforcement::LocalCheck), summary)
+    }
+}
+
+pub struct ApprovedRepositoryTool {
+    executable: ApprovedExecutable,
+    fingerprint: ExecutableFingerprint,
+}
+
+impl ApprovedRepositoryTool {
+    pub fn new(executable: ApprovedExecutable, fingerprint: ExecutableFingerprint) -> Self {
+        Self {
+            executable,
+            fingerprint,
+        }
+    }
+}
+
+/// Per-repository provider. It stores only approved executable identities and
+/// returns Unknown for check kinds that do not have an implemented driver.
+pub struct RepositoryPolicyCheckProvider {
+    root: PathBuf,
+    git: Option<ApprovedRepositoryTool>,
+    gitleaks: Option<ApprovedRepositoryTool>,
+    environment: ApprovedEnv,
+    process: Arc<dyn ProcessPort>,
+    clock: Arc<dyn ClockPort>,
+    environment_fingerprint: String,
+}
+
+impl RepositoryPolicyCheckProvider {
+    pub fn new(
+        root: ApprovedRoot,
+        git: Option<ApprovedRepositoryTool>,
+        gitleaks: Option<ApprovedRepositoryTool>,
+        environment: ApprovedEnv,
+        process: Arc<dyn ProcessPort>,
+        clock: Arc<dyn ClockPort>,
+        environment_fingerprint: String,
+    ) -> Self {
+        Self {
+            root: root.path().to_path_buf(),
+            git,
+            gitleaks,
+            environment,
+            process,
+            clock,
+            environment_fingerprint,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
+    async fn observe(&self, requirement: &Requirement) -> AppResult<CheckObservation> {
+        let root =
+            ApprovedRoot::from_absolute_path(self.root.clone()).map_err(AppError::Validation)?;
+        let observed_at = self.clock.now_utc();
+        let filesystem = LocalFileSystem;
+        match requirement.check() {
+            Check::ReadmeSections { path, headings } => filesystem.check_readme_sections(
+                &root,
+                path,
+                headings,
+                &observed_at,
+                &self.environment_fingerprint,
+            ),
+            Check::GitignorePatterns { path, patterns } => {
+                let driver = self
+                    .git
+                    .as_ref()
+                    .map(|tool| (&tool.executable, tool.fingerprint));
+                filesystem
+                    .check_gitignore_patterns(
+                        &root,
+                        path,
+                        patterns,
+                        driver,
+                        &self.environment,
+                        self.process.as_ref(),
+                        &observed_at,
+                        &self.environment_fingerprint,
+                    )
+                    .await
+            }
+            Check::TrackedSecrets { include_history } => {
+                let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+                let profile = profiles
+                    .iter()
+                    .find(|profile| profile.tool_id() == ToolId::Gitleaks)
+                    .ok_or_else(|| {
+                        AppError::Validation(vec![Diagnostic::error(
+                            "tool.profile.missing",
+                            "Gitleaks profile is not registered.",
+                        )])
+                    })?;
+                let search_paths = self
+                    .gitleaks
+                    .as_ref()
+                    .and_then(|tool| tool.executable.path().parent())
+                    .map(Path::to_path_buf)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let platform = PlatformFacts::detect().platform;
+                let candidate =
+                    find_tool_candidates(std::slice::from_ref(profile), &search_paths, platform)
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| {
+                            AppError::Validation(vec![Diagnostic::error(
+                                "tool.candidate.missing",
+                                "Gitleaks candidate could not be resolved.",
+                            )])
+                        })?;
+                let approved_fingerprint = self.gitleaks.as_ref().and_then(|tool| {
+                    let candidate_path = candidate.path()?;
+                    let approved_path = std::fs::canonicalize(tool.executable.path()).ok()?;
+                    (candidate_path == approved_path).then_some(tool.fingerprint)
+                });
+                filesystem
+                    .check_tracked_secrets(
+                        &root,
+                        profile,
+                        &candidate,
+                        approved_fingerprint,
+                        *include_history,
+                        &self.environment,
+                        self.process.as_ref(),
+                        &observed_at,
+                        &self.environment_fingerprint,
+                    )
+                    .await
+            }
+            _ => Ok(CheckObservation::unknown()),
+        }
+    }
+}
+
+enum ReadmeFile {
+    Missing,
+    Blocked,
+    Bytes(Vec<u8>),
+}
+
+fn read_repository_document(root: &Path, path: &PortablePath) -> ReadmeFile {
+    let target = root.join(path.as_str());
+    let metadata = match std::fs::symlink_metadata(&target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return ReadmeFile::Missing,
+        Err(_) => return ReadmeFile::Blocked,
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_README_BYTES {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(canonical) = std::fs::canonicalize(&target) else {
+        return ReadmeFile::Blocked;
+    };
+    if canonical != target {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(mut file) = std::fs::File::open(canonical) else {
+        return ReadmeFile::Blocked;
+    };
+    let Ok(opened_metadata) = file.metadata() else {
+        return ReadmeFile::Blocked;
+    };
+    if !opened_metadata.file_type().is_file()
+        || opened_metadata.len() > MAX_README_BYTES
+        || opened_metadata.len() != metadata.len()
+    {
+        return ReadmeFile::Blocked;
+    }
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    if Read::by_ref(&mut file)
+        .take(MAX_README_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_README_BYTES
+    {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(after_metadata) = file.metadata() else {
+        return ReadmeFile::Blocked;
+    };
+    if bytes.len() as u64 != after_metadata.len()
+        || opened_metadata.modified().ok() != after_metadata.modified().ok()
+    {
+        return ReadmeFile::Blocked;
+    }
+    ReadmeFile::Bytes(bytes)
+}
+
+fn synthetic_ignore_path(pattern: &str) -> Option<(&'static str, &'static str)> {
+    match pattern {
+        ".env" => Some((".env", "repo.gitignore.env")),
+        "*.key" => Some(("jameskills-policy-probe.key", "repo.gitignore.key")),
+        "target/" => Some((
+            "target/jameskills-policy-probe.txt",
+            "repo.gitignore.target",
+        )),
+        "node_modules/" => Some((
+            "node_modules/jameskills-policy-probe.txt",
+            "repo.gitignore.node-modules",
+        )),
+        _ => None,
+    }
+}
+
+fn git_ignore_match(output: &[u8], pattern: &str, synthetic_path: &str, source_path: &str) -> bool {
+    if output.len() > 4096 {
+        return false;
+    }
+    let fields = output.split(|byte| *byte == 0).collect::<Vec<_>>();
+    fields.len() == 5
+        && fields[0] == source_path.as_bytes()
+        && !fields[1].is_empty()
+        && fields[1].iter().all(u8::is_ascii_digit)
+        && fields[2] == pattern.as_bytes()
+        && fields[3] == synthetic_path.as_bytes()
+        && fields[4].is_empty()
+}
+
+fn observation(
+    status: CheckStatus,
+    enforcement: Option<Enforcement>,
+    evidence: Vec<CheckEvidence>,
+) -> AppResult<CheckObservation> {
+    CheckObservation::new(status, enforcement, evidence).map_err(AppError::Validation)
+}
+
+fn readme_has_required_sections(source: &str, required_headings: &[String]) -> bool {
+    use markdown::mdast::Node;
+
+    if required_headings.is_empty() {
+        return false;
+    }
+    let Ok(Node::Root(root)) = markdown::to_mdast(source, &markdown::ParseOptions::default())
+    else {
+        return false;
+    };
+    let parsed_headings: Vec<_> = root
+        .children
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| match node {
+            Node::Heading(heading) => Some((index, heading.depth, markdown_text(node))),
+            _ => None,
+        })
+        .collect();
+
+    required_headings.iter().all(|required| {
+        let target = normalize_heading(required);
+        if target.is_empty() {
+            return false;
+        }
+        let Some((heading_index, depth, _)) = parsed_headings
+            .iter()
+            .find(|(_, _, heading)| normalize_heading(heading) == target)
+        else {
+            return false;
+        };
+        root.children
+            .iter()
+            .skip(heading_index + 1)
+            .take_while(|node| match node {
+                Node::Heading(next) => next.depth > *depth,
+                _ => true,
+            })
+            .any(markdown_node_has_content)
+    })
+}
+
+fn markdown_node_has_content(node: &markdown::mdast::Node) -> bool {
+    if matches!(node, markdown::mdast::Node::Heading(_)) {
+        return false;
+    }
+    !normalize_heading(&markdown_text(node)).is_empty()
+}
+
+fn markdown_text(node: &markdown::mdast::Node) -> String {
+    use markdown::mdast::Node;
+
+    fn append(node: &Node, output: &mut String) {
+        match node {
+            Node::Text(text) => output.push_str(&text.value),
+            Node::InlineCode(code) => output.push_str(&code.value),
+            Node::Code(code) => output.push_str(&code.value),
+            Node::Html(html) => output.push_str(&html.value),
+            Node::Image(image) => output.push_str(&image.alt),
+            _ => {
+                if let Some(children) = node.children() {
+                    for child in children {
+                        append(child, output);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut text = String::new();
+    append(node, &mut text);
+    text
+}
+
+fn normalize_heading(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 impl FileSystemPort for LocalFileSystem {
