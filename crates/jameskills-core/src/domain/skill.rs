@@ -682,9 +682,33 @@ pub fn validate_bundle(
         policies.push(policy);
     }
 
+    let mut guidance_plans = BTreeMap::new();
     for path in &manifest.guidance_files {
         let bytes = files.get(path).ok_or_else(|| missing_resource(path))?;
-        validate_guidance_file(bytes, path, &policies)?;
+        for (plan_id, requirements) in validate_guidance_file(bytes, path, &policies)? {
+            if guidance_plans.insert(plan_id, requirements).is_some() {
+                return Err(bundle_diagnostic(
+                    "bundle.guidance.plan.id.invalid",
+                    "Guidance plan IDs must be unique across guidance files.",
+                    Some(path.as_str()),
+                ));
+            }
+        }
+    }
+    for policy in &policies {
+        for requirement in policy.requirements() {
+            if let Some(guidance_id) = requirement.guidance_id()
+                && !guidance_plans
+                    .get(guidance_id)
+                    .is_some_and(|ids| ids.contains(requirement.id()))
+            {
+                return Err(bundle_diagnostic(
+                    "bundle.guidance.requirement.missing",
+                    "A policy requirement references a missing guidance plan.",
+                    None,
+                ));
+            }
+        }
     }
 
     let content_hash = hash_bundle(&inventory, files).map_err(|error| match error {
@@ -775,7 +799,7 @@ fn validate_guidance_file(
     bytes: &[u8],
     path: &PortablePath,
     policies: &[Policy],
-) -> Result<(), Vec<Diagnostic>> {
+) -> Result<BTreeMap<String, BTreeSet<String>>, Vec<Diagnostic>> {
     let source = std::str::from_utf8(bytes).map_err(|_| {
         bundle_diagnostic(
             "bundle.guidance.invalid_utf8",
@@ -919,19 +943,6 @@ fn validate_guidance_file(
         }
         plan_requirements.insert(id.to_owned(), ids);
     }
-    for (requirement, guidance_id) in &requirement_guidance {
-        if !plan_requirements
-            .get(guidance_id)
-            .is_some_and(|ids| ids.contains(requirement))
-        {
-            return Err(bundle_diagnostic(
-                "bundle.guidance.requirement.missing",
-                "A policy requirement references a missing guidance plan.",
-                Some(path.as_str()),
-            ));
-        }
-    }
-
     for plan in plans {
         let table = plan.as_table().expect("plan table validated above");
         let Some(steps) = table.get("steps").and_then(toml::Value::as_array) else {
@@ -943,7 +954,7 @@ fn validate_guidance_file(
         };
         validate_guidance_steps(steps, &known_requirements, &registered_tools, path)?;
     }
-    Ok(())
+    Ok(plan_requirements)
 }
 
 fn validate_guidance_steps(
@@ -1038,15 +1049,14 @@ fn validate_guidance_steps(
                     Some(path.as_str()),
                 ));
             };
+            let fact = condition.get("fact").and_then(toml::Value::as_str);
+            let value = condition.get("equals").and_then(toml::Value::as_str);
             if !only_keys(condition, &["fact", "equals"])
-                || condition
-                    .get("fact")
-                    .and_then(toml::Value::as_str)
-                    .is_none()
-                || condition
-                    .get("equals")
-                    .and_then(toml::Value::as_str)
-                    .is_none()
+                || !matches!(
+                    fact,
+                    Some("os" | "arch" | "stack" | "host" | "context" | "capability")
+                )
+                || !value.is_some_and(|value| !value.trim().is_empty() && value.len() <= 128)
             {
                 return Err(bundle_diagnostic(
                     "bundle.guidance.condition.invalid",

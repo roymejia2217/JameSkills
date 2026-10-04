@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`; T015.d1a local.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3), T015.c y T015.d1–d4 completas localmente. Activa T015.d5: someter PR de T015 a CI remota, luego cerrar checklist/checkpoint. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015.a, T015.b (b1+b2+b3), T015.c, T015.d1–d4 y d1a completas localmente. T015.d5: someter PR de T015 a CI remota, luego cerrar checklist/checkpoint. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -29,6 +29,8 @@ T015.a, T015.b (b1+b2+b3), T015.c y T015.d1–d4 completas localmente. Activa T0
 - RED T015.d3: `RuntimeServices::library` no existía.
 - GREEN T015.d3: infra 61/61 Windows; factory compone LocalFileSystem/LibraryService y valida runtime fixture sin crear config/data/cache; workspace Clippy/fmt/diff green.
 - GREEN T015.d4: CLI validate tests 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON/text muestran summary o diagnostic relative path/code sin reflejar bytes de entrada; workspace Clippy/fmt/diff clean.
+- RED T015.d1a: split guidance válido fallaba al exigir todos los planes en cada archivo.
+- GREEN T015.d1a: core 59/59 y core Clippy/fmt/diff clean; los planes ahora se unen antes de validar guidance IDs.
 
 ## Próximos pasos
 

@@ -130,6 +130,43 @@ fn bundle_validation_rejects_an_unregistered_guidance_command_field() {
 }
 
 #[test]
+fn bundle_validation_combines_guidance_plans_from_multiple_manifest_files() {
+    let mut files = official_bundle_files();
+    let manifest = FOUNDATION_MANIFEST.replace(
+        "guidance_files = [\"guidance/repository.toml\"]",
+        "guidance_files = [\"guidance/part-a.toml\", \"guidance/part-b.toml\"]",
+    );
+    files.insert(
+        PortablePath::new("jameskills.toml".to_owned()).unwrap(),
+        manifest.into_bytes(),
+    );
+    files.remove(&PortablePath::new("guidance/repository.toml".to_owned()).unwrap());
+    let guidance: toml::Value = toml::from_str(FOUNDATION_GUIDANCE).unwrap();
+    let plans = guidance["plans"].as_array().unwrap();
+    let midpoint = plans.len() / 2;
+
+    for (path, subset) in [
+        ("guidance/part-a.toml", &plans[..midpoint]),
+        ("guidance/part-b.toml", &plans[midpoint..]),
+    ] {
+        let mut table = toml::map::Map::new();
+        table.insert("schema_version".to_owned(), toml::Value::Integer(1));
+        table.insert("plans".to_owned(), toml::Value::Array(subset.to_vec()));
+        let source = toml::to_string(&toml::Value::Table(table)).unwrap();
+        files.insert(
+            PortablePath::new(path.to_owned()).unwrap(),
+            source.into_bytes(),
+        );
+    }
+
+    let validated = match validate_bundle(&files) {
+        Ok(validated) => validated,
+        Err(diagnostics) => panic!("split guidance bundle rejected: {diagnostics:?}"),
+    };
+    assert_eq!(validated.manifest().slug(), "repository-foundation");
+}
+
+#[test]
 fn official_repository_example_passes_manifest_skill_and_policy_parsers() {
     let manifest = parse_manifest(FOUNDATION_MANIFEST).unwrap();
     let skill = parse_frontmatter(FOUNDATION_SKILL.as_bytes()).unwrap();
