@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-04
-Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`; T016.a local.
+Rama / commits: `feat/t016-repository-facts` sobre `main` `175aa50`; T016.dep `f0151d7`, T016.dep.e `98d914c`, T016.a `df8d327`; T016.b local.
 PR #19 T015 merged, CI 9/9. PR de T016 pendiente.
 
 ## Tarea activa
 
-T016.a está implementada localmente: ProcessSpec/ApprovedExecutable/ApprovedRoot/ApprovedEnv/ProcessOutput, CancellationToken y ProcessPort async; contracts focused 3/3. Activa T016.b: runner process-group con límites/cancel.
+T016.a y T016.b completas localmente. Activa T016.c: collect_repository_facts por argv Git fijo y fixtures de repo real/fake ProcessPort.
 
 ## Evidencia T016.dep
 
@@ -16,6 +16,8 @@ T016.a está implementada localmente: ProcessSpec/ApprovedExecutable/ApprovedRoo
 - command-group documenta group_spawn con Unix process group y Windows Job Object; no usar wait_with_output por su lectura secuencial de stdout/stderr en Windows.
 - RED T016.a: `process_contract` test no compila porque `ports::process` y DTOs faltaban.
 - GREEN T016.a: process_contract 3/3; core 62/62 Windows; core Clippy/fmt/diff clean.
+- RED T016.b: `process_execution` no compila porque `SystemProcessPort` no existía.
+- GREEN T016.b: `process_execution` 3/3 Windows (streams simultáneos, límite, timeout/cancel); infra 64/64, core 62/62, workspace Clippy/fmt/diff clean.
 
 ## T005 blocker y próxima elegibilidad
 
@@ -23,7 +25,7 @@ T005 requiere smoke de ventana visible/captura y display/GPU observados; sigue s
 
 ## Próxima acción exacta
 
-T016.b: implementar runner en thread blocking con process group/Job Object, drenar ambos outputs en paralelo, imponer límite conjunto y matar grupo ante timeout/cancel. Añadir test helper spawn cross-platform que no invoque shell.
+T016.c: implementar RepositoryFacts/collect_repository_facts usando solo subcomandos rev-parse/symbolic-ref fijos; probar repo ordinario, detached HEAD, worktree, submodule y ruta con espacios/metacaracteres sin writes.
 
 ## Lecturas mínimas
 
