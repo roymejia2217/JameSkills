@@ -1,7 +1,7 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`; T015.d1a local.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`, d1a `f5e0514`.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
@@ -43,5 +43,7 @@ T015.a, T015.b (b1+b2+b3), T015.c, T015.d1–d4 y d1a completas localmente. T015
 `tasks/todo.md` T015; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; fuentes `docs/examples/repository-foundation/*`.
 
 Verificación acumulada Windows local: core 58/58, infra 61/61, CLI 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
+
+`cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json` devuelve `valid=true`, 10 archivos y hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; la salida humana muestra el mismo summary. CI remoto de T015 aún no observado.
 
 T005: `docs/PLATFORM-EVIDENCE.md` documenta Windows build sin captura/display/GPU observados y Linux contenedor sin sesión gráfica/GPU, además de libs `xcb`, `xkbcommon`, `xkbcommon-x11` ausentes. No afirmar smoke ni Pass por build. Preservar los artefactos locales sin seguimiento `target/` y `JameSkills-implementation-dossier.zip`.
