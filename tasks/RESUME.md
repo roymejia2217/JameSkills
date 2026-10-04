@@ -70,18 +70,26 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Commit de T020.b2.a tras revisión final de diff y estado.
-2. Implementar T020.b2.b en <=5 archivos: resolver `@commitlint/cli/cli.js` con Node aprobado, validar la versión exacta y cablear `conventional-commit` como LocalCheck; tests fake no equivalen a integración real.
+1. Revisar diff y crear commit de T020.b2.b1.
+2. Implementar T020.b2.b2 en <=5 archivos: resolver `@commitlint/cli/cli.js` con Node aprobado, validar la versión exacta y cablear `conventional-commit` como LocalCheck; tests fake no equivalen a integración real.
 3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts. Cada slice <=5 archivos y commit tras verificación.
 4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
-## T020.b2.a completado localmente; pendiente commit
+## T020.b2.a completado
 
 - Git verificado al iniciar: rama `feat/t020-commit-test-checks`, HEAD `0342d39`, working tree limpia.
 - RED de comportamiento: `cargo test -p jameskills-infra --locked --lib process_rejects_modified_approved_script_before_spawning_runtime` falla porque el proceso se ejecutó a pesar de que el fingerprint del entrypoint no coincidía. Un intento previo con `unwrap_err` no compiló porque `ProcessOutput` no implementa `Debug`; no cuenta como RED.
 - GREEN: `cargo test -p jameskills-infra --locked --lib process_rejects_modified_approved_script_before_spawning_runtime` pasa 1/1; `cargo clippy -p jameskills-infra --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check` y `git diff --check` pasan.
 - Cambios locales del slice: tipo `ApprovedScript`, fingerprint asociado en `ProcessSpec` y validación del archivo canónico regular en `SystemProcessPort` justo antes del spawn.
 - `ProcessSpec` protege el entrypoint aprobado; la confianza del paquete y sus dependencias debe resolverse por separado en el driver Commitlint. No afirmar integración real.
+- Commit: `945167c feat(process): fingerprint approved script entrypoints`.
+
+## T020.b2.b1 en curso
+
+- La fuente oficial `@commitlint/cli` tag v21.2.2 declara en su `package.json` `engines.node >=22.12.0`; Node release schedule registra v24 LTS hasta 2028-04-30.
+- RED: `cargo test -p jameskills-infra --locked --test tool_detection node_profile_covers_commitlint_supported_node_24_runtime` falla porque el profile Node existente excluye v24 (`<23`).
+- Cambio propuesto: ampliar solo el rango de detección genérico a `>=18,<25`; el driver Commitlint comprobará aparte el mínimo oficial v22.12.0. No se autoriza Node 25 sin revisar el nuevo major.
+- GREEN: `cargo test -p jameskills-infra --locked --test tool_detection` pasa 13/13; Clippy infra `-D warnings`, fmt y diff check pasan. Node 24 LTS ahora está dentro del rango genérico y Node 25 continúa fuera.
 
 ## Preservación y lecturas
 

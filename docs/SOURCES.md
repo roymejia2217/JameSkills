@@ -180,6 +180,8 @@ Gitleaks v8.30.1 CLI contract: [README at tag v8.30.1](https://github.com/gitlea
 
 Commitlint T020 source/API: [`@commitlint/cli` v21.2.2](https://github.com/conventional-changelog/commitlint/tree/v21.2.2/%40commitlint/cli) implements `--default-config` with built-in `@commitlint/config-conventional` and `--edit <file>` input. Its [`cli.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/src/cli.ts) source confirms config-file discovery and exit behavior. JameSkills pins this driver to 21.2.2; the checker must run with an app-owned private cwd so repository Commitlint configs are not loaded. The official current CLI page reports 21.2.3, which is outside the verified pin and remains Blocked.
 
+Commitlint v21.2.2 [`package.json`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/package.json) declares Node `>=22.12.0`. The app-owned general Node discovery range includes stable Node 18–24 (`<25`); the Commitlint driver separately enforces the package's Node minimum. The [Node release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) records Node 24 as LTS through 2028-04-30; Node 25 is excluded until separately reviewed.
+
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
 `--version`. Para los subcomandos Cargo, sus README oficiales documentan su

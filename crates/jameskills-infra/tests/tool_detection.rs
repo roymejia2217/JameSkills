@@ -346,6 +346,20 @@ fn commitlint_profile_supports_the_reviewed_default_config_cli() {
 }
 
 #[test]
+fn node_profile_covers_commitlint_supported_node_24_runtime() {
+    let profiles = load_tool_profiles().unwrap();
+    let node = profile(&profiles, ToolId::Node);
+    let supported_lts = semver::Version::parse("24.18.0").unwrap();
+    let unsupported_major = semver::Version::parse("25.0.0").unwrap();
+
+    assert!(
+        node.version_range().matches(&supported_lts),
+        "the registered Node range must include the supported Node 24 LTS runtime"
+    );
+    assert!(!node.version_range().matches(&unsupported_major));
+}
+
+#[test]
 fn version_parser_accepts_registered_formats_and_rejects_unknown_output() {
     let profiles = load_tool_profiles().unwrap();
     let git = profiles
