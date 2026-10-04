@@ -1,12 +1,12 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-03
-Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`, d1a `f5e0514`.
+Rama / commits: `feat/t015a-canonical-example` sobre `main` `843521c`; T015.a1 `4e9251b`, T015.a2 `55fd2ec`, T015.b1 `6bc0a96`, T015.b2a `b9f3f29`, T015.b2b `f758217`, T015.b3 `707ad44`, T015.c `baed6a1`, T015.d1 `925acaf`, T015.d2 `3404322`, d2e `8a5ee49`, d3 `a96f95c`, d4 `bbff55e`, d1a `f5e0514`; PR #19.
 T037/T038 (incluida T038.a) están cerradas en `main`; PR #18 se fusionó con CI Windows/Linux 9/9.
 
 ## Tarea activa
 
-T015.a, T015.b (b1+b2+b3), T015.c, T015.d1–d4 y d1a completas localmente. T015.d5: someter PR de T015 a CI remota, luego cerrar checklist/checkpoint. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
+T015 y sus acceptance están completos; PR #19 Required CI, Linux/Windows, tests, clippy, fmt, commitlint, README Policy y PR Governance pasaron 9/9. El update documental está en el working tree y requiere un último ciclo de CI antes del merge. T005 permanece pendiente por smoke visual nativo; T008 depende de T005.
 
 ## T015.a1 RED/GREEN
 
@@ -31,19 +31,20 @@ T015.a, T015.b (b1+b2+b3), T015.c, T015.d1–d4 y d1a completas localmente. T015
 - GREEN T015.d4: CLI validate tests 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON/text muestran summary o diagnostic relative path/code sin reflejar bytes de entrada; workspace Clippy/fmt/diff clean.
 - RED T015.d1a: split guidance válido fallaba al exigir todos los planes en cada archivo.
 - GREEN T015.d1a: core 59/59 y core Clippy/fmt/diff clean; los planes ahora se unen antes de validar guidance IDs.
+- GREEN T015.d5 pre-update: PR #19 9/9 remoto; checklist T015/C005 se está cerrando con evidencia, y los checks se repetirán tras ese commit documental.
 
 ## Próximos pasos
 
-1. Revisar diff/commits, push `feat/t015a-canonical-example` y crear PR hacia `main`.
-2. Esperar CI Linux/Windows/Required CI. Si está verde, actualizar T015 padre/C005 y cerrar PR.
-3. Siguiente tarea topológica tras T015: reevaluar T005 interactivo; si sigue bloqueado, T016 es independiente y elegible.
+1. Commit del cierre documental, push a PR #19 y esperar segundo CI Linux/Windows/Required CI.
+2. Si queda verde, squash-mergear PR #19, actualizar `main` y limpiar ramas.
+3. Después, reevaluar T005 en host interactivo; si continúa bloqueada, T016 es la próxima tarea independiente elegible.
 
 ## Lecturas y contratos
 
 `tasks/todo.md` T015; `docs/CONTRACTS.md`; `docs/SPEC-skill-format.md`; `docs/SPEC-policy-engine.md`; fuentes `docs/examples/repository-foundation/*`.
 
-Verificación acumulada Windows local: core 58/58, infra 61/61, CLI 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
+Verificación acumulada Windows local: core 59/59, infra 61/61, CLI 16/16, desktop `test-support` 16/16; workspace clippy `-D warnings`, fmt/diff clean. CLI JSON/text validó suite oficial y reportó `jameskills.toml` + `manifest.invalid` en fixture inválido sin reflejar el contenido.
 
-`cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json` devuelve `valid=true`, 10 archivos y hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; la salida humana muestra el mismo summary. CI remoto de T015 aún no observado.
+`cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json` devuelve `valid=true`, 10 archivos y hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; la salida humana muestra el mismo summary.
 
 T005: `docs/PLATFORM-EVIDENCE.md` documenta Windows build sin captura/display/GPU observados y Linux contenedor sin sesión gráfica/GPU, además de libs `xcb`, `xkbcommon`, `xkbcommon-x11` ausentes. No afirmar smoke ni Pass por build. Preservar los artefactos locales sin seguimiento `target/` y `JameSkills-implementation-dossier.zip`.

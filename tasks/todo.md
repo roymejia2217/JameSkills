@@ -625,9 +625,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T015 — Añadir suite de ingeniería y validate CLI real
 
-- [ ] **T015 completada y verificada**
+- [x] **T015 completada y verificada**
 
-**Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** pendiente.
+**Módulo:** `skill-format`. **Dependencias:** T009, T011, T014, T037. **Estado:** completada.
 
 **Implementación y funciones:** `domain::validate_bundle`, `LibraryService::validate_import`, `FileSystemPort::read_bundle_directory`, comando `validate`. El ejemplo explica Conventional Commits, README, secretos, pruebas, PR/main/CI/releases y límites de evidencia. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -653,7 +653,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T015.b3: RED el link SKILL aún apuntaba `templates/gitignore.txt`; GREEN test `runtime_skill_links_to_the_user_safe_gitignore_template` 1/1: link corregido, template copiado fiel y exclusiones/lockfile conservados. Core 52/52 Windows; core Clippy, fmt y diff check verdes.
 - [x] **T015.c — Template de CI y asset propio** (5 archivos): `examples/repository-foundation/templates/ci-rust.yml`; `examples/repository-foundation/assets/optional-brand.svg`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Asset propio sin script/event/foreignObject/external href; template sigue fail-closed e inerte.
 - Evidencia T015.c: RED `runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content` por template runtime ausente. GREEN 1/1; `bundle_manifest` 19/19 y core 53/53 Windows; CI template igual a fuente, conserva `run: exit 1` placeholder; SVG own/static sin script/event/foreignObject/href/image. Core Clippy, fmt y diff check verdes.
-- [ ] **T015.d — Validate service y CLI** (completada con d1–d5): domain validator, FileSystemPort, LibraryService, composition real y CLI JSON/text sin success stubs.
+- [x] **T015.d — Validate service y CLI** (completada con d1–d5): domain validator, FileSystemPort, LibraryService, composition real y CLI JSON/text sin success stubs.
 - [x] **T015.d1 — Validación pura de bundle** (5 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Validar manifest/frontmatter/policy/guidance/resources sobre `BundleFiles` y producir hash canónico/summary.
 - Evidencia T015.d1: RED E0432 por `validate_bundle` ausente; GREEN core 56/56 Windows, con bundle oficial hash canónico, policy resource ausente y action guidance no registrada rechazadas. Clippy core `-D warnings`, fmt y diff check verdes. La validación semántica actual solo admite fuentes/action IDs del contrato registry.
 - [x] **T015.d1a — Unir guidance de varios archivos referenciados** (4 archivos): `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/tests/bundle_manifest.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Los manifiestos permiten múltiples guidance_files; validar referencias contra su unión global sin exigir que cada archivo replique todos los planes.
@@ -665,19 +665,19 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T015.d3: RED E0599 porque `RuntimeServices::library` no existía. GREEN `cargo test -p jameskills-infra --locked` 61/61 Windows; composición valida el fixture runtime por walk+bytes reales sin crear config/data/cache. Workspace Clippy `-D warnings`, fmt y diff check verdes.
 - [x] **T015.d4 — Comando validate JSON/text real** (5 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/main.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/validate_bundle.rs`; `tasks/todo.md`. Exit/error conserva diagnostics con paths/codes y no echoa contenido externo.
 - Evidencia T015.d4: RED `validate_bundle` oficial devolvía Unsupported/exit 3; fixture inválida también no exponía path/code. GREEN CLI focused 2/2; core 58/58, infra 61/61, CLI 16/16 Windows. JSON éxito incluye slug/version/count/hash/warnings; error y texto reportan path/code/mensaje relativo sin reflejar contenido. Workspace Clippy `-D warnings`, fmt y diff check verdes.
-- [ ] **T015.d5 — Cierre documental y checkpoint** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Capturar evidencia local/remota y próximo DAG; no marcar T015 padre hasta test CLI/fixture y CI verde.
-- Evidencia local d5: `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked` verde (core 58/58, infra 61/61, CLI 16/16 antes del caso multi-guidance adicional); `cargo run ... validate --json` y human salida éxito para 10 archivos, hash `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`; test inválido informa `jameskills.toml`/`manifest.invalid` sin echo. Core tras multi-guidance 59/59; workspace Clippy, fmt/diff clean. CI remoto pendiente.
+- [x] **T015.d5 — Cierre documental y checkpoint** (2 archivos): `tasks/todo.md`; `tasks/RESUME.md`. Capturar evidencia local/remota y próximo DAG; no marcar T015 padre hasta test CLI/fixture y CI verde.
+- Evidencia d5: Windows local core 59/59, infra 61/61, CLI 16/16 y desktop test-support 16/16; workspace Clippy `-D warnings`, fmt y diff check verdes. `cargo run` JSON/human valida la suite oficial (10 archivos, SHA-256 `63ca5ff22016cc1cbc5936a7bdcc0588a863204ce5cdaf906a5a46844341a661`); inválido informa `jameskills.toml` / `manifest.invalid` sin echo. PR #19 Required CI, Linux/Windows build, tests, clippy, fmt, commitlint, README Policy y PR Governance 9/9.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] `validate` conecta CLI → RuntimeServices/LibraryService → domain validator + FileSystemPort sin duplicar parseo.
-- [ ] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
-- [ ] JSON y salida humana muestran warnings/errores concretos y límites del formato.
+- [x] `validate` conecta CLI → RuntimeServices/LibraryService → domain validator + FileSystemPort sin duplicar parseo.
+- [x] Suite portable tiene acciones/requisitos verificables y no instala tooling automáticamente.
+- [x] JSON y salida humana muestran warnings/errores concretos y límites del formato.
 
 **Verificación:** cargo test -p jameskills-cli --locked validate_bundle; cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation.
 
-**Evidencia al ejecutar:** RED CLI Unsupported exit 3, d1 API ausente E0432, factory missing `library()` E0599. GREEN Windows local: core 58/58, infra 61/61, CLI 16/16; workspace clippy/fmt/diff clean; official example JSON/text valid; invalid manifest reports `jameskills.toml` + `manifest.invalid` without echo. PR CI Linux/Windows pendiente; T015 parent permanece abierto hasta checks remotos.
+**Evidencia al ejecutar:** RED CLI Unsupported exit 3, d1 API ausente E0432, factory missing `library()` E0599. GREEN Windows: core 59/59, infra 61/61, CLI 16/16, desktop test-support 16/16; workspace Clippy/fmt/diff clean. PR #19 CI Linux/Windows 9/9.
 
 ## C005 — Checkpoint tras T013–T015
 
@@ -687,7 +687,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Hash y .jskill roundtrip; suite oficial y validate CLI real funcionan.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia parcial:** tras T013–T015 pasan core/infra/CLI suites, desktop test-support, workspace checks, hash/codec y validate CLI; PR #19 CI 9/9. C005 permanece sin marcar: T005 carece del smoke de ventana visible/captura y display/GPU observados; bloqueo documentado en `docs/PLATFORM-EVIDENCE.md`. Continuar una tarea independiente si T005 sigue bloqueada.
 
 <a id="t016"></a>
 
