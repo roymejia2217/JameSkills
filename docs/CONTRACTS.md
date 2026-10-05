@@ -223,6 +223,9 @@ Git, mientras `--config` absoluto obliga a cargar solo el JSON privado. El PATH
 antepone la carpeta del Git aprobado para la llamada interna `git config
 core.commentChar`. Las rutas Windows `\\?\` se normalizan solo en argv Node;
 los paths originales permanecen aprobados y fingerprinted por el ProcessPort.
+Este límite está respaldado por el loader `load-config.ts` y el lector
+`get-edit-commit.ts` oficiales de Commitlint v21.2.2, registrados en
+`docs/SOURCES.md`.
 Exit 0/1 significa Pass/Fail como LocalCheck; otro código o CLI no registrado
 queda Blocked. Message, stdout y stderr no se copian a evidencia. El fingerprint
 del entrypoint no equivale a una auditoría completa del árbol de dependencias Node.

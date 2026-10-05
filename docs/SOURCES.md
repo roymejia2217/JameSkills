@@ -182,6 +182,8 @@ Commitlint T020 source/API: [`@commitlint/cli` v21.2.2](https://github.com/conve
 
 Commitlint v21.2.2 [`package.json`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/package.json) declares Node `>=22.12.0`. The app-owned general Node discovery range includes stable Node 18–24 (`<25`); the Commitlint driver separately enforces the package's Node minimum. The [Node release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) records Node 24 as LTS through 2028-04-30; Node 25 is excluded until separately reviewed.
 
+The Commitlint v21.2.2 [`load-config.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/load/src/utils/load-config.ts) uses `explorer.load(explicitPath)` when `--config` is supplied, rather than cosmiconfig search from cwd. Its [`get-edit-commit.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/read/src/get-edit-commit.ts) resolves the Git top-level from the CLI cwd before reading `--edit`. Therefore the Node driver keeps the OS process cwd private, passes the approved repository root as Commitlint `--cwd`, and supplies an absolute app-owned JSON config path; it does not execute repository Commitlint config files.
+
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
 `--version`. Para los subcomandos Cargo, sus README oficiales documentan su
