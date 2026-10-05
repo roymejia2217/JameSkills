@@ -254,6 +254,18 @@ Este límite está respaldado por el loader `load-config.ts` y el lector
 Exit 0/1 significa Pass/Fail como LocalCheck; otro código o CLI no registrado
 queda Blocked. Message, stdout y stderr no se copian a evidencia. El fingerprint
 del entrypoint no equivale a una auditoría completa del árbol de dependencias Node.
+Tras exit 0/1, el provider consulta read-only `git rev-parse --git-path
+hooks/commit-msg` usando el mismo Git aprobado/fingerprinted y el root aprobado.
+La evidencia del hook nunca eleva la autoridad: no se ejecuta el hook. Solo se
+inspeccionan archivos regulares, bounded (16 KiB), no-symlink y dentro del root;
+en Unix también se comprueba el bit executable. El contenido se lee dos veces y
+se comparan sus SHA-256 para detectar cambios durante la lectura. La ruta, el
+digest y el contenido del hook no se copian a logs/evidencia. Incluso con target instalado,
+la evidencia indica que argv/driver identity e invocación no están probados y el
+resultado continúa como `LocalCheck`: el bootstrap de Husky y comandos npm/shell
+no prueban que se invocó el entrypoint Commitlint aprobado. `LocalHook` requiere
+un contrato aparte que enlace configuración efectiva, script gestionado, argv y
+fingerprints del driver; sigue siendo eludible con `--no-verify`/`HUSKY=0`.
 
 El runner Node previsto mapea `NodeLint | NodeTest | NodeBuild` a las claves root
 `lint`, `test` y `build` detectadas como datos; nunca recibe un nombre de script

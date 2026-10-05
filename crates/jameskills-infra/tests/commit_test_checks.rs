@@ -213,6 +213,14 @@ fn run_check(
 #[test]
 fn conventional_commit_check_uses_private_message_file_and_builtin_rules() {
     let root = TestRoot::new();
+    let hook_directory = root.0.join(".git/hooks");
+    std::fs::create_dir_all(&hook_directory).unwrap();
+    let hook_path = hook_directory.join("commit-msg");
+    std::fs::write(
+        &hook_path,
+        b"#!/bin/sh\nprintf 'hook must not execute' > hook-marker\n",
+    )
+    .unwrap();
     let git = root.tool("git");
     let commitlint = root.tool("commitlint");
     let message =
@@ -222,19 +230,36 @@ fn conventional_commit_check_uses_private_message_file_and_builtin_rules() {
         output(0, b"@commitlint/cli@21.2.2\n"),
         output(0, message),
         output(0, b""),
+        output(0, b".git/hooks/commit-msg\n"),
     ]));
 
     let status = run_check(&root, &git, commitlint, Arc::clone(&process));
 
     assert_eq!(status.status(), CheckStatus::Pass);
+    assert!(matches!(
+        status.enforcement(),
+        Some(Enforcement::LocalCheck)
+    ));
+    let hook_evidence = status
+        .evidence()
+        .iter()
+        .find(|evidence| evidence.source_id() == "repo.commit-hook")
+        .unwrap();
+    assert!(hook_evidence.summary().contains("content-hashed"));
+    assert!(hook_evidence.summary().contains("invocation are unproven"));
+    assert!(!root.0.join("hook-marker").exists());
     let invocations = process.invocations.lock().unwrap();
-    assert_eq!(invocations.len(), 4);
+    assert_eq!(invocations.len(), 5);
     assert!(matches!(invocations[2].tool_id, ToolId::Git));
     assert_eq!(
         invocations[2].args,
         ["--no-pager", "log", "-1", "--format=%B"]
     );
     assert!(matches!(invocations[3].tool_id, ToolId::Commitlint));
+    assert_eq!(
+        invocations[4].args,
+        ["rev-parse", "--git-path", "hooks/commit-msg"]
+    );
     assert!(
         invocations[3]
             .args
@@ -272,6 +297,7 @@ fn conventional_commit_failure_withholds_message_and_tool_output() {
         output(0, b"@commitlint/cli@21.2.2\n"),
         output(0, private_text),
         output(1, b"secret-marker-42 invalid commit message"),
+        output(0, b".git/hooks/commit-msg\n"),
     ]));
 
     let observation = run_check(&root, &git, commitlint, process);
@@ -324,6 +350,7 @@ fn provider_runs_reviewed_commitlint_cli_through_approved_node_as_local_check() 
         output(0, b"@commitlint/cli@21.2.2\n"),
         output(0, b"feat(policy-engine): verify node entrypoint\n"),
         output(0, b""),
+        output(0, b".git/hooks/commit-msg\n"),
     ]));
     let report = run_node_policy_check(&root, git, node, &cli_path, process.clone());
 
@@ -335,7 +362,7 @@ fn provider_runs_reviewed_commitlint_cli_through_approved_node_as_local_check() 
     ));
     assert_eq!(report.strict_exit(), 0);
     let invocations = process.invocations.lock().unwrap();
-    assert_eq!(invocations.len(), 5);
+    assert_eq!(invocations.len(), 6);
     assert!(matches!(invocations[1].tool_id, ToolId::Node));
     assert!(matches!(invocations[2].tool_id, ToolId::Commitlint));
     assert_eq!(invocations[2].executable, node_path(&invocations));
@@ -533,6 +560,9 @@ fn real_node_commitlint_package_passes_through_repository_policy_provider() {
         report.results()[0].enforcement(),
         Some(Enforcement::LocalCheck)
     ));
+    assert!(report.results()[0].evidence().iter().any(|evidence| {
+        evidence.source_id() == "repo.commit-hook" && evidence.summary().contains("content-hashed")
+    }));
     assert_eq!(report.strict_exit(), 0);
 }
 

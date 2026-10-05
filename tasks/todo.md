@@ -943,7 +943,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T020.c.c.c: revisados `@npmcli/run-script` v10.0.4 `make-spawn-args.js` y `run-script-pkg.js`; la fuente confirma herencia de `process.env`, shell explícito y command text de la clave del manifest. Citado que no hay sandbox ni garantía de aislamiento para scripts ejecutados con trust del repositorio.
 - [x] **T020.b3.src — Fuentes para LocalHook, enforcement CI y CI multiplataforma** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Contrastar manual Git/Husky/Commitlint con prácticas observadas en Node.js, VS Code y Rust; registrar que hooks son feedback local eludible y que CI solo bloquea si el host exige el check.
 - Evidencia T020.b3.src: WebFetch de manual oficial Git hooks, guías oficiales Husky v9 y Commitlint local/CI; workflows live `nodejs/node` commit-lint + suites por OS, `microsoft/vscode` workflows reutilizables Linux/Windows/macOS y `rust-lang/rust` matrices/jobs; documentación GitHub de protected branches/rulesets. Los ejemplos muestran diseños reales distintos; no se extrapola validación de todos los commits cuando Node workflow observado valida el primero.
-- [ ] **T020.b3 — Verificar autoridad LocalHook efectiva** (siguiente slice <=5 archivos): inspeccionar read-only la configuración efectiva (`core.hooksPath`), hook `commit-msg` gestionado, hash/modo e identidad/argv del driver registrado; nunca ejecutar el hook. Solo atribuir `LocalHook` si se demuestra el enlace al driver aprobado; de lo contrario conservar `LocalCheck` y explicar evidencia faltante. Hook local sigue siendo eludible.
+- [x] **T020.b3 — Observar hook efectivo sin ejecutarlo** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/commit_test_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git `rev-parse --git-path hooks/commit-msg` resuelve el target efectivo; lectura bounded/no-symlink y hash doble para cambio concurrente; evidencia saneada; no se eleva autoridad si argv/driver no se demuestra.
+- RED/GREEN T020.b3: RED `cargo test -p jameskills-infra --locked --test commit_test_checks conventional_commit_check_uses_private_message_file_and_builtin_rules` falla porque la observación de hook aún no tiene driver/evidencia. GREEN el test usa FakeProcess para devolver un hook fixture con un marcador de ejecución; verifica argv read-only de Git, evidencia de hash/identidad pendiente, `LocalCheck` y marcador intacto. Suites de commitlint verifican pass/fail del mensaje sin ejecutar el hook.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
@@ -952,14 +953,14 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/commit_test_checks.rs`
 
 **Aceptación:**
-- [ ] Conventional Commits se verifica vía Commitlint; LocalHook exige evidencia de hook efectivo/config/hash/ejecutable/driver y sigue eludible; no convertir un mensaje válido en hook aplicado.
+- [x] Conventional Commits se verifica vía Commitlint; el hook efectivo se observa read-only y queda como LocalCheck porque no se prueba identidad/argv del driver aprobado; no se convierte un mensaje válido en hook aplicado. `LocalHook` sigue sin afirmarse.
 - [ ] Pruebas se ejecutan solo mediante acción explícita con cwd/argv/timeout conocidos; inspección no las dispara.
 - [ ] Logs acotados/saneados y evidencia del exit code no se confunde con existencia de tests.
 - [ ] Commitlint no carga configuración ejecutable del repositorio y solo prueba LocalCheck; LocalHook exige evidencia independiente de hook efectivo.
 
 **Verificación:** cargo test -p jameskills-infra --locked commit_test_checks; ejecutar check sobre repo fixture con test registrado que pasa y otro que falla.
 
-**Evidencia al ejecutar:** T020.c.a/.b y driver Cargo/npm tienen pruebas fake y opt-in real pass/fail locales. T020.c.c.c registra la semántica de entorno/shell; T020.c (suite execution explícita) queda cerrada localmente. T020.b3 (LocalHook efectiva) y T020 parent/T021 permanecen pendientes.
+**Evidencia al ejecutar:** T020.c.a/.b y driver Cargo/npm tienen pruebas fake y opt-in real pass/fail locales. T020.c.c.c registra la semántica de entorno/shell; T020.c (suite execution explícita) queda cerrada localmente. T020.b3 inspecciona el target Git y el archivo local sin spawn del hook; el vínculo de argv/driver no está demostrado, así que la autoridad observada es LocalCheck. T020 parent/T021 permanecen pendientes.
 
 <a id="t021"></a>
 

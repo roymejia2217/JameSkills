@@ -43,6 +43,7 @@ const MAX_README_BYTES: u64 = 1024 * 1024;
 const MAX_GITIGNORE_PROBES: usize = 32;
 const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_COMMIT_HOOK_BYTES: usize = 16 * 1024;
 const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_NPM_VERSION_BYTES: usize = 1024;
 const MAX_NPM_OUTPUT_BYTES: usize = 64 * 1024;
@@ -981,16 +982,44 @@ impl LocalFileSystem {
             Err(error) => return Err(error),
         };
         match output.exit_code() {
-            Some(0) => report(
-                CheckStatus::Pass,
-                Some(Enforcement::LocalCheck),
-                "Commitlint 21.2.2 accepted the current commit using built-in Conventional Commits rules.",
-            ),
-            Some(1) => report(
-                CheckStatus::Fail,
-                Some(Enforcement::LocalCheck),
-                "Commitlint 21.2.2 rejected the current commit; message details are withheld.",
-            ),
+            Some(exit_code @ (0 | 1)) => {
+                let status = if exit_code == 0 {
+                    CheckStatus::Pass
+                } else {
+                    CheckStatus::Fail
+                };
+                let message_summary = if exit_code == 0 {
+                    "Commitlint 21.2.2 accepted the current commit using built-in Conventional Commits rules."
+                } else {
+                    "Commitlint 21.2.2 rejected the current commit; message details are withheld."
+                };
+                let hook_summary =
+                    inspect_effective_commit_hook(&root_path, git, &environment, process).await?;
+                let message_evidence = CheckEvidence::new(
+                    "tool.commitlint.lint",
+                    observed_at,
+                    None,
+                    environment_fingerprint,
+                    message_summary,
+                    None,
+                )
+                .map_err(AppError::Validation)?;
+                let hook_evidence = CheckEvidence::new(
+                    "repo.commit-hook",
+                    observed_at,
+                    None,
+                    environment_fingerprint,
+                    hook_summary,
+                    None,
+                )
+                .map_err(AppError::Validation)?;
+                CheckObservation::new(
+                    status,
+                    Some(Enforcement::LocalCheck),
+                    vec![message_evidence, hook_evidence],
+                )
+                .map_err(AppError::Validation)
+            }
             _ => report(
                 CheckStatus::Blocked,
                 None,
@@ -2463,6 +2492,110 @@ fn git_ignore_match(output: &[u8], pattern: &str, synthetic_path: &str, source_p
         && fields[2] == pattern.as_bytes()
         && fields[3] == synthetic_path.as_bytes()
         && fields[4].is_empty()
+}
+
+async fn inspect_effective_commit_hook(
+    repository_root: &Path,
+    git: &ApprovedRepositoryTool,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+) -> AppResult<&'static str> {
+    let unknown =
+        "Git's effective commit-msg hook could not be verified; only LocalCheck is claimed.";
+    let cwd = ApprovedRoot::from_absolute_path(repository_root.to_path_buf())
+        .map_err(AppError::Validation)?;
+    let spec = ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(git.executable.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        ToolId::Git,
+        ["rev-parse", "--git-path", "hooks/commit-msg"]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+        cwd,
+        ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+        Duration::from_secs(5),
+        4096,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .map_err(AppError::Validation)?
+    .with_approved_executable_fingerprint(git.fingerprint);
+    let output = match process.run(spec).await {
+        Ok(output) if output.exit_code() == Some(0) => output,
+        Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+        Ok(_) | Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+            return Ok(unknown);
+        }
+        Err(error) => return Err(error),
+    };
+    let Some(path_bytes) = output.stdout().strip_suffix(b"\n") else {
+        return Ok(unknown);
+    };
+    let path_bytes = path_bytes.strip_suffix(b"\r").unwrap_or(path_bytes);
+    let Ok(path_text) = std::str::from_utf8(path_bytes) else {
+        return Ok(unknown);
+    };
+    if path_text.is_empty() || path_text.chars().any(char::is_control) {
+        return Ok(unknown);
+    }
+    let configured_path = PathBuf::from(path_text);
+    let unresolved_path = if configured_path.is_absolute() {
+        configured_path
+    } else {
+        repository_root.join(configured_path)
+    };
+    let Ok(unresolved_metadata) = std::fs::symlink_metadata(&unresolved_path) else {
+        return Ok("Git resolved no readable commit-msg hook file; only LocalCheck is claimed.");
+    };
+    if unresolved_metadata.file_type().is_symlink() {
+        return Ok("The effective commit-msg hook is a symlink; only LocalCheck is claimed.");
+    }
+    let Ok(hook_path) = std::fs::canonicalize(&unresolved_path) else {
+        return Ok("Git resolved no readable commit-msg hook file; only LocalCheck is claimed.");
+    };
+    if !hook_path.starts_with(repository_root) {
+        return Ok(
+            "The effective commit-msg hook is outside the approved repository; only LocalCheck is claimed.",
+        );
+    }
+    let Ok(metadata) = std::fs::symlink_metadata(&hook_path) else {
+        return Ok(unknown);
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_COMMIT_HOOK_BYTES as u64 {
+        return Ok(
+            "The effective commit-msg hook is not a bounded regular file; only LocalCheck is claimed.",
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return Ok(
+                "The effective commit-msg hook lacks executable permission; only LocalCheck is claimed.",
+            );
+        }
+    }
+    let Ok(contents) = std::fs::read(&hook_path) else {
+        return Ok(unknown);
+    };
+    if contents.len() > MAX_COMMIT_HOOK_BYTES {
+        return Ok(
+            "The effective commit-msg hook exceeds the inspection limit; only LocalCheck is claimed.",
+        );
+    }
+    let observed_hash = Sha256::digest(&contents);
+    let Ok(contents_after_read) = std::fs::read(&hook_path) else {
+        return Ok(unknown);
+    };
+    if Sha256::digest(&contents_after_read) != observed_hash {
+        return Ok(
+            "The effective commit-msg hook changed during inspection; only LocalCheck is claimed.",
+        );
+    }
+    Ok(
+        "Git resolved and content-hashed a local commit-msg hook read-only; its argv/driver identity and invocation are unproven, so only LocalCheck is claimed.",
+    )
 }
 
 fn observation(
