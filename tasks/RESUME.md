@@ -40,20 +40,20 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Slice actual T020.c.b.b.b.c.a — allowlist MSVC
+## Slice actual T020.c.b.b.b.c.a.src — fuentes MSVC
 
 - Los slices Cargo ya están en commits separados: `4ffa1e6` runner/provider y `94d9c59` contrato/fuentes Cargo; checkpoint `7e876d0`.
 - La integración real se probó dos veces: en shell normal y en un shell cuyo `PATH` viene de `VsDevCmd`. Este último sí encuentra el `link.exe` x64 exacto, pero el runner sigue devolviendo exit 101. Diagnóstico causal: `ApprovedEnv` del fixture solo copiaba PATH/HOME/SYSTEMROOT/TEMP y descartaba LIB/INCLUDE/LIBPATH; Microsoft Learn confirma que las herramientas necesitan estas rutas. No afirmar pass real.
 - RED T020.c.b.b.b.c.a: `cargo test -p jameskills-core --locked --test process_contract approved_environment_accepts_msvc_tool_paths_without_compiler_options` compila en el entorno VsDevCmd y falla porque `ApprovedEnv` rechaza INCLUDE/LIB.
-- RED/GREEN T020.c.b.b.b.c.a: el focused process_contract falló antes del cambio y ahora pasa 5/5; suite core completa y Clippy core `-D warnings` pasan desde VsDevCmd. `cargo fmt --all` corrigió presentación y se repite fmt-check/diff-check antes del commit.
-- Implementación: allowlist de variables MSVC de rutas, rechazo de CL/_CL_ para evitar inyección de argumentos y límite de cantidad ajustado. Contrato y test incluidos; slice de 5 archivos.
-- Fuentes Microsoft Learn sobre variables y VsDevCmd revisadas; la cita se incorporará en el sub-slice documental separado T020.c.b.b.b.c.a.src.
+- T020.c.b.b.b.c.a terminó en cinco archivos con commit `92ae96b fix(process): allow bounded MSVC build paths`.
+- RED/GREEN c.a: focused `process_contract` pasa 5/5; suite core y Clippy core `-D warnings` pasan desde VsDevCmd; fmt-check y diff-check limpios. No incluye ejecución Cargo real del runner todavía.
+- Microsoft Learn “Use the Microsoft C++ Build Tools from the command line” y “CL environment variables” revisadas. `docs/SOURCES.md` agrega referencias oficiales para rutas del toolchain y riesgos de `CL`/`_CL_`; este sub-slice documental incluye tres archivos.
 - CI remota continúa sin PR/runs; `git branch -vv` confirma que la rama no tiene upstream. No atribuir resultados locales a CI.
 
 ## Próxima acción exacta
 
-1. Repetir fmt-check/diff-check post-rustfmt y registrar T020.c.b.b.b.c.a en un commit semántico independiente.
-2. Completar cita Microsoft Learn en .c.a.src y actualizar el checkpoint; después pasar solo las variables permitidas al `real_environment` del opt-in para intentar Cargo pass/fail con `SystemProcessPort`.
+1. Cerrar .c.a.src con fmt/diff-check y Commitlint local en commit documental independiente.
+2. En `.c.b`, pasar `LIB`, `INCLUDE`, `LIBPATH` y las rutas de toolchain ya allowlisteadas desde VsDevCmd al `real_environment`; ejecutar la integración real Cargo pass/fail con `SystemProcessPort` y ajustar solo con nueva RED/evidencia.
 3. Mantener T020.c.b.b y T020.c abiertas hasta obtener la integración real requerida; T020.c.c queda después de ese gate secuencial. Hace falta autorización explícita para publicar la rama/abrir PR y obtener CI remota.
 4. C006/C005 y T019 conservan sus bloqueos independientes.
 

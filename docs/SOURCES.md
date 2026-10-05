@@ -80,6 +80,8 @@ Fuentes de versión/license/MSRV: [async-trait crates.io](https://crates.io/api/
 [`command-group CommandGroup`](https://docs.rs/command-group/5.0.1/command_group/stdlib/trait.CommandGroup.html),
 [`command-group GroupChild`](https://docs.rs/command-group/5.0.1/command_group/struct.GroupChild.html).
 
+MSVC child-process environment: Microsoft Learn [Build Tools from the command line](https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170) states that the command-line toolchain requires environment variables for executable, include, library, and SDK paths; it specifically lists `PATH`, `TMP`, `INCLUDE`, `LIB`, and `LIBPATH`, and recommends the installed developer command file because values vary by target and installation. The [CL environment-variable reference](https://learn.microsoft.com/en-us/cpp/build/reference/cl-environment-variables?view=msvc-170) documents `INCLUDE`/`LIBPATH` and confirms `CL`/`_CL_` inject compiler arguments. JameSkills therefore permits only named toolchain path variables in `ApprovedEnv`, never `CL` or `_CL_`.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
