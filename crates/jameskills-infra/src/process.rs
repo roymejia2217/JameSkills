@@ -348,10 +348,8 @@ impl ProcessPort for SystemProcessPort {
 
 fn run_blocking(spec: ProcessSpec) -> AppResult<ProcessOutput> {
     let tool_id = tool_id_name(spec.tool_id()).to_owned();
-    if !matches!(spec.permission(), ProcessPermission::ReadOnlyCheck) {
-        return Err(AppError::PermissionDenied {
-            operation: "process.mutation.not_implemented".to_owned(),
-        });
+    match spec.permission() {
+        ProcessPermission::ReadOnlyCheck | ProcessPermission::ExplicitMutation(_) => {}
     }
     if spec.cancellation().is_cancelled() {
         return Err(AppError::Cancelled);

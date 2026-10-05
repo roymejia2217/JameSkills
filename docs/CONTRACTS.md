@@ -328,7 +328,12 @@ el proveedor vuelve a calcularlo con lectura limitada antes de spawn. Los probes
 tools registrados no ejecutan candidatos sin fingerprint aprobado; presencia o PATH
 por sí solos solo producen `Candidate`.
 ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint>, approved_script: Option<(ApprovedScript, ExecutableFingerprint)> }.
-ProcessPermission = ReadOnlyCheck | ExplicitMutation(OperationId). Allowlist driver's args verificada, logs solo tool_id/timing/exit.
+`SystemProcessPort` permite `ReadOnlyCheck` y `ExplicitMutation(OperationId)`;
+ambos lanzan solo el executable aprobado, argv separados, cwd/environment
+aprobados, fingerprints y límites bounded, y cancelan el grupo completo. El ID
+no constituye por sí solo trust/consent del repositorio: el driver de suites
+debe exigir la aprobación tipada explícita y construir argv desde registry antes
+de solicitar `ExplicitMutation`. Ningún policy inspection solicita esa acción.
 ApprovedEnv mínimo; rutas PATH necesarias, HOME/USERPROFILE por driver, idioma fijo cuando parseador depende. No heredar XAI_API_KEY/GEMINI_API_KEY ni credenciales ajenas.
 `ProcessSpec::with_approved_script(ApprovedScript, ExecutableFingerprint)` ata
 un entrypoint JavaScript aprobado al runtime aprobado. `SystemProcessPort`
