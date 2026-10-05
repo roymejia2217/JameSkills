@@ -1340,10 +1340,10 @@ fn node_version_satisfies_npm_11(version: &semver::Version) -> bool {
             && version >= &node_22_minimum
 }
 
-fn approved_npm_shell(environment: &ApprovedEnv) -> Option<PathBuf> {
+fn approved_npm_shell(_environment: &ApprovedEnv) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let system_root = environment
+        let system_root = _environment
             .entries()
             .iter()
             .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case("SYSTEMROOT"))

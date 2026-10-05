@@ -49,21 +49,22 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T020.c.b queda cerrada localmente. Próxima unidad elegible T020.c.c: driver Node/npm de suites. T020.c parent permanece abierta hasta implementarla y verificarla.
 - CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; hace falta autorización expresa antes de push/PR para lanzar CI.
 
-## Slice actual T020.c.c.c — fuentes npm/run-script
+## Corrección CI de Clippy — T020.c.c.b
 
-- T020.c.c.b terminó en cinco archivos y commit `7cf6d6b feat(policy-engine): run approved npm quality scripts`; el source follow-up de tres archivos está en revisión local antes de commit.
+- T020.c.c.b terminó en cinco archivos y commit `7cf6d6b feat(policy-engine): run approved npm quality scripts`; fuentes npm/run-script en `656a860 docs(policy-engine): cite npm script environment semantics`.
 - Fuentes/tag npm CLI `v11.16.0`, docs v11 de run/config/.npmrc/folders, npm/run-script v10.0.4 y Node v24 consultados. Host probado: Node24.18.0/npm11.16.0; npm 11.16 engine `^20.17.0 || >=22.9.0`.
 - La invocación Node directa al `npm-cli.js` no ejecuta `.cmd`; script ID solo `lint`/`test`/`build`; argv fija `--ignore-scripts` suprime lifecycle pre/post, pero el script pedido corre por shell del sistema bajo aprobación explícita. `.npmrc` root bloqueado; config global/usuario privada vacía; salida/cancelación/timeout acotados. La huella npm-cli.js no representa todo el árbol del paquete.
 - Verificación local del code slice: suite infra completa, Clippy infra `-D warnings`, fmt y diff-check pasan. Fakes distinguen Unknown/Blocked, Missing/NotRun, versiones incompatibles, `.npmrc` bloqueado y los tres script IDs. Opt-in real `real_npm_test_driver_passes_and_fails_without_lifecycle_hooks` pasa 1/1 con Node24.18/npm11.16 vía `SystemProcessPort`: un fixture pass, uno fail, main script corre y pre/post markers no aparecen.
 - Fuentes npm/run-script tag v10.0.4 revisadas para documentar herencia de `process.env`, shell configurable y command text desde package.json; esto respalda ApprovedEnv mínimo, `.npmrc` project bloqueado y aprobación explícita, sin afirmar sandbox ni aislamiento del mismo usuario.
-- T020.c queda cerrada localmente. T020.b3 (evidencia de `LocalHook`) sigue pendiente, así que T020 y su dependiente T021 permanecen abiertas.
-- CI remota aún no se ha lanzado; no hay PR asociada al head actual. El usuario autorizó publicar/abrir PR para obtener gates remotos tras cerrar el checkpoint documental.
+- PR draft #22 para `feat/policy-engine: execute approved repository suites`, base `main`. CI run #37266801368 para SHA `656a860`: fmt, commitlint, tests, README Policy, build Linux/Windows y PR Governance SUCCESS; Clippy Linux FAILURE. Logs identifican `unused variable: environment` en `approved_npm_shell` bajo `cfg(unix)`; Windows local no lo detectaba.
+- Corrección en working tree: renombrar el argumento a `_environment` y usarlo solo bajo Windows. Local Clippy infra/core, fmt/diff-check y Commitlint pasan. Falta commit/push de corrección y CI de la nueva cabeza.
+- T020.c permanece funcionalmente completa, pero la entrega de esta rama tiene un gate CI rojo hasta que el nuevo run confirme Clippy. T020.b3 (autoridad LocalHook) sigue pendiente; T020/T021 permanecen abiertas.
 
 ## Próxima acción exacta
 
-1. Cerrar T020.c.c.c con fmt/diff-check/Commitlint y commit documental separado de tres archivos.
-2. Abrir PR draft autorizada para lanzar CI remota; registrar el run una vez, sin polling.
-3. Continuar T020.b3 para verificar observacionalmente el hook `commit-msg`; no marcar T020/T021 completos antes de sus criterios.
+1. Repetir `cargo clippy -p jameskills-infra --all-targets --locked -- -D warnings`, fmt-check, diff-check y Commitlint; crear un commit de corrección específico.
+2. Push de la corrección al PR #22 autorizado y verificar el nuevo run CI una vez; no marcar Clippy como verde hasta verlo.
+3. Después continuar T020.b3 para la evidencia LocalHook, manteniendo T020/T021 abiertas hasta pasar acceptance.
 4. C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado
