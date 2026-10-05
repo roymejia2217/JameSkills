@@ -70,8 +70,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar diff/estado y crear commit de T020.c.a.
-2. Diseñar consentimiento tipado y driver Cargo fijo en T020.c.b, sin ejecutar suites en `observe`.
+1. Diseñar consentimiento tipado y driver Cargo fijo en T020.c.b, sin ejecutar suites en `observe`.
 3. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## T020.b2.a completado
@@ -103,11 +102,12 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Commit documental: `c9127cb docs(policy-engine): cite Commitlint cwd behavior`.
 - T020.b2 cerrada; T020.c queda pendiente. La integración real comprueba el paquete/entrypoint instalado en este host, no la supply chain completa de dependencias ni CI remota.
 
-## T020.c.a completado localmente; pendiente commit
+## T020.c.a completado
 
 - RED: `cargo test -p jameskills-infra --locked --test process_execution process_runner_executes_only_when_explicit_mutation_permission_is_present` falla con `ExplicitMutation` porque SystemProcessPort rechazaba todos los permisos no ReadOnlyCheck.
 - GREEN: el mismo test pasa 1/1 y confirma ejecución argv-only del test harness aprobado, limitando salida y timeout; `cargo test -p jameskills-infra --locked` completo, Clippy `-D warnings`, fmt y diff check pasan.
 - c.a habilita solo la semántica de permiso low-level. No se añadió ruta desde inspección, manifiestos, UI o CLI; el siguiente c.b debe exigir aprobación tipada/trust, fijar HEAD/manifests y construir driver Cargo app-owned antes de usarlo.
+- Commit: `992160a feat(process): honor explicit mutation permission`.
 
 ## Preservación y lecturas
 
