@@ -7,7 +7,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Checkpoint T020 cerrado; T021 iniciado
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, base T021 en `c8d76bb`; PR draft #22 sincronizada. Working tree ahora contiene el slice T021.dep en cinco archivos.
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD local `2c6a75f` sobre la base publicada `c8d76bb`; PR draft #22. Working tree contiene solo el incremento T021.a pendiente de commit.
 - CI run `37308536795` para SHA `c8d76bb` terminó SUCCESS en fmt, Clippy, tests Linux, builds Linux/Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37308533712` también SUCCESS.
 - T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
 - El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
@@ -17,8 +17,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - RED focal observado antes de la implementación: faltaba evidencia `repo.commit-hook`; GREEN pasó en Windows. El opt-in Node24.18/Commitlint21.2.2 con Git real verificó que el hook instalado se lee, sin ejecutarlo.
 - CI run `37307758381` en `dc033f5` detectó fixture Unix sin modo ejecutable; `c8d76bb` lo corrige con permisos `0755` bajo `cfg(unix)` sin ejecutar el hook. CI `37308536795` completa confirma GREEN en Linux y Windows.
 - T020 y subtareas verificadas cerradas. No se atribuye `LocalHook`; no se verificó aún una regla host que exija checks en `main` (eso corresponde a T022/T023).
-- T021 es la tarea activa. T021.src registra fuentes oficiales GitHub Actions/workflow syntax, matrix y required status checks. T021.dep da dependencia directa de serde-saphyr 1.3.0 a infra; RED `cargo check -p jameskills-infra --locked --offline` impide actualizar Cargo.lock y GREEN con `--offline` actualiza lock y checks locked pasan. Implementación local-first; YAML no cuenta como RequiredCi ni demuestra run del SHA actual.
-- Próximo: verificar diff/cargo fmt y Commitlint, cerrar T021.dep con commit separado; luego test-first de T021.a parser/provider de `ci-contract` con fixtures de YAML bueno/malformado/no soportado. Mantener `ci-evidence`/branch protection como Unknown o Blocked hasta drivers host/SHA de T022/T023.
+- T021.src/T021.dep completadas; dependencia directa/parser sources en commit local `2c6a75f`. RED observada: `cargo check -p jameskills-infra --locked --offline` rechazó lock desactualizado; GREEN offline actualizó Cargo.lock y ambos checks offline pasaron.
+- T021.a RED funcional ejecutado: `cargo test -p jameskills-infra --locked --test ci_definition_checks` tuvo tres fallas de estado esperado (ci-contract desconocido), mientras malformed YAML permaneció Unknown. GREEN parcial Windows: 21 tests pasan para triggers/activity types, tag-only push, PR filters, jobs/runners/needs, continue-on-error, permisos/action refs, YAML duplicate/alias/over-limit, workflow checked-in y `ci-evidence` Unknown. Clippy infra `-D warnings` pasa; ejecutar la suite completa y gates/CI Linux antes de cerrar.
+- El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023. Próximo: commit del slice actual, terminar T021.a en <=5 archivos, pre-push/CI; considerar alinear el fixture repository-foundation con el nombre de job requerido `required-ci` sin atribuir host authority prematuramente.
 
 ## Estado real
 

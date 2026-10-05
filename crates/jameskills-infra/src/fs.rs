@@ -29,7 +29,7 @@ use jameskills_core::{
     },
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -44,6 +44,26 @@ const MAX_GITIGNORE_PROBES: usize = 32;
 const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_HOOK_BYTES: usize = 16 * 1024;
+const MAX_CI_WORKFLOW_BYTES: usize = 256 * 1024;
+const MAX_CI_WORKFLOW_FILES: usize = 8;
+const REGISTERED_GITHUB_PERMISSIONS: &[&str] = &[
+    "actions",
+    "artifact-metadata",
+    "attestations",
+    "checks",
+    "code-quality",
+    "contents",
+    "deployments",
+    "discussions",
+    "id-token",
+    "issues",
+    "packages",
+    "pages",
+    "pull-requests",
+    "security-events",
+    "statuses",
+    "vulnerability-alerts",
+];
 const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_NPM_VERSION_BYTES: usize = 1024;
 const MAX_NPM_OUTPUT_BYTES: usize = 64 * 1024;
@@ -1026,6 +1046,130 @@ impl LocalFileSystem {
                 "Commitlint returned an unregistered exit status; output is withheld.",
             ),
         }
+    }
+
+    pub fn check_ci_contract(
+        &self,
+        root: &ApprovedRoot,
+        workflow_paths: &[PortablePath],
+        required_jobs: &[String],
+        observed_at: &str,
+        environment_fingerprint: &str,
+    ) -> AppResult<CheckObservation> {
+        let report = |status, enforcement, summary| {
+            let evidence = CheckEvidence::new(
+                "repo.ci-contract",
+                observed_at,
+                None,
+                environment_fingerprint,
+                summary,
+                None,
+            )
+            .map_err(AppError::Validation)?;
+            CheckObservation::new(status, enforcement, vec![evidence]).map_err(AppError::Validation)
+        };
+        if workflow_paths.is_empty()
+            || workflow_paths.len() > MAX_CI_WORKFLOW_FILES
+            || required_jobs.is_empty()
+            || required_jobs.len() > 64
+        {
+            return report(
+                CheckStatus::Unsupported,
+                None,
+                "The registered CI contract is outside supported workflow/job limits.",
+            );
+        }
+        if workflow_paths.iter().any(|path| {
+            let value = path.as_str();
+            !value.starts_with(".github/workflows/")
+                || !(value.ends_with(".yml") || value.ends_with(".yaml"))
+        }) {
+            return report(
+                CheckStatus::Unsupported,
+                None,
+                "Only GitHub Actions workflow YAML paths are supported by this check.",
+            );
+        }
+
+        let Ok(repository_root) = std::fs::canonicalize(root.path()) else {
+            return report(
+                CheckStatus::Unknown,
+                None,
+                "The approved repository root could not be verified for CI inspection.",
+            );
+        };
+        let mut push_jobs = BTreeSet::new();
+        let mut pull_request_jobs = BTreeSet::new();
+        for path in workflow_paths {
+            let bytes = match read_repository_document(&repository_root, path) {
+                ReadmeFile::Missing => {
+                    return report(
+                        CheckStatus::Fail,
+                        Some(Enforcement::LocalCheck),
+                        "A workflow declared by the CI contract is missing.",
+                    );
+                }
+                ReadmeFile::Blocked => {
+                    return report(
+                        CheckStatus::Unknown,
+                        None,
+                        "A declared CI workflow is not a bounded regular repository file.",
+                    );
+                }
+                ReadmeFile::Bytes(bytes) => bytes,
+            };
+            if bytes.len() > MAX_CI_WORKFLOW_BYTES {
+                return report(
+                    CheckStatus::Unknown,
+                    None,
+                    "A CI workflow exceeds the parser inspection limit.",
+                );
+            }
+            let Ok(source) = std::str::from_utf8(&bytes) else {
+                return report(
+                    CheckStatus::Unknown,
+                    None,
+                    "A CI workflow is not valid UTF-8 YAML.",
+                );
+            };
+            let facts = match inspect_github_workflow(source, required_jobs) {
+                Ok(facts) => facts,
+                Err(CiWorkflowIssue::Fail(summary)) => {
+                    return report(CheckStatus::Fail, Some(Enforcement::LocalCheck), summary);
+                }
+                Err(CiWorkflowIssue::Unknown(summary)) => {
+                    return report(CheckStatus::Unknown, None, summary);
+                }
+            };
+            if facts.push {
+                push_jobs.extend(facts.job_ids.iter().cloned());
+            }
+            if facts.pull_request {
+                pull_request_jobs.extend(facts.job_ids);
+            }
+        }
+        if push_jobs.is_empty() || pull_request_jobs.is_empty() {
+            return report(
+                CheckStatus::Fail,
+                Some(Enforcement::LocalCheck),
+                "Declared CI workflows do not run jobs on both push and pull_request events.",
+            );
+        }
+        if required_jobs
+            .iter()
+            .any(|job| !push_jobs.contains(job) || !pull_request_jobs.contains(job))
+        {
+            return report(
+                CheckStatus::Fail,
+                Some(Enforcement::LocalCheck),
+                "A required CI job is missing from push or pull_request workflow coverage.",
+            );
+        }
+        report(
+            CheckStatus::Pass,
+            Some(Enforcement::LocalCheck),
+            "The declared GitHub Actions workflow contract is valid locally; host enforcement and current-SHA CI are not established.",
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2229,6 +2373,16 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
                     )
                     .await
             }
+            Check::CiContract {
+                workflow_paths,
+                required_jobs,
+            } => filesystem.check_ci_contract(
+                &root,
+                workflow_paths,
+                required_jobs,
+                &observed_at,
+                &self.environment_fingerprint,
+            ),
             _ => Ok(CheckObservation::unknown()),
         }
     }
@@ -2492,6 +2646,434 @@ fn git_ignore_match(output: &[u8], pattern: &str, synthetic_path: &str, source_p
         && fields[2] == pattern.as_bytes()
         && fields[3] == synthetic_path.as_bytes()
         && fields[4].is_empty()
+}
+
+struct CiWorkflowFacts {
+    push: bool,
+    pull_request: bool,
+    job_ids: BTreeSet<String>,
+}
+
+enum CiWorkflowIssue {
+    Fail(&'static str),
+    Unknown(&'static str),
+}
+
+fn inspect_github_workflow(
+    source: &str,
+    required_jobs: &[String],
+) -> Result<CiWorkflowFacts, CiWorkflowIssue> {
+    let yaml: serde_json::Value = serde_saphyr::from_str_with_options(
+        source,
+        serde_saphyr::options! {
+            budget: serde_saphyr::budget! {
+                flow_nesting_limit: 32,
+                max_events: 16_384,
+                max_aliases: 0,
+                max_anchors: 0,
+                max_recorded_anchor_events: 0,
+                max_recorded_anchor_bytes: 0,
+                max_depth: 32,
+                max_inclusion_depth: 0,
+                max_documents: 1,
+                max_nodes: 8_192,
+                max_total_scalar_bytes: MAX_CI_WORKFLOW_BYTES,
+                max_total_comment_bytes: 0,
+                max_merge_keys: 0,
+                max_total_property_interpolation_work: 0,
+            },
+            duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
+            merge_keys: serde_saphyr::MergeKeyPolicy::Error,
+            alias_limits: serde_saphyr::alias_limits! {
+                max_total_replayed_events: 0,
+                max_replay_stack_depth: 0,
+                max_alias_expansions_per_anchor: 0,
+            },
+            emit_comments: false,
+            strict_booleans: true,
+            no_schema: true,
+            reject_unsupported_tags: true,
+            with_snippet: false,
+        },
+    )
+    .map_err(|_| {
+        CiWorkflowIssue::Unknown(
+            "A GitHub Actions workflow could not be parsed within the YAML limits.",
+        )
+    })?;
+    let Some(root) = yaml.as_object() else {
+        return Err(CiWorkflowIssue::Unknown(
+            "A GitHub Actions workflow must be a YAML mapping.",
+        ));
+    };
+    let Some(on) = root.get("on") else {
+        return Err(CiWorkflowIssue::Fail(
+            "The workflow declares no push or pull_request trigger.",
+        ));
+    };
+    let triggers = parse_ci_triggers(on)?;
+    if triggers.push_config.is_some_and(push_trigger_is_tag_only) {
+        return Err(CiWorkflowIssue::Fail(
+            "A tags-only push trigger does not run for branch updates.",
+        ));
+    }
+    if let Some(config) = triggers.pull_request_config
+        && let Some(config) = config.as_object()
+    {
+        if config.contains_key("paths") || config.contains_key("paths-ignore") {
+            return Err(CiWorkflowIssue::Fail(
+                "pull_request path filters can omit required CI checks for a change.",
+            ));
+        }
+        if config.contains_key("branches") || config.contains_key("branches-ignore") {
+            return Err(CiWorkflowIssue::Unknown(
+                "pull_request branch filters require a known protected-branch scope.",
+            ));
+        }
+        if let Some(types) = config.get("types") {
+            let Some(types) = types.as_array() else {
+                return Err(CiWorkflowIssue::Unknown(
+                    "pull_request activity types have an unsupported shape.",
+                ));
+            };
+            let mut opened = false;
+            let mut synchronize = false;
+            for event_type in types {
+                let Some(event_type) = event_type.as_str() else {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "pull_request activity types must be YAML strings.",
+                    ));
+                };
+                opened |= event_type == "opened";
+                synchronize |= event_type == "synchronize";
+            }
+            if !opened || !synchronize {
+                return Err(CiWorkflowIssue::Fail(
+                    "pull_request activity filters must include opened and synchronize.",
+                ));
+            }
+        }
+    }
+    if !triggers.push || !triggers.pull_request {
+        return Err(CiWorkflowIssue::Fail(
+            "The workflow must run on both push and pull_request events.",
+        ));
+    }
+    inspect_ci_permissions(root.get("permissions"))?;
+
+    let Some(jobs) = root.get("jobs").and_then(serde_json::Value::as_object) else {
+        return Err(CiWorkflowIssue::Fail(
+            "The workflow declares no GitHub Actions jobs mapping.",
+        ));
+    };
+    if jobs.is_empty() {
+        return Err(CiWorkflowIssue::Fail(
+            "The workflow declares no GitHub Actions jobs.",
+        ));
+    }
+    for (job_id, job) in jobs {
+        let Some(job) = job.as_object() else {
+            continue;
+        };
+        let Some(needs) = job.get("needs") else {
+            continue;
+        };
+        let needs: Vec<&str> = match needs {
+            serde_json::Value::String(need) => vec![need.as_str()],
+            serde_json::Value::Array(needs) => needs
+                .iter()
+                .map(|need| {
+                    need.as_str().ok_or(CiWorkflowIssue::Unknown(
+                        "A workflow job needs list has a non-string entry.",
+                    ))
+                })
+                .collect::<Result<_, _>>()?,
+            _ => {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A workflow job needs value has an unsupported shape.",
+                ));
+            }
+        };
+        if needs
+            .iter()
+            .any(|need| *need == job_id.as_str() || !jobs.contains_key(*need))
+        {
+            return Err(CiWorkflowIssue::Fail(
+                "A workflow job needs an unknown job or depends on itself.",
+            ));
+        }
+    }
+    let mut job_ids = BTreeSet::new();
+    for (job_id, job) in jobs {
+        let Some(job) = job.as_object() else {
+            return Err(CiWorkflowIssue::Unknown(
+                "A workflow job has an unsupported YAML shape.",
+            ));
+        };
+        job_ids.insert(job_id.clone());
+        if let Some(permissions) = job.get("permissions") {
+            inspect_ci_permissions(Some(permissions))?;
+        }
+        inspect_job_action_references(job)?;
+        if !job.contains_key("uses") {
+            match job.get("runs-on") {
+                Some(serde_json::Value::String(runner)) if !runner.trim().is_empty() => {}
+                Some(serde_json::Value::Array(runners))
+                    if !runners.is_empty() && runners.iter().all(serde_json::Value::is_string) => {}
+                None => {
+                    return Err(CiWorkflowIssue::Fail(
+                        "A workflow job has neither a reusable workflow nor a runner.",
+                    ));
+                }
+                _ => {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "A workflow job has an unsupported runs-on shape.",
+                    ));
+                }
+            }
+        }
+        if !required_jobs.iter().any(|required| required == job_id) {
+            continue;
+        }
+        if job.contains_key("uses") {
+            return Err(CiWorkflowIssue::Unknown(
+                "Required reusable workflows are not expanded by the local CI parser.",
+            ));
+        }
+        if let Some(continue_on_error) = job.get("continue-on-error") {
+            match continue_on_error.as_bool() {
+                Some(true) => {
+                    return Err(CiWorkflowIssue::Fail(
+                        "A required CI job enables continue-on-error.",
+                    ));
+                }
+                Some(false) => {}
+                None => {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "A required job uses a dynamic continue-on-error value.",
+                    ));
+                }
+            }
+        }
+        if let Some(condition) = job.get("if") {
+            let supported_always = condition.as_str().is_some_and(|condition| {
+                matches!(condition.trim(), "always()" | "${{ always() }}")
+            });
+            if !supported_always {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A required CI job has a conditional execution rule the parser cannot prove.",
+                ));
+            }
+        }
+        let Some(steps) = job.get("steps").and_then(serde_json::Value::as_array) else {
+            return Err(CiWorkflowIssue::Unknown(
+                "A required CI job has no supported steps list.",
+            ));
+        };
+        if steps.is_empty() {
+            return Err(CiWorkflowIssue::Fail("A required CI job has no steps."));
+        }
+        for step in steps {
+            let Some(step) = step.as_object() else {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A required CI job contains an unsupported step shape.",
+                ));
+            };
+            if step.contains_key("if") {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A required CI step has a conditional execution rule the parser cannot prove.",
+                ));
+            }
+            if let Some(continue_on_error) = step.get("continue-on-error") {
+                match continue_on_error.as_bool() {
+                    Some(true) => {
+                        return Err(CiWorkflowIssue::Fail(
+                            "A required CI job has a continue-on-error step.",
+                        ));
+                    }
+                    Some(false) => {}
+                    None => {
+                        return Err(CiWorkflowIssue::Unknown(
+                            "A required CI step uses a dynamic continue-on-error value.",
+                        ));
+                    }
+                }
+            }
+            let has_run = step.get("run").is_some_and(serde_json::Value::is_string);
+            let has_uses = step.get("uses").is_some_and(serde_json::Value::is_string);
+            if has_run == has_uses {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A required CI step must have exactly one run or uses field.",
+                ));
+            }
+        }
+    }
+    Ok(CiWorkflowFacts {
+        push: triggers.push,
+        pull_request: triggers.pull_request,
+        job_ids,
+    })
+}
+
+struct CiWorkflowTriggers<'a> {
+    push: bool,
+    pull_request: bool,
+    push_config: Option<&'a serde_json::Value>,
+    pull_request_config: Option<&'a serde_json::Value>,
+}
+
+fn parse_ci_triggers(on: &serde_json::Value) -> Result<CiWorkflowTriggers<'_>, CiWorkflowIssue> {
+    let mut push = false;
+    let mut pull_request = false;
+    let mut push_config = None;
+    let mut pull_request_config = None;
+    match on {
+        serde_json::Value::String(event) => {
+            push = event == "push";
+            pull_request = event == "pull_request";
+        }
+        serde_json::Value::Array(events) => {
+            for event in events {
+                let Some(event) = event.as_str() else {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "Workflow event names must be YAML strings.",
+                    ));
+                };
+                push |= event == "push";
+                pull_request |= event == "pull_request";
+            }
+        }
+        serde_json::Value::Object(events) => {
+            push_config = events.get("push");
+            push = push_config.is_some();
+            pull_request_config = events.get("pull_request");
+            pull_request = pull_request_config.is_some();
+            for event in ["push", "pull_request"] {
+                if let Some(config) = events.get(event)
+                    && !config.is_null()
+                    && !config.is_object()
+                {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "A supported workflow event has an unsupported filter shape.",
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CiWorkflowIssue::Unknown(
+                "Workflow `on` must be a supported event mapping or list.",
+            ));
+        }
+    }
+    Ok(CiWorkflowTriggers {
+        push,
+        pull_request,
+        push_config,
+        pull_request_config,
+    })
+}
+
+fn push_trigger_is_tag_only(config: &serde_json::Value) -> bool {
+    config.as_object().is_some_and(|config| {
+        (config.contains_key("tags") || config.contains_key("tags-ignore"))
+            && !config.contains_key("branches")
+            && !config.contains_key("branches-ignore")
+    })
+}
+
+fn inspect_ci_permissions(permissions: Option<&serde_json::Value>) -> Result<(), CiWorkflowIssue> {
+    let Some(permissions) = permissions else {
+        return Err(CiWorkflowIssue::Unknown(
+            "Workflow token permissions are implicit and cannot be verified locally.",
+        ));
+    };
+    match permissions {
+        serde_json::Value::String(value) if value == "read-all" => Ok(()),
+        serde_json::Value::String(value) if value == "write-all" => Err(CiWorkflowIssue::Fail(
+            "Workflow grants write-all token permissions.",
+        )),
+        serde_json::Value::Object(permissions) => {
+            for (permission, value) in permissions {
+                if !REGISTERED_GITHUB_PERMISSIONS.contains(&permission.as_str()) {
+                    return Err(CiWorkflowIssue::Unknown(
+                        "Workflow uses an unregistered GitHub token permission.",
+                    ));
+                }
+                match value.as_str() {
+                    Some("read" | "none") => {}
+                    Some("write") => {
+                        return Err(CiWorkflowIssue::Fail(
+                            "Workflow grants a write token permission.",
+                        ));
+                    }
+                    _ => {
+                        return Err(CiWorkflowIssue::Unknown(
+                            "Workflow token permission has an unsupported value.",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+        _ => Err(CiWorkflowIssue::Unknown(
+            "Workflow token permissions have an unsupported YAML shape.",
+        )),
+    }
+}
+
+fn inspect_job_action_references(
+    job: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), CiWorkflowIssue> {
+    if let Some(uses) = job.get("uses") {
+        inspect_pinned_action_reference(uses)?;
+    }
+    if let Some(steps) = job.get("steps") {
+        let Some(steps) = steps.as_array() else {
+            return Err(CiWorkflowIssue::Unknown(
+                "A workflow job has an unsupported steps shape.",
+            ));
+        };
+        for step in steps {
+            let Some(step) = step.as_object() else {
+                return Err(CiWorkflowIssue::Unknown(
+                    "A workflow step has an unsupported YAML shape.",
+                ));
+            };
+            if let Some(uses) = step.get("uses") {
+                inspect_pinned_action_reference(uses)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn inspect_pinned_action_reference(uses: &serde_json::Value) -> Result<(), CiWorkflowIssue> {
+    let Some(uses) = uses.as_str() else {
+        return Err(CiWorkflowIssue::Unknown(
+            "An Actions `uses` reference is not a YAML string.",
+        ));
+    };
+    if uses.starts_with("./") {
+        return Ok(());
+    }
+    let pinned = if let Some(docker_image) = uses.strip_prefix("docker://") {
+        docker_image
+            .rsplit_once("@sha256:")
+            .is_some_and(|(_, digest)| {
+                digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())
+            })
+    } else {
+        uses.rsplit_once('@').is_some_and(|(_, revision)| {
+            revision.len() == 40 && revision.bytes().all(|b| b.is_ascii_hexdigit())
+        })
+    };
+    if pinned {
+        Ok(())
+    } else {
+        Err(CiWorkflowIssue::Fail(
+            "An external GitHub Action is not pinned to a full commit SHA or image digest.",
+        ))
+    }
 }
 
 async fn inspect_effective_commit_hook(

@@ -163,6 +163,22 @@ dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
 La existencia de policy/guidance paths y las referencias cruzadas entre archivos
 se validan al ensamblar el bundle, no al parsear una policy aislada.
 
+`Check::CiContract { workflow_paths, required_jobs }` trata `required_jobs` como
+IDs de `jobs`, no como display names de status checks. Inspecciona solo paths bajo
+`.github/workflows/` con extensión `.yml` o `.yaml` del root aprobado, máximo 8
+archivos y 256 KiB por workflow, con `serde-saphyr` y budgets estrictos. Requiere triggers `push` y
+`pull_request`, los jobs declarados por el profile cubiertos por ambos eventos,
+permisos explícitos con keys del registry GitHub y sin grants `write`, refs SHA
+completos/digest para Actions externas y ausencia de `continue-on-error` en
+jobs/steps requeridos. Un filtro de paths o activity-types que omita `pull_request`,
+una gate/job/runner/needs ausente o permisos write es Fail conocido; YAML
+malformado, permisos implícitos/desconocidos, branch filter sin protected-branch
+scope, condición dinámica, reusable workflow requerido o sintaxis fuera del
+subset es Unknown. La lectura no ejecuta YAML, Actions ni steps. El resultado
+satisfactorio es `LocalCheck` únicamente; no prueba provider remoto, branch
+protection/ruleset ni check-runs para SHA actual. `CiEvidence` permanece Unknown
+hasta que exista el provider host/SHA exacto correspondiente.
+
 `CheckEvidence` lleva source_id, RFC3339 UTC, revision opcional, fingerprint
 `sha256:` y resumen app-authored acotado; su expiry monotónica es válida solo en
 el proceso que la observó. CheckObservation sin evidencia nunca produce Pass;
@@ -212,6 +228,21 @@ guidance_id estructurado. Unknown/Blocked/Fail/Unsupported requerido y cualquier
 resultado ausente dan strict exit 1; un resultado opcional no bloquea. `NotApplicable`
 solo nace de mismatch de un `applies_when` registrado con fact evidence fresca;
 una respuesta del provider que diga NotApplicable sin ese fundamento queda Unknown.
+
+`RepositoryPolicyCheckProvider` implementa `Check::CiContract` como un check local
+de datos, no como una ejecución de GitHub Actions. Solo admite `.github/workflows/*.yml`
+o `.yaml` del root aprobado, máximo 8 archivos y 256 KiB por archivo; rechaza
+symlinks/archivos no regulares antes de parsear. `serde-saphyr` recibe un budget
+cerrado (1 documento, depth 32, 8,192 nodos, 16,384 eventos, scalar bytes bounded,
+sin aliases/anchors/merge keys/custom tags/duplicate keys ni snippets). El parser
+comprueba `push` y `pull_request` (con `opened` y `synchronize` si hay activity
+filters), jobs/runner/needs declarados, los jobs solicitados presentes en ambos
+eventos, permisos explícitos registrados sin `write`, pinned refs para Actions
+externas, y que jobs/steps requeridos no habiliten `continue-on-error`. Condiciones
+de job/step no conocidas, reusable workflows requeridos o formas fuera del subset dan Unknown;
+fallas comprobables del contrato dan Fail. Pass tiene autoridad `LocalCheck`.
+No inspecciona protección/rulesets del host ni un check-run para SHA actual; `ci-evidence`
+y `RequiredCi` permanecen Unknown/Blocked hasta tener esos proveedores remotos.
 
 `infra::fs::ApprovedRepositoryTool::new(executable, fingerprint)` y
 `RepositoryPolicyCheckProvider::new(root, git, gitleaks, environment, process,
