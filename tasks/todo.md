@@ -1136,18 +1136,21 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T025 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.src completa; T025.a siguiente).
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** guidance_planner misma policy en Linux/Windows o cargo/npm/missing auth produce pasos distintos; una dependencia imposible bloquea descendientes, no todos los checks.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/guidance.rs`
-- `crates/jameskills-core/src/domain/guidance.rs`
-- `crates/jameskills-core/src/application/mod.rs`
-- `crates/jameskills-core/tests/guidance_planner.rs`
-- `crates/jameskills-infra/src/composition.rs`
+**Descomposición test-first y wiring:**
+- [x] **T025.src — Fijar contrato de guidance retenida y verificada** (4 archivos): `docs/CONTRACTS.md`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Los bundles validados deben conservar policies/GuidancePlan tipados (no raw TOML); cada paso requiere verificación ligada a requisitos del plan.
+- Evidencia T025.src: `domain::skill::validate_guidance_file` solo devolvía `plan_id -> requirement IDs`; `ValidatedBundle` descartaba Policies/Steps después de validarlos. No existía GuidanceService/planner ni wiring en `RuntimeServices`. Contrato establece DTOs inmutables y acción cerrada con verifiers obligatorios.
+- [ ] **T025.a — Retener planes y policies tipados en ValidatedBundle** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/guidance_schema.rs`; `tasks/todo.md`. Parser reutiliza validación existente y devuelve acciones/facts/steps cerrados, sin código/URL arbitrario.
+- RED T025.a pendiente: fixture del bundle oficial debe observar guidance plan + Policies tipadas después de `validate_bundle`; rechazo de step sin verifier, requirement ajeno al plan, condición/applies_when inválida y ciclos.
+- [ ] **T025.b — Planificar pasos con facts y evidencia fresca** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Topological ready step; aplica facts tipados, applicability y CheckReport observado.
+- [ ] **T025.c — Avanzar/recheck y conectar al runtime** (4 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`. Recheck llama providers reales actuales y reemplaza evidence antigua; composition expone el servicio.
+
+**Semántica obligatoria:** facts desconocidos nunca seleccionan rama; “lo completé” solo registra una respuesta y no produce Pass; step solo Completed con fresh Pass para todos los `verification_requirement_ids`. Cambio de fingerprint/revision invalida respuestas/evidence dependientes. Acción copiar/abrir es inerte; credenciales y texto libre secreto no entran a la sesión.
 
 **Aceptación:**
 - [ ] Cada paso tiene condición de éxito comprobable, tool/link aprobado y explicación del requisito.
@@ -1156,7 +1159,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 **Verificación:** cargo test -p jameskills-core --locked guidance_planner; snapshots de planes con fixtures de entornos diferentes y ciclo rechazado.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** pendiente. Registrar RED/GREEN por T025.src/a/b/c, workspace gates, OS, commits y cualquier capacidad Unsupported/Unknown pendiente de providers reales.
 
 <a id="t026"></a>
 

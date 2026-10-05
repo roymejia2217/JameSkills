@@ -164,6 +164,18 @@ dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
 La existencia de policy/guidance paths y las referencias cruzadas entre archivos
 se validan al ensamblar el bundle, no al parsear una policy aislada.
 
+`validate_bundle` compila las policies y planes declarados a `ValidatedBundle`;
+éste expone `policies() -> &[Policy]` y `guidance_plans() -> &[GuidancePlan]`
+además de manifest/hash/count, pero no retiene bytes TOML crudos. `GuidancePlan`
+y `GuidanceStep` son DTOs inmutables construidos por el parser: IDs únicos,
+`requirement_ids` conocidos, pasos en DAG, `requires` dentro del plan y
+`verification_requirement_ids` no vacíos y limitados a esos requisitos.
+`applies_when` solo admite facts/enums registrados. Action es cerrada:
+`ManualInstruction`, `OpenOfficialUrl` con source ID del registry,
+`CopyApprovedCommand` con tool/operation registrados, `SelectLocalPath` con
+purpose acotado, `AnswerChoice` con opciones acotadas o `Recheck`. Ninguna
+acción ejecuta procesos, abre URLs arbitrarias ni contiene secretos.
+
 `Check::CiContract { workflow_paths, required_jobs }` trata `required_jobs` como
 IDs de `jobs`, no como display names de status checks. Inspecciona solo paths bajo
 `.github/workflows/` con extensión `.yml` o `.yaml` del root aprobado, máximo 8

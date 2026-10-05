@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `73a3f62`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `c094090`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T024 y C008 cerrado; T025 siguiente
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `73a3f62`, 11 commits por delante de `origin/feat/t020-commit-test-checks`; working tree limpio antes de este checkpoint. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `c094090`, 12 commits por delante de `origin/feat/t020-commit-test-checks`; T025 source docs ahora en working tree. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -15,6 +15,7 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T024 gates Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features y `-D warnings`, `cargo fmt --all -- --check`, `git diff --check` pasan. Opt-in release read-only pasó 1/1; solo valida evidence/source/version bound, no exige que el checkout tenga release publicada ni marca el resultado Pass.
 - C008 completado localmente: T022–T024 GitHub tests usan GET/read-only, los gates acumulados pasan, no se escribieron reglas/releases/tags. CI remoto conocido `37328599512` solo cubre `c976f02`; no atribuirlo al HEAD local.
 - Próxima tarea DAG: T025 (`T017`, `T018`, `T023`, `T024`, `T037` satisfechas). Desarrollar guía dinámica; localizar firmas actuales/fixture, capturar RED y mantener el incremento en <=5 archivos.
+- T025.src en curso: contrato ya indica que `ValidatedBundle` retendrá `Policy` + `GuidancePlan` tipados y que steps tendrán verifiers del mismo plan. Siguiente corte T025.a extraer/retener los objetos con el validador de bundle existente.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -90,9 +91,9 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Leer T025, `docs/CONTRACTS.md`, `docs/SPEC-policy-engine.md`, y comprobar implementación/wiring actual de guidance antes de editar.
-2. Escribir la primera prueba de comportamiento ausente en `guidance_planner`; dividir T025 explícitamente si el wiring supera cinco archivos.
-3. Implementar hechos/evidencia/status/staleness sin guía “success” sin comprobación; ejecutar tests focales, workspace gates, registrar evidencia y commit.
+1. Escribir RED `guidance_schema` que valida el bundle oficial y espera planes/policies compilados observables.
+2. Implementar DTOs cerrados y conectar la extracción al validador sin duplicar su validación TOML; rechazar verifier vacío o fuera del plan.
+3. Ejecutar tests focales/core y actualizar el subtask T025.a; mantener los siguientes incrementos <=5 archivos.
 
 ## T020.b2.a completado
 
