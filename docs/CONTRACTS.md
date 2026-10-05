@@ -230,8 +230,15 @@ solo nace de mismatch de un `applies_when` registrado con fact evidence fresca;
 una respuesta del provider que diga NotApplicable sin ese fundamento queda Unknown.
 
 `RepositoryPolicyCheckProvider` implementa `Check::CiContract` como un check local
-de datos, no como una ejecución de GitHub Actions. Solo admite `.github/workflows/*.yml`
-o `.yaml` del root aprobado, máximo 8 archivos y 256 KiB por archivo; rechaza
+de datos, no como una ejecución de GitHub Actions. Antes de inspeccionar workflows,
+requiere Git nativo/fingerprinted con versión registrada compatible y al menos un
+remote configurado por `git remote -v` cuyo fetch/push host sea exactamente
+`github.com`; el comando solo lee config local, bounded, sin red. GitLab, GitHub
+Enterprise no registrado, URLs no analizables, mezcla de hosts o ausencia de
+remotes deja resultado Unknown; esto tampoco prueba que el repositorio exista en
+el host ni que las reglas de branch estén activas. URLs, incluidas credenciales,
+no se copian a evidencia ni logs. El check solo admite workflow paths bajo
+`.github/workflows/` con extensión `.yml` o `.yaml`, máximo 8 archivos y 256 KiB por archivo; rechaza
 symlinks/archivos no regulares antes de parsear. `serde-saphyr` recibe un budget
 cerrado (1 documento, depth 32, 8,192 nodos, 16,384 eventos, scalar bytes bounded,
 sin aliases/anchors/merge keys/custom tags/duplicate keys ni snippets). El parser

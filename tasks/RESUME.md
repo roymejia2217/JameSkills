@@ -7,7 +7,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Checkpoint T020 cerrado; T021 iniciado
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `4d4d1ae` publicado en PR draft #22; T021.b guidance está en working tree.
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD local `31b6fa9` sobre la base publicada `c3c763f`; PR draft #22. T021.a2 code remains in working tree.
 - CI run `37308536795` para SHA `c8d76bb` terminó SUCCESS en fmt, Clippy, tests Linux, builds Linux/Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37308533712` también SUCCESS.
 - T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
 - El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
@@ -21,8 +21,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T021.a completada en `4d4d1ae`: parser bounded/inert, 21 pruebas focused + suite infra en Windows y Clippy `-D warnings`. CI run `37317369713` para SHA `4d4d1ae` pasó pruebas Linux, Clippy, fmt, builds Linux/Windows, README Policy, Commitlint y Required CI; PR Governance run `37317365655` pasó.
 - El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023.
 - T021.b committed in `c3c763f`; canonical/runtime guidance matches and `cargo test -p jameskills-core --locked --test bundle_manifest` passes 23/23.
-- T021.a2.src is a separate three-file source/checkpoint change in working tree: official `git-remote` docs state `remote -v` lists configured remotes only; it makes no network request and proves no host branch rules.
-- Próximo sub-slice T021.a2: observar los remotes con Git aprobado, argv fijo, timeout/output bounded; reportar GitHub público reconocido solo si la salida es estructuralmente válida y todos los hosts se reconocen. URL/credenciales jamás a evidencia/log; sin remote o host no soportado => Unknown. Luego test-first, gate completo y nueva CI.
+- T021.a2.src committed locally as `31b6fa9`: official `git-remote` docs state `remote -v` lists configured remotes only; it makes no network request and proves no host branch rules.
+- T021.a2 code in working tree: requires approved native Git/version; read-only `remote -v` fixed argv; bounded output; every configured host must be `github.com`. Mixed, absent or unparseable hosts stay Unknown; URL/credential bytes never enter evidence.
+- RED/GREEN T021.a2: RED `non_github_or_missing_remote_keeps_workflow_unknown` failed against the naive config-only pass. GREEN infra suite passes, ci_definition_checks has 23/23 ordinary tests, and explicit real-Git opt-in for this repository's GitHub remote returns only LocalCheck. Clippy/fmt/diff-check pass; full workspace pre-push and CI still pending.
 
 ## Estado real
 

@@ -1048,11 +1048,15 @@ impl LocalFileSystem {
         }
     }
 
-    pub fn check_ci_contract(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn check_ci_contract(
         &self,
         root: &ApprovedRoot,
         workflow_paths: &[PortablePath],
         required_jobs: &[String],
+        git: Option<&ApprovedRepositoryTool>,
+        environment: &ApprovedEnv,
+        process: &dyn ProcessPort,
         observed_at: &str,
         environment_fingerprint: &str,
     ) -> AppResult<CheckObservation> {
@@ -1091,13 +1095,14 @@ impl LocalFileSystem {
             );
         }
 
-        let Ok(repository_root) = std::fs::canonicalize(root.path()) else {
-            return report(
-                CheckStatus::Unknown,
-                None,
-                "The approved repository root could not be verified for CI inspection.",
-            );
-        };
+        let repository_root = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+        match observe_github_remote_host(&repository_root, git, environment, process, observed_at)
+            .await?
+        {
+            Ok(()) => {}
+            Err(summary) => return report(CheckStatus::Unknown, None, summary),
+        }
+
         let mut push_jobs = BTreeSet::new();
         let mut pull_request_jobs = BTreeSet::new();
         for path in workflow_paths {
@@ -2376,13 +2381,20 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
             Check::CiContract {
                 workflow_paths,
                 required_jobs,
-            } => filesystem.check_ci_contract(
-                &root,
-                workflow_paths,
-                required_jobs,
-                &observed_at,
-                &self.environment_fingerprint,
-            ),
+            } => {
+                filesystem
+                    .check_ci_contract(
+                        &root,
+                        workflow_paths,
+                        required_jobs,
+                        self.git.as_ref(),
+                        &self.environment,
+                        self.process.as_ref(),
+                        &observed_at,
+                        &self.environment_fingerprint,
+                    )
+                    .await
+            }
             _ => Ok(CheckObservation::unknown()),
         }
     }
@@ -2657,6 +2669,132 @@ struct CiWorkflowFacts {
 enum CiWorkflowIssue {
     Fail(&'static str),
     Unknown(&'static str),
+}
+
+async fn observe_github_remote_host(
+    repository_root: &Path,
+    git: Option<&ApprovedRepositoryTool>,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+    observed_at: &str,
+) -> AppResult<Result<(), &'static str>> {
+    let unknown = "The configured Git remote host is absent, unsupported, or unreadable.";
+    let Some(git) = git else {
+        return Ok(Err(
+            "An approved Git driver is required to observe the workflow host.",
+        ));
+    };
+    let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+    let Some(profile) = profiles
+        .iter()
+        .find(|profile| profile.tool_id() == ToolId::Git)
+    else {
+        return Ok(Err(
+            "The registered Git profile is unavailable; workflow host is unknown.",
+        ));
+    };
+    let platform = PlatformFacts::detect().platform;
+    let Some(candidate) = candidate_for_approved_tool(profile, git, platform) else {
+        return Ok(Err(
+            "The approved Git driver is not a registered candidate; workflow host is unknown.",
+        ));
+    };
+    if candidate.kind() != ToolCandidateKind::NativeExecutable {
+        return Ok(Err(
+            "A Git command shim cannot establish workflow host identity.",
+        ));
+    }
+    let cwd = ApprovedRoot::from_absolute_path(repository_root.to_path_buf())
+        .map_err(AppError::Validation)?;
+    let version = probe_registered_tool_version(
+        profile,
+        &candidate,
+        Some(git.fingerprint),
+        &cwd,
+        environment,
+        process,
+        observed_at,
+    )
+    .await?;
+    if version.availability() != ToolAvailability::Candidate
+        || version.version_status() != ToolVersionStatus::Compatible
+    {
+        return Ok(Err(
+            "The approved Git version is not verified; workflow host is unknown.",
+        ));
+    }
+    let spec = registered_process_spec(
+        git,
+        ToolId::Git,
+        ["remote", "-v"].into_iter().map(OsString::from).collect(),
+        &cwd,
+        environment,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+        Duration::from_secs(5),
+        4096,
+    )?;
+    let output = match process.run(spec).await {
+        Ok(output) if output.exit_code() == Some(0) => output,
+        Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+        Ok(_) | Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+            return Ok(Err(unknown));
+        }
+        Err(error) => return Err(error),
+    };
+    if output.stdout().len() > 4096 || !remote_list_targets_github(output.stdout()) {
+        return Ok(Err(unknown));
+    }
+    Ok(Ok(()))
+}
+
+fn remote_list_targets_github(output: &[u8]) -> bool {
+    let Ok(output) = std::str::from_utf8(output) else {
+        return false;
+    };
+    let mut found_remote = false;
+    for line in output.lines() {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.is_empty() {
+            continue;
+        }
+        let Some((_name, details)) = line.split_once('\t') else {
+            return false;
+        };
+        let Some(remote_url) = details
+            .strip_suffix(" (fetch)")
+            .or_else(|| details.strip_suffix(" (push)"))
+        else {
+            return false;
+        };
+        let Some(host) = remote_url_host(remote_url) else {
+            return false;
+        };
+        if !host.eq_ignore_ascii_case("github.com") {
+            return false;
+        }
+        found_remote = true;
+    }
+    found_remote
+}
+
+fn remote_url_host(remote_url: &str) -> Option<&str> {
+    let authority = if let Some((scheme, rest)) = remote_url.split_once("://") {
+        if !matches!(scheme, "https" | "http" | "ssh" | "git") {
+            return None;
+        }
+        rest.split(['/', '?', '#']).next()?
+    } else {
+        let (_, scp_path) = remote_url.rsplit_once('@')?;
+        let (host, path) = scp_path.split_once(':')?;
+        if path.is_empty() {
+            return None;
+        }
+        host
+    };
+    let host_with_optional_user = authority.rsplit('@').next()?;
+    let host = host_with_optional_user.split(':').next()?;
+    (!host.is_empty()).then_some(host)
 }
 
 fn inspect_github_workflow(

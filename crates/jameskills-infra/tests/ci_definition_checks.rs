@@ -2,22 +2,33 @@ use async_trait::async_trait;
 use jameskills_core::{
     AppError,
     application::policy::{CheckContext, CheckRequest, PolicyService},
-    domain::policy::{CheckStatus, Enforcement, parse_policy},
+    domain::{
+        ToolId,
+        policy::{CheckStatus, Enforcement, parse_policy},
+    },
     ports::ClockPort,
-    ports::process::{ApprovedEnv, ApprovedRoot, ProcessOutput, ProcessPort, ProcessSpec},
+    ports::process::{
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, ProcessOutput, ProcessPermission,
+        ProcessPort, ProcessSpec,
+    },
 };
-use jameskills_infra::fs::RepositoryPolicyCheckProvider;
+use jameskills_infra::{
+    fs::{ApprovedRepositoryTool, RepositoryPolicyCheckProvider},
+    process::{SystemProcessPort, fingerprint_executable},
+};
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
 
 const NOW: &str = "2026-10-05T12:00:00Z";
 const ENVIRONMENT: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const GITHUB_REMOTE: &[u8] = b"origin\thttps://github.com/example/repository.git (fetch)\norigin\thttps://github.com/example/repository.git (push)\n";
 const CI_POLICY: &str = r#"
 schema_version = 1
 profile = "repository-foundation"
@@ -71,11 +82,30 @@ impl TestRoot {
         ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(path.join(".github/workflows")).unwrap();
+        std::fs::create_dir_all(path.join("bin")).unwrap();
         Self(path)
     }
 
     fn workflow(&self, source: &str) {
         std::fs::write(self.0.join(".github/workflows/ci.yml"), source).unwrap();
+    }
+
+    fn git(&self) -> ApprovedRepositoryTool {
+        let path = self
+            .0
+            .join("bin")
+            .join(if cfg!(windows) { "git.exe" } else { "git" });
+        std::fs::write(&path, b"synthetic approved Git").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = std::fs::canonicalize(path).unwrap();
+        ApprovedRepositoryTool::new(
+            ApprovedExecutable::from_absolute_path(path.clone()).unwrap(),
+            fingerprint_executable(&path).unwrap(),
+        )
     }
 }
 
@@ -97,12 +127,38 @@ impl ClockPort for TestClock {
     }
 }
 
-struct NoProcess;
+struct FakeGit {
+    remote_output: Vec<u8>,
+    invocations: Mutex<Vec<Vec<OsString>>>,
+}
+
+impl FakeGit {
+    fn new(remote_output: &[u8]) -> Self {
+        Self {
+            remote_output: remote_output.to_vec(),
+            invocations: Mutex::new(Vec::new()),
+        }
+    }
+}
 
 #[async_trait]
-impl ProcessPort for NoProcess {
-    async fn run(&self, _spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
-        panic!("ci-contract must parse workflow data without spawning a process")
+impl ProcessPort for FakeGit {
+    async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
+        assert!(matches!(spec.tool_id(), ToolId::Git));
+        assert!(matches!(
+            spec.permission(),
+            ProcessPermission::ReadOnlyCheck
+        ));
+        assert!(spec.approved_executable_fingerprint().is_some());
+        self.invocations.lock().unwrap().push(spec.args().to_vec());
+        let stdout = if spec.args() == [OsString::from("--version")] {
+            b"git version 2.55.0\n".to_vec()
+        } else if spec.args() == [OsString::from("remote"), OsString::from("-v")] {
+            self.remote_output.clone()
+        } else {
+            panic!("unexpected Git argv in CI host observation")
+        };
+        Ok(ProcessOutput::new(Some(0), stdout, Vec::new()))
     }
 }
 
@@ -114,19 +170,28 @@ fn inspect_with_policy(
     root: &TestRoot,
     policy_source: &str,
 ) -> jameskills_core::domain::policy::CheckReport {
+    inspect_with_remote(root, policy_source, GITHUB_REMOTE).0
+}
+
+fn inspect_with_remote(
+    root: &TestRoot,
+    policy_source: &str,
+    remote_output: &[u8],
+) -> (jameskills_core::domain::policy::CheckReport, Arc<FakeGit>) {
     let approved_root =
         ApprovedRoot::from_absolute_path(std::fs::canonicalize(&root.0).unwrap()).unwrap();
     let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
+    let process = Arc::new(FakeGit::new(remote_output));
     let provider = RepositoryPolicyCheckProvider::new(
         approved_root,
-        None,
+        Some(root.git()),
         None,
         environment,
-        Arc::new(NoProcess),
+        process.clone(),
         Arc::new(TestClock),
         ENVIRONMENT.to_owned(),
     );
-    tokio::runtime::Builder::new_current_thread()
+    let report = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
         .block_on(
@@ -135,7 +200,8 @@ fn inspect_with_policy(
                 CheckContext::default(),
             )),
         )
-        .unwrap()
+        .unwrap();
+    (report, process)
 }
 
 const VALID_WORKFLOW: &str = r#"
@@ -182,6 +248,53 @@ fn checked_in_ci_workflow_has_the_registered_required_aggregator() {
         report.results()[0].enforcement(),
         Some(Enforcement::LocalCheck)
     ));
+}
+
+#[test]
+fn non_github_or_missing_remote_keeps_workflow_unknown() {
+    for remote_output in [
+        b"origin\thttps://gitlab.com/example/repository.git (fetch)\n".as_slice(),
+        b"origin\thttps://github.enterprise.example/example/repository.git (fetch)\n".as_slice(),
+        b"origin\thttps://github.com/example/repository.git (fetch)\nupstream\thttps://gitlab.com/example/repository.git (fetch)\n".as_slice(),
+        b"".as_slice(),
+    ] {
+        let root = TestRoot::new();
+        root.workflow(VALID_WORKFLOW);
+
+        let (report, _) = inspect_with_remote(&root, CI_POLICY, remote_output);
+
+        assert_eq!(report.results()[0].status(), CheckStatus::Unknown);
+        assert!(report.results()[0].enforcement().is_none());
+    }
+}
+
+#[test]
+fn github_remote_host_is_observed_without_leaking_url_credentials() {
+    let root = TestRoot::new();
+    root.workflow(VALID_WORKFLOW);
+    let remote =
+        b"origin\thttps://secret-marker:credential@github.com/example/repository.git (fetch)\n";
+
+    let (report, process) = inspect_with_remote(&root, CI_POLICY, remote);
+
+    assert_eq!(report.results()[0].status(), CheckStatus::Pass);
+    assert!(matches!(
+        report.results()[0].enforcement(),
+        Some(Enforcement::LocalCheck)
+    ));
+    assert!(
+        report.results()[0]
+            .evidence()
+            .iter()
+            .all(|evidence| !evidence.summary().contains("secret-marker"))
+    );
+    let invocations = process.invocations.lock().unwrap();
+    assert_eq!(invocations.len(), 2);
+    assert_eq!(invocations[0], [OsString::from("--version")]);
+    assert_eq!(
+        invocations[1],
+        [OsString::from("remote"), OsString::from("-v")]
+    );
 }
 
 #[test]
@@ -404,9 +517,85 @@ fn unregistered_workflow_permission_remains_unknown() {
 fn local_workflow_configuration_never_proves_required_ci_for_a_sha() {
     let root = TestRoot::new();
 
-    let report = inspect_with_policy(&root, CI_EVIDENCE_POLICY);
+    let (report, process) = inspect_with_remote(&root, CI_EVIDENCE_POLICY, GITHUB_REMOTE);
 
     assert_eq!(report.results()[0].status(), CheckStatus::Unknown);
     assert!(report.results()[0].enforcement().is_none());
     assert_eq!(report.strict_exit(), 1);
+    assert!(process.invocations.lock().unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "explicitly reads the selected repository's local Git remotes and workflow"]
+fn real_git_remote_and_checked_in_workflow_produce_localcheck_only() {
+    let repository_root = std::fs::canonicalize(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("infra crate has a workspace root"),
+    )
+    .unwrap();
+    let git_path = find_executable("git").expect("Git is needed for this explicit test");
+    let git = ApprovedRepositoryTool::new(
+        ApprovedExecutable::from_absolute_path(git_path.clone()).unwrap(),
+        fingerprint_executable(&git_path).unwrap(),
+    );
+    let mut environment = BTreeMap::new();
+    for key in [
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "SYSTEMROOT",
+        "WINDIR",
+        "LANG",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            environment.insert(OsString::from(key), value);
+        }
+    }
+    let provider = RepositoryPolicyCheckProvider::new(
+        ApprovedRoot::from_absolute_path(repository_root).unwrap(),
+        Some(git),
+        None,
+        ApprovedEnv::new(environment).unwrap(),
+        Arc::new(SystemProcessPort),
+        Arc::new(TestClock),
+        ENVIRONMENT.to_owned(),
+    );
+    let policy = CI_POLICY.replace("\"quality\"", "\"required-ci\"");
+    let report = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(
+            PolicyService::new(Arc::new(provider), Arc::new(TestClock)).check(CheckRequest::new(
+                parse_policy(policy.as_bytes()).unwrap(),
+                CheckContext::default(),
+            )),
+        )
+        .unwrap();
+
+    assert_eq!(report.results()[0].status(), CheckStatus::Pass);
+    assert!(matches!(
+        report.results()[0].enforcement(),
+        Some(Enforcement::LocalCheck)
+    ));
+}
+
+fn find_executable(name: &str) -> Option<PathBuf> {
+    let executable_name = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(&executable_name))
+        .find_map(|path| {
+            let metadata = std::fs::symlink_metadata(&path).ok()?;
+            if !metadata.file_type().is_file() {
+                return None;
+            }
+            std::fs::canonicalize(path).ok()
+        })
 }
