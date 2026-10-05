@@ -40,19 +40,19 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Slice actual T020.c.b.b.b.c.b — integración MSVC
+## Checkpoint T020.c.b cerrado
 
-- Commits en orden: `4ffa1e6` runner/provider Cargo; `94d9c59` contrato/fuentes Cargo; `7e876d0` checkpoint; `92ae96b` allowlist de rutas MSVC; `ef6b82d` fuentes Microsoft Learn.
+- Commits en orden: `4ffa1e6` runner/provider Cargo; `94d9c59` contrato/fuentes Cargo; `7e876d0` checkpoint; `92ae96b` allowlist de rutas MSVC; `ef6b82d` fuentes Microsoft Learn; `b0a0404` integración real pass/fail.
 - La allowlist de `ApprovedEnv` conserva exclusivamente rutas/toolchain MSVC (`INCLUDE`, `LIB`, `LIBPATH`, VS/SDK paths); `CL` y `_CL_` se rechazan porque permiten inyectar opciones.
-- GREEN integración real: iniciado bajo el `VsDevCmd` x64 de VS2022 encontrado localmente, el test ignored `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` pasa 1/1 mediante `SystemProcessPort`. El test ejecuta dos fixtures: uno que pasa y otro que falla; ambos estados/exit codes esperados se comprobaron.
-- GREEN acumulado posterior: `cargo test -p jameskills-infra --locked` suite completa; Clippy infra `-D warnings`; fmt y diff-check pasan. El fake adicional distingue Cargo no disponible (Unknown/Blocked) de test ausente (Missing/NotRun) y failure (Failed/exit).
-- T020.c.b.b.b y T020.c.b.b quedan listas para marcar; c.b.b.b.c.b está en tres archivos con commit pendiente. T020.c.b puede cerrarse después de este commit; T020.c.c será el siguiente slice productivo.
-- CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; se requiere autorización expresa antes de push/PR para lanzar CI.
+- GREEN integración real: el commit `b0a0404 test(policy-engine): verify Cargo runner with MSVC` incluye en su slice de tres archivos el `real_environment` con variables VS/SDK aprobadas y la prueba de tool missing. Desde `VsDevCmd` x64, `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` pasa 1/1 mediante `SystemProcessPort`; ejecuta y comprueba un fixture pass y otro fail.
+- GREEN acumulado: `cargo test -p jameskills-infra --locked` suite completa; Clippy infra `-D warnings`; fmt, diff-check y Commitlint local pasan. El fake distingue Cargo ausente (Unknown/Blocked), suite ausente (Missing/NotRun) y fallo (Failed/exit).
+- T020.c.b queda cerrada localmente. Próxima unidad elegible T020.c.c: driver Node/npm de suites. T020.c parent permanece abierta hasta implementarla y verificarla.
+- CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; hace falta autorización expresa antes de push/PR para lanzar CI.
 
 ## Próxima acción exacta
 
-1. Verificar formato/diff/Commitlint final, cerrar T020.c.b.b.b.c.b y crear su commit independiente de tres archivos.
-2. Cerrar T020.c.b tras revisar todas las acceptance items; continuar con T020.c.c (driver Node) sin marcar T020.c completo antes de probar ese driver.
+1. Cerrar checkpoint T020.c.b con fmt/diff-check/Commitlint y commit documental separado.
+2. Continuar T020.c.c (driver Node) como siguiente slice productivo; no marcar T020.c completo antes de probar ese driver.
 3. Solicitar autorización expresa para publicar rama/abrir PR y obtener gates remotos; nunca presentar CI local como CI remota.
 4. C006/C005 y T019 conservan sus bloqueos independientes.
 
