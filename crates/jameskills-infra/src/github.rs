@@ -11,7 +11,7 @@ use jameskills_core::{
     },
 };
 use serde::Deserialize;
-use std::{collections::BTreeSet, ffi::OsString, path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, time::Duration};
 
 const AUTH_OUTPUT_LIMIT: usize = 64 * 1024;
 const API_OUTPUT_LIMIT: usize = 256 * 1024;
@@ -419,23 +419,60 @@ impl<'a> GithubEvidenceDriver<'a> {
         } else {
             classic_pr
         };
-        let mut host_checks = BTreeSet::new();
+        let mut host_checks = BTreeMap::new();
         for rule in &rules {
-            host_checks.extend(rule.required_checks.iter().cloned());
+            for (context, app_id) in &rule.required_checks {
+                if !merge_check_source(&mut host_checks, context.clone(), *app_id) {
+                    return self.observation(
+                        "github.branch-policy",
+                        CheckStatus::Unknown,
+                        None,
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+            }
         }
-        let classic_checks = classic.and_then(parse_classic_required_checks);
-        let checks_ok = if required_checks.is_empty()
-            || required_checks
-                .iter()
-                .all(|required| host_checks.contains(required))
+        let classic_checks = match classic {
+            Some(protection) => match parse_classic_required_checks(protection) {
+                Some(checks) => Some(checks),
+                None => {
+                    return self.observation(
+                        "github.branch-policy",
+                        CheckStatus::Unknown,
+                        None,
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+            },
+            None => None,
+        };
+        if let Some(classic_checks) = &classic_checks {
+            for (context, app_id) in classic_checks {
+                if !merge_check_source(&mut host_checks, context.clone(), *app_id) {
+                    return self.observation(
+                        "github.branch-policy",
+                        CheckStatus::Unknown,
+                        None,
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+            }
+        }
+        let checks_ok = if required_checks
+            .iter()
+            .all(|required| host_checks.contains_key(required))
         {
             Some(true)
+        } else if classic_checks.is_some() {
+            Some(false)
         } else {
-            classic_checks.map(|classic_checks| {
-                required_checks.iter().all(|required| {
-                    host_checks.contains(required) || classic_checks.contains(required)
-                })
-            })
+            None
         };
         let rulesets_endpoint = format!(
             "repos/{}/{}/rulesets?includes_parents=true&targets=branch&per_page=100",
@@ -447,7 +484,9 @@ impl<'a> GithubEvidenceDriver<'a> {
             .await?
         {
             ApiResponse::Json(value) => match value.as_array() {
-                Some(rulesets) if rulesets.len() < 100 => ruleset_bypass_state(rulesets, branch),
+                Some(rulesets) if rulesets.len() < 100 => {
+                    ruleset_bypass_state(rulesets, branch, !rules.is_empty())
+                }
                 _ => BypassState::Unknown,
             },
             ApiResponse::Denied
@@ -488,6 +527,244 @@ impl<'a> GithubEvidenceDriver<'a> {
             revision,
             bypass_evidence(bypass),
         )
+    }
+
+    pub async fn check_ci_evidence(
+        &self,
+        repository: &GithubRepository,
+        revision: &RepositoryHead,
+        required_checks: &[String],
+    ) -> AppResult<CheckObservation> {
+        if required_checks.is_empty() {
+            return self.observation(
+                "github.ci-evidence",
+                CheckStatus::Unsupported,
+                None,
+                repository,
+                revision,
+                None,
+            );
+        }
+        let branch_policy = self
+            .check_branch_policy(repository, revision, "main", false, required_checks, false)
+            .await?;
+        if branch_policy.status() != CheckStatus::Pass
+            || branch_policy.enforcement() != Some(Enforcement::HostRule)
+        {
+            return self.observation(
+                "github.ci-evidence",
+                branch_policy.status(),
+                branch_policy.enforcement(),
+                repository,
+                revision,
+                None,
+            );
+        }
+
+        let Some(expected_sources) = self.required_check_sources(repository, "main").await? else {
+            return self.observation(
+                "github.ci-evidence",
+                CheckStatus::Unknown,
+                Some(Enforcement::HostRule),
+                repository,
+                revision,
+                None,
+            );
+        };
+        if required_checks
+            .iter()
+            .any(|name| !expected_sources.contains_key(name))
+        {
+            return self.observation(
+                "github.ci-evidence",
+                CheckStatus::Fail,
+                Some(Enforcement::HostRule),
+                repository,
+                revision,
+                None,
+            );
+        }
+
+        let checks_endpoint = format!(
+            "repos/{}/{}/commits/{}/check-runs?filter=latest&per_page=100",
+            repository.owner(),
+            repository.name(),
+            revision.as_str(),
+        );
+        let check_runs = match self.run_api_get(&checks_endpoint, API_OUTPUT_LIMIT).await? {
+            ApiResponse::Json(value) => parse_check_runs(&value, revision.as_str()),
+            ApiResponse::RateLimited | ApiResponse::Denied | ApiResponse::Unauthorized => {
+                return self.observation(
+                    "github.ci-evidence",
+                    CheckStatus::Blocked,
+                    Some(Enforcement::HostRule),
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+            ApiResponse::NotFound | ApiResponse::Unknown => {
+                return self.observation(
+                    "github.ci-evidence",
+                    CheckStatus::Unknown,
+                    Some(Enforcement::HostRule),
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+        };
+        let Some(check_runs) = check_runs else {
+            return self.observation(
+                "github.ci-evidence",
+                CheckStatus::Unknown,
+                Some(Enforcement::HostRule),
+                repository,
+                revision,
+                None,
+            );
+        };
+
+        let needs_status_fallback = required_checks
+            .iter()
+            .any(|name| expected_sources.get(name).is_some_and(Option::is_none));
+        let statuses = if needs_status_fallback {
+            let statuses_endpoint = format!(
+                "repos/{}/{}/commits/{}/status?per_page=100",
+                repository.owner(),
+                repository.name(),
+                revision.as_str(),
+            );
+            match self
+                .run_api_get(&statuses_endpoint, API_OUTPUT_LIMIT)
+                .await?
+            {
+                ApiResponse::Json(value) => {
+                    match parse_commit_statuses(&value, revision.as_str()) {
+                        Some(statuses) => Some(statuses),
+                        None => {
+                            return self.observation(
+                                "github.ci-evidence",
+                                CheckStatus::Unknown,
+                                Some(Enforcement::HostRule),
+                                repository,
+                                revision,
+                                None,
+                            );
+                        }
+                    }
+                }
+                ApiResponse::RateLimited | ApiResponse::Denied | ApiResponse::Unauthorized => {
+                    return self.observation(
+                        "github.ci-evidence",
+                        CheckStatus::Blocked,
+                        Some(Enforcement::HostRule),
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+                ApiResponse::NotFound | ApiResponse::Unknown => {
+                    return self.observation(
+                        "github.ci-evidence",
+                        CheckStatus::Unknown,
+                        Some(Enforcement::HostRule),
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+            }
+        } else {
+            None
+        };
+
+        let mut outcomes = Vec::with_capacity(required_checks.len());
+        for name in required_checks {
+            let Some(app_id) = expected_sources.get(name).copied() else {
+                outcomes.push(CheckOutcome::Unknown);
+                continue;
+            };
+            let run_outcome = check_run_outcome(&check_runs, revision.as_str(), name, app_id);
+            let outcome = if app_id.is_some() {
+                run_outcome
+            } else if let Some(statuses) = statuses.as_ref() {
+                combine_check_sources(run_outcome, commit_status_outcome(statuses, name))
+            } else {
+                CheckOutcome::Unknown
+            };
+            outcomes.push(outcome);
+        }
+        let status = aggregate_check_outcomes(&outcomes);
+        let enforcement = Some(Enforcement::RequiredCi);
+        self.observation(
+            "github.ci-evidence",
+            status,
+            enforcement,
+            repository,
+            revision,
+            (status == CheckStatus::Pass).then_some("current-sha-checks"),
+        )
+    }
+
+    async fn required_check_sources(
+        &self,
+        repository: &GithubRepository,
+        branch: &str,
+    ) -> AppResult<Option<BTreeMap<String, Option<i64>>>> {
+        let branch_component = encode_path_component(branch);
+        let effective_endpoint = format!(
+            "repos/{}/{}/rules/branches/{branch_component}?per_page=100",
+            repository.owner(),
+            repository.name(),
+        );
+        let effective = match self
+            .run_api_get(&effective_endpoint, API_OUTPUT_LIMIT)
+            .await?
+        {
+            ApiResponse::Json(value) => value,
+            _ => return Ok(None),
+        };
+        let Some(rules) = effective.as_array().filter(|rules| rules.len() < 100) else {
+            return Ok(None);
+        };
+        let mut sources = BTreeMap::new();
+        for rule in rules {
+            let Some(rule) = parse_effective_rule(rule) else {
+                return Ok(None);
+            };
+            for (context, app_id) in rule.required_checks {
+                if !merge_check_source(&mut sources, context, app_id) {
+                    return Ok(None);
+                }
+            }
+        }
+
+        let classic_endpoint = format!(
+            "repos/{}/{}/branches/{branch_component}/protection",
+            repository.owner(),
+            repository.name(),
+        );
+        let classic = match self
+            .run_api_get(&classic_endpoint, API_OUTPUT_LIMIT)
+            .await?
+        {
+            ApiResponse::Json(value) => value,
+            ApiResponse::NotFound => return Ok(Some(sources)),
+            _ => return Ok(None),
+        };
+        let Some(protection) = classic.as_object() else {
+            return Ok(None);
+        };
+        let Some(classic_checks) = parse_classic_required_checks(protection) else {
+            return Ok(None);
+        };
+        for (context, app_id) in classic_checks {
+            if !merge_check_source(&mut sources, context, app_id) {
+                return Ok(None);
+            }
+        }
+        Ok(Some(sources))
     }
 
     async fn supports_verified_release(&self) -> AppResult<bool> {
@@ -729,9 +1006,191 @@ fn parse_api_response(output: &ProcessOutput, output_limit: usize) -> ApiRespons
     serde_json::from_str(body).map_or(ApiResponse::Unknown, ApiResponse::Json)
 }
 
+fn parse_check_runs(value: &serde_json::Value, revision: &str) -> Option<CheckRunList> {
+    let list = serde_json::from_value::<CheckRunList>(value.clone()).ok()?;
+    if list.check_runs.len() >= 100 || list.total_count > list.check_runs.len() as u64 {
+        return None;
+    }
+    if list.check_runs.iter().any(|run| {
+        run.head_sha.len() != revision.len()
+            || !run.head_sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        return None;
+    }
+    Some(list)
+}
+
+fn parse_commit_statuses(value: &serde_json::Value, revision: &str) -> Option<CommitStatusList> {
+    let list = serde_json::from_value::<CommitStatusList>(value.clone()).ok()?;
+    if !list.sha.eq_ignore_ascii_case(revision)
+        || list.statuses.len() >= 100
+        || list.total_count > list.statuses.len() as u64
+    {
+        return None;
+    }
+    Some(list)
+}
+
+fn check_run_outcome(
+    list: &CheckRunList,
+    revision: &str,
+    required_name: &str,
+    required_app: Option<i64>,
+) -> CheckOutcome {
+    let candidates = list
+        .check_runs
+        .iter()
+        .filter(|run| run.name == required_name)
+        .filter(|run| {
+            required_app.is_none_or(|app_id| {
+                run.app
+                    .as_ref()
+                    .and_then(|app| app.id)
+                    .is_some_and(|observed| observed == app_id)
+            })
+        })
+        .filter(|run| run.head_sha.eq_ignore_ascii_case(revision))
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        if required_app.is_some()
+            && list
+                .check_runs
+                .iter()
+                .any(|run| run.name == required_name && run.head_sha.eq_ignore_ascii_case(revision))
+        {
+            return CheckOutcome::Failed;
+        }
+        if list
+            .check_runs
+            .iter()
+            .any(|run| run.name == required_name && !run.head_sha.eq_ignore_ascii_case(revision))
+        {
+            return CheckOutcome::Stale;
+        }
+        return CheckOutcome::Missing;
+    }
+    let latest = if candidates.len() == 1 {
+        candidates[0]
+    } else {
+        let Some(latest_started_at) = candidates
+            .iter()
+            .filter_map(|run| run.started_at.as_deref())
+            .max()
+        else {
+            return CheckOutcome::Unknown;
+        };
+        let latest = candidates
+            .into_iter()
+            .filter(|run| run.started_at.as_deref() == Some(latest_started_at))
+            .collect::<Vec<_>>();
+        if latest.len() != 1 {
+            return CheckOutcome::Unknown;
+        }
+        latest[0]
+    };
+    match latest.status.as_str() {
+        "queued" | "in_progress" | "waiting" | "requested" | "pending" => CheckOutcome::Pending,
+        "completed" if latest.conclusion.as_deref() == Some("success") => CheckOutcome::Passed,
+        "completed" if latest.conclusion.is_some() => CheckOutcome::Failed,
+        _ => CheckOutcome::Unknown,
+    }
+}
+
+fn commit_status_outcome(list: &CommitStatusList, required_name: &str) -> CheckOutcome {
+    // GitHub returns commit statuses in reverse chronological order.
+    let Some(latest) = list
+        .statuses
+        .iter()
+        .find(|status| status.context == required_name)
+    else {
+        return CheckOutcome::Missing;
+    };
+    match latest.state.as_str() {
+        "success" => CheckOutcome::Passed,
+        "pending" => CheckOutcome::Pending,
+        "failure" | "error" => CheckOutcome::Failed,
+        _ => CheckOutcome::Unknown,
+    }
+}
+
+fn combine_check_sources(runs: CheckOutcome, statuses: CheckOutcome) -> CheckOutcome {
+    match (runs, statuses) {
+        (CheckOutcome::Failed | CheckOutcome::Stale, _)
+        | (_, CheckOutcome::Failed | CheckOutcome::Stale) => CheckOutcome::Failed,
+        (CheckOutcome::Unknown, _) | (_, CheckOutcome::Unknown) => CheckOutcome::Unknown,
+        (CheckOutcome::Pending, _) | (_, CheckOutcome::Pending) => CheckOutcome::Pending,
+        (CheckOutcome::Passed, CheckOutcome::Missing)
+        | (CheckOutcome::Missing, CheckOutcome::Passed)
+        | (CheckOutcome::Passed, CheckOutcome::Passed) => CheckOutcome::Passed,
+        (CheckOutcome::Missing, CheckOutcome::Missing) => CheckOutcome::Missing,
+    }
+}
+
+fn aggregate_check_outcomes(outcomes: &[CheckOutcome]) -> CheckStatus {
+    if outcomes
+        .iter()
+        .any(|outcome| matches!(outcome, CheckOutcome::Failed | CheckOutcome::Stale))
+    {
+        CheckStatus::Fail
+    } else if outcomes.contains(&CheckOutcome::Unknown) {
+        CheckStatus::Unknown
+    } else if outcomes
+        .iter()
+        .any(|outcome| matches!(outcome, CheckOutcome::Pending | CheckOutcome::Missing))
+    {
+        CheckStatus::Blocked
+    } else {
+        CheckStatus::Pass
+    }
+}
+
 struct EffectiveRule {
     pull_request: bool,
-    required_checks: BTreeSet<String>,
+    required_checks: BTreeMap<String, Option<i64>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckOutcome {
+    Passed,
+    Failed,
+    Pending,
+    Missing,
+    Stale,
+    Unknown,
+}
+
+#[derive(Deserialize)]
+struct CheckRunList {
+    total_count: u64,
+    check_runs: Vec<CheckRunItem>,
+}
+
+#[derive(Deserialize)]
+struct CheckRunItem {
+    head_sha: String,
+    name: String,
+    status: String,
+    conclusion: Option<String>,
+    started_at: Option<String>,
+    app: Option<CheckRunApp>,
+}
+
+#[derive(Deserialize)]
+struct CheckRunApp {
+    id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct CommitStatusList {
+    sha: String,
+    total_count: u64,
+    statuses: Vec<CommitStatusItem>,
+}
+
+#[derive(Deserialize)]
+struct CommitStatusItem {
+    context: String,
+    state: String,
 }
 
 fn parse_effective_rule(value: &serde_json::Value) -> Option<EffectiveRule> {
@@ -740,20 +1199,25 @@ fn parse_effective_rule(value: &serde_json::Value) -> Option<EffectiveRule> {
     if rule_type == "pull_request" {
         return Some(EffectiveRule {
             pull_request: true,
-            required_checks: BTreeSet::new(),
+            required_checks: BTreeMap::new(),
         });
     }
     if rule_type != "required_status_checks" {
         return Some(EffectiveRule {
             pull_request: false,
-            required_checks: BTreeSet::new(),
+            required_checks: BTreeMap::new(),
         });
     }
     let parameters = object.get("parameters")?.as_object()?;
     let checks = parameters.get("required_status_checks")?.as_array()?;
-    let mut required_checks = BTreeSet::new();
+    let mut required_checks = BTreeMap::new();
     for check in checks {
-        required_checks.insert(check.as_object()?.get("context")?.as_str()?.to_owned());
+        let check = check.as_object()?;
+        let context = check.get("context")?.as_str()?.to_owned();
+        let integration_id = optional_i64(check.get("integration_id"))?;
+        if !merge_check_source(&mut required_checks, context, integration_id) {
+            return None;
+        }
     }
     Some(EffectiveRule {
         pull_request: false,
@@ -763,24 +1227,64 @@ fn parse_effective_rule(value: &serde_json::Value) -> Option<EffectiveRule> {
 
 fn parse_classic_required_checks(
     protection: &serde_json::Map<String, serde_json::Value>,
-) -> Option<BTreeSet<String>> {
+) -> Option<BTreeMap<String, Option<i64>>> {
     let value = protection.get("required_status_checks")?;
     if value.is_null() {
-        return Some(BTreeSet::new());
+        return Some(BTreeMap::new());
     }
     let checks = value.as_object()?;
-    let mut names = BTreeSet::new();
+    let mut sources = BTreeMap::new();
     if let Some(contexts) = checks.get("contexts") {
         for context in contexts.as_array()? {
-            names.insert(context.as_str()?.to_owned());
+            if !merge_check_source(&mut sources, context.as_str()?.to_owned(), None) {
+                return None;
+            }
         }
     }
     if let Some(contexts) = checks.get("checks") {
         for check in contexts.as_array()? {
-            names.insert(check.as_object()?.get("context")?.as_str()?.to_owned());
+            let check = check.as_object()?;
+            let context = check.get("context")?.as_str()?.to_owned();
+            let app_id = optional_i64(check.get("app_id"))?;
+            if !merge_check_source(&mut sources, context, app_id) {
+                return None;
+            }
         }
     }
-    Some(names)
+    Some(sources)
+}
+
+fn optional_i64(value: Option<&serde_json::Value>) -> Option<Option<i64>> {
+    match value {
+        None | Some(serde_json::Value::Null) => Some(None),
+        Some(serde_json::Value::Number(value)) => value.as_i64().and_then(|value| match value {
+            -1 => Some(None), // Classic branch rules explicitly allow any check provider.
+            1.. => Some(Some(value)),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn merge_check_source(
+    checks: &mut BTreeMap<String, Option<i64>>,
+    context: String,
+    app_id: Option<i64>,
+) -> bool {
+    match checks.get_mut(&context) {
+        Some(current) => match (*current, app_id) {
+            (Some(current), Some(next)) if current != next => false,
+            (None, Some(next)) => {
+                *current = Some(next);
+                true
+            }
+            _ => true,
+        },
+        None => {
+            checks.insert(context, app_id);
+            true
+        }
+    }
 }
 
 fn classic_bypass_state(protection: &serde_json::Map<String, serde_json::Value>) -> BypassState {
@@ -830,8 +1334,13 @@ fn classic_bypass_state(protection: &serde_json::Map<String, serde_json::Value>)
     }
 }
 
-fn ruleset_bypass_state(rulesets: &[serde_json::Value], branch: &str) -> BypassState {
+fn ruleset_bypass_state(
+    rulesets: &[serde_json::Value],
+    branch: &str,
+    effective_rules_observed: bool,
+) -> BypassState {
     let mut state = BypassState::NoneVisible;
+    let mut applicable_ruleset_observed = false;
     for ruleset in rulesets {
         let Some(object) = ruleset.as_object() else {
             return BypassState::Unknown;
@@ -859,6 +1368,7 @@ fn ruleset_bypass_state(rulesets: &[serde_json::Value], branch: &str) -> BypassS
             Some(true) => {}
             None => return BypassState::Unknown,
         }
+        applicable_ruleset_observed = true;
         let Some(actors) = object
             .get("bypass_actors")
             .and_then(serde_json::Value::as_array)
@@ -881,7 +1391,11 @@ fn ruleset_bypass_state(rulesets: &[serde_json::Value], branch: &str) -> BypassS
             _ => return BypassState::Unknown,
         }
     }
-    state
+    if effective_rules_observed && !applicable_ruleset_observed {
+        BypassState::Unknown
+    } else {
+        state
+    }
 }
 
 fn ruleset_applies_to_branch(conditions: Option<&serde_json::Value>, branch: &str) -> Option<bool> {
@@ -1178,7 +1692,7 @@ mod tests {
             "current_user_can_bypass": "never"
         });
         assert_eq!(
-            ruleset_bypass_state(std::slice::from_ref(&no_bypass), "main"),
+            ruleset_bypass_state(std::slice::from_ref(&no_bypass), "main", true),
             BypassState::NoneVisible
         );
         assert_eq!(
@@ -1194,7 +1708,7 @@ mod tests {
             "current_user_can_bypass": "always"
         });
         assert_eq!(
-            ruleset_bypass_state(std::slice::from_ref(&bypass), "main"),
+            ruleset_bypass_state(std::slice::from_ref(&bypass), "main", true),
             BypassState::Present
         );
 
@@ -1205,12 +1719,16 @@ mod tests {
             "current_user_can_bypass": "never"
         });
         assert_eq!(
-            ruleset_bypass_state(std::slice::from_ref(&hidden_bypass), "main"),
+            ruleset_bypass_state(std::slice::from_ref(&hidden_bypass), "main", true),
             BypassState::Unknown
         );
         assert_eq!(
-            ruleset_bypass_state(std::slice::from_ref(&bypass), "release"),
+            ruleset_bypass_state(std::slice::from_ref(&bypass), "release", false),
             BypassState::NoneVisible
+        );
+        assert_eq!(
+            ruleset_bypass_state(&[], "main", true),
+            BypassState::Unknown
         );
 
         let classic_no_bypass = serde_json::json!({

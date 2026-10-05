@@ -41,7 +41,11 @@ el `RepositoryHead` hexadecimal leído localmente por Git y verifica cada
 `head_sha` devuelto.
 
 Check runs (`completed` + `success`) y legacy commit statuses (`success`) son
-fuentes diferentes. `pending`, ausencia de check, conclusión fallida, SHA
+fuentes diferentes. Si la regla host vincula un context a `integration_id` o
+`app_id`, solo un check run emitido por esa misma app satisface el context; un
+commit status o check de otra app no sustituye la fuente restringida. Contexts
+sin app binding pueden observarse por run o status, pero contradicciones entre
+fuentes son Fail/Unknown. `pending`, ausencia de check, conclusión fallida, SHA
 distinto, permiso insuficiente o respuesta truncada nunca son Pass. La lectura
 de un successful check sin regla host obligatoria tampoco satisface
 `RequiredCi`. Sin permiso para inspeccionar el estado o el enforcement, el

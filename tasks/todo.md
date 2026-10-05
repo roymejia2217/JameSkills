@@ -1060,9 +1060,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T023 — Validar rulesets, PR y estado CI de main
 
-- [ ] **T023 completada y verificada**
+- [x] **T023 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T021, T022. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T021, T022. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** check_main_protection, check_pull_request_policy, check_required_status_checks; interpretar branch protection/rulesets y effective ref según API oficial. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1075,18 +1075,19 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - Evidencia T023.a: RED `cargo test -p jameskills-infra --locked --test host_protection_checks explicit_empty_effective_rules_and_classic_protection_fail_main_policy -- --exact` devolvió Unknown porque el provider no manejaba `github-branch-policy`. GREEN enfocado host_protection_checks 4/4: regla ausente explícitamente observada falla; PR + required context efectivos visibles pasan como `HostRule`; ruleset activo puede demostrar reglas positivas aunque classic protection 404 deje bypass Unknown.
 - [x] **T023.b — Evaluar bypass actor y visibilidad de privilegios** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Con parents efectivos, classic enforce_admins/PR allowances y ruleset bypass_actors; campo oculto siempre Unknown cuando require_no_bypass.
 - Evidencia T023.b: unit `bypass_data_is_tri_state_and_branch_scoped` 1/1, host contract tests 4/4. No-bypass con visibilidad completa permite HostRule Pass; actor visible o admin bypass falla sin revelar identidad; bypassee ausente/wildcard/default-branch irresoluble produce Unknown. La evidencia informa none-visible/present/unknown sin exponer actors.
-- [ ] **T023.c — Comprobar required checks para el HEAD exacto** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. GitHub `check-runs` y commit statuses para SHA exacto; rule host mandatory + completions successful para RequiredCi.
+- [x] **T023.c — Comprobar required checks para el HEAD exacto** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. GitHub `check-runs` y commit statuses para SHA exacto; rule host mandatory + completions successful para RequiredCi.
+- Evidencia T023.c: RED `ci_evidence_requires_active_host_rule_and_successful_check_for_exact_head_sha` daba Unknown porque `ci-evidence` no estaba dispatch; GREEN fixtures verifican regla activa, SHA exacto, check terminal success y `app_id` cuando el host lo vincula. SHA obsoleto/app incorrecta/sin regla Fail; pending Blocked; status legacy solo para SHA exacto y context sin app binding. `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; host_protection_checks 11/11 (+ 1 opt-in ignored), Clippy workspace `-D warnings`, fmt y diff-check pasaron. Opt-in real read-only pasó 1/1 y comprueba la evidencia ligada al SHA observado del checkout; no afirma Pass de CI para SHA sin resultados publicados.
 
 **Archivos por incremento:** T023.src/a/b/c detallan cortes de <=5 archivos; los slices a/b comparten cinco paths y quedan agrupados en un commit local; el primer slice no modifica domain/core signatures.
 
 **Aceptación:**
-- [ ] Separar autoridad exigida/observada: RequiredCi requiere host regla mandatory y check actualSHA; HostRule exige configuración efectiva incluyendo classic+rulesets+bypass.
-- [ ] Excepciones/bypass y privilegios se exponen sin afirmar main absolutamente inaccesible.
-- [ ] Proveedor unsupported ofrece guía documentada; cambios remotos no se aplican sin acción y autorización explícitas.
+- [x] Separar autoridad exigida/observada: RequiredCi requiere host regla mandatory y check actualSHA; HostRule exige configuración efectiva incluyendo classic+rulesets+bypass.
+- [x] Excepciones/bypass y privilegios se exponen sin afirmar main absolutamente inaccesible.
+- [x] Proveedor unsupported ofrece guía documentada; cambios remotos no se aplican sin acción y autorización explícitas.
 
 **Verificación:** cargo test -p jameskills-infra --locked host_protection_checks con fixtures classic branch protection+rulesets vía gh api; integración read-only opt-in fecha/SHA/permisos saneados.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** slices T023.src/a/b/c documentados arriba. Gates acumulados/workspace pasan localmente en Windows MSVC; commit de implementación pendiente. No atribuir CI remoto posterior a `c976f02` hasta existir un run asociado al SHA final.
 
 <a id="t024"></a>
 
