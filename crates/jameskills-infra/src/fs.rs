@@ -66,6 +66,7 @@ const REGISTERED_GITHUB_PERMISSIONS: &[&str] = &[
     "vulnerability-alerts",
 ];
 const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
+const MAX_RELEASE_VERSION_BYTES: usize = 64;
 const MAX_NPM_VERSION_BYTES: usize = 1024;
 const MAX_NPM_OUTPUT_BYTES: usize = 64 * 1024;
 const REVIEWED_NPM_VERSION: &str = "11.16.0";
@@ -2463,6 +2464,98 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
                     .check_ci_evidence(&repository, &head, required_checks)
                     .await
             }
+            Check::ReleaseContract {
+                require_changelog,
+                require_checksums,
+                require_signature,
+            } => {
+                let project_root = match std::fs::canonicalize(root.path()) {
+                    Ok(path) if path.is_dir() => path,
+                    _ => return Ok(CheckObservation::unknown()),
+                };
+                let project_version = match check_version_consistency(&project_root) {
+                    Ok(version) => version,
+                    Err(CheckStatus::Fail) => {
+                        return release_local_observation(
+                            CheckStatus::Fail,
+                            "project-version-conflict",
+                            &observed_at,
+                            &self.environment_fingerprint,
+                        );
+                    }
+                    Err(status) => {
+                        return release_local_observation(
+                            status,
+                            "project-version-unavailable",
+                            &observed_at,
+                            &self.environment_fingerprint,
+                        );
+                    }
+                };
+                if *require_changelog {
+                    let changelog = check_release_changelog(&project_root, &project_version);
+                    if changelog != CheckStatus::Pass {
+                        return release_local_observation(
+                            changelog,
+                            "changelog-version-check",
+                            &observed_at,
+                            &self.environment_fingerprint,
+                        );
+                    }
+                }
+                let Some(git) = self.git.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let Some(gh) = self.github.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let repository_root = match std::fs::canonicalize(&self.root) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let repository = match observe_github_remote_host(
+                    &repository_root,
+                    Some(git),
+                    &self.environment,
+                    self.process.as_ref(),
+                    &observed_at,
+                )
+                .await?
+                {
+                    Ok(Some(repository)) => repository,
+                    Ok(None) | Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let head = match observe_repository_head(
+                    &repository_root,
+                    git,
+                    &self.environment,
+                    self.process.as_ref(),
+                )
+                .await?
+                {
+                    Some(head) => head,
+                    None => return Ok(CheckObservation::unknown()),
+                };
+                let github_root = ApprovedRoot::from_absolute_path(repository_root)
+                    .map_err(AppError::Validation)?;
+                let driver = GithubEvidenceDriver::new(
+                    gh,
+                    &github_root,
+                    &self.environment,
+                    self.process.as_ref(),
+                    self.clock.as_ref(),
+                    &self.environment_fingerprint,
+                );
+                driver
+                    .check_release_policy(
+                        &repository,
+                        &head,
+                        &project_version,
+                        *require_checksums,
+                        *require_signature,
+                    )
+                    .await
+            }
             Check::ReadmeSections { path, headings } => filesystem.check_readme_sections(
                 &root,
                 path,
@@ -3539,6 +3632,188 @@ fn observation(
     CheckObservation::new(status, enforcement, evidence).map_err(AppError::Validation)
 }
 
+fn release_local_observation(
+    status: CheckStatus,
+    detail: &'static str,
+    observed_at: &str,
+    environment_fingerprint: &str,
+) -> AppResult<CheckObservation> {
+    let evidence = CheckEvidence::new(
+        "repo.release-contract",
+        observed_at,
+        None,
+        environment_fingerprint,
+        format!("{detail};result={}", release_status_code(status)),
+        None,
+    )
+    .map_err(AppError::Validation)?;
+    observation(status, Some(Enforcement::LocalCheck), vec![evidence])
+}
+
+fn check_version_consistency(root: &Path) -> Result<semver::Version, CheckStatus> {
+    let cargo = release_manifest_version(root, "Cargo.toml", ReleaseManifest::Cargo)?;
+    let node = release_manifest_version(root, "package.json", ReleaseManifest::Node)?;
+    match (cargo, node) {
+        (Some(cargo), Some(node)) if cargo == node => Ok(cargo),
+        (Some(_), Some(_)) => Err(CheckStatus::Fail),
+        (Some(version), None) | (None, Some(version)) => Ok(version),
+        (None, None) => Err(CheckStatus::Unknown),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReleaseManifest {
+    Cargo,
+    Node,
+}
+
+#[derive(serde::Deserialize)]
+struct NodeProjectVersion {
+    #[serde(default, deserialize_with = "deserialize_release_version")]
+    version: Option<String>,
+}
+
+fn deserialize_release_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <String as serde::Deserialize>::deserialize(deserializer).map(Some)
+}
+
+fn release_manifest_version(
+    root: &Path,
+    filename: &str,
+    kind: ReleaseManifest,
+) -> Result<Option<semver::Version>, CheckStatus> {
+    let Ok(path) = PortablePath::new(filename.to_owned()) else {
+        return Err(CheckStatus::Unknown);
+    };
+    let bytes = match read_repository_document(root, &path) {
+        ReadmeFile::Missing => return Ok(None),
+        ReadmeFile::Blocked => return Err(CheckStatus::Blocked),
+        ReadmeFile::Bytes(bytes) => bytes,
+    };
+    let version = match kind {
+        ReleaseManifest::Cargo => {
+            let Ok(source) = std::str::from_utf8(&bytes) else {
+                return Err(CheckStatus::Unknown);
+            };
+            let Ok(manifest) = toml::from_str::<toml::Value>(source) else {
+                return Err(CheckStatus::Unknown);
+            };
+            let package_version = manifest
+                .get("package")
+                .and_then(|package| package.get("version"));
+            let version = match package_version {
+                Some(toml::Value::String(version)) => Some(version.as_str()),
+                Some(toml::Value::Table(inherited))
+                    if inherited.get("workspace").and_then(toml::Value::as_bool) == Some(true) =>
+                {
+                    let Some(version) = manifest
+                        .get("workspace")
+                        .and_then(|workspace| workspace.get("package"))
+                        .and_then(|package| package.get("version"))
+                        .and_then(toml::Value::as_str)
+                    else {
+                        return Err(CheckStatus::Unknown);
+                    };
+                    Some(version)
+                }
+                Some(_) => return Err(CheckStatus::Unknown),
+                None => {
+                    if manifest.get("package").is_some() {
+                        return Err(CheckStatus::Unknown);
+                    }
+                    manifest
+                        .get("workspace")
+                        .and_then(|workspace| workspace.get("package"))
+                        .and_then(|package| package.get("version"))
+                        .and_then(toml::Value::as_str)
+                }
+            };
+            let Some(version) = version else {
+                return Ok(None);
+            };
+            parse_project_semver(version)?
+        }
+        ReleaseManifest::Node => {
+            let Ok(manifest) = serde_json::from_slice::<NodeProjectVersion>(&bytes) else {
+                return Err(CheckStatus::Unknown);
+            };
+            let Some(version) = manifest.version else {
+                return Ok(None);
+            };
+            parse_project_semver(&version)?
+        }
+    };
+    Ok(Some(version))
+}
+
+fn check_release_changelog(root: &Path, expected: &semver::Version) -> CheckStatus {
+    let Ok(path) = PortablePath::new("CHANGELOG.md".to_owned()) else {
+        return CheckStatus::Unknown;
+    };
+    let bytes = match read_repository_document(root, &path) {
+        ReadmeFile::Missing => return CheckStatus::Fail,
+        ReadmeFile::Blocked => return CheckStatus::Blocked,
+        ReadmeFile::Bytes(bytes) => bytes,
+    };
+    let Ok(source) = std::str::from_utf8(&bytes) else {
+        return CheckStatus::Fail;
+    };
+    let Ok(markdown::mdast::Node::Root(document)) =
+        markdown::to_mdast(source, &markdown::ParseOptions::default())
+    else {
+        return CheckStatus::Unknown;
+    };
+    let has_release_notes = document.children.iter().enumerate().any(|(index, node)| {
+        let markdown::mdast::Node::Heading(heading_node) = node else {
+            return false;
+        };
+        let heading = markdown_text(node);
+        let Some(token) = heading.split_whitespace().next() else {
+            return false;
+        };
+        let token = token.trim_matches(['[', ']']);
+        let version = token.strip_prefix('v').unwrap_or(token);
+        semver::Version::parse(version).is_ok_and(|version| &version == expected)
+            && document
+                .children
+                .iter()
+                .skip(index + 1)
+                .take_while(|next| match next {
+                    markdown::mdast::Node::Heading(next_heading) => {
+                        next_heading.depth > heading_node.depth
+                    }
+                    _ => true,
+                })
+                .any(markdown_node_has_content)
+    });
+    if has_release_notes {
+        CheckStatus::Pass
+    } else {
+        CheckStatus::Fail
+    }
+}
+
+fn parse_project_semver(value: &str) -> Result<semver::Version, CheckStatus> {
+    if value.len() > MAX_RELEASE_VERSION_BYTES {
+        return Err(CheckStatus::Unknown);
+    }
+    semver::Version::parse(value).map_err(|_| CheckStatus::Unknown)
+}
+
+fn release_status_code(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "p",
+        CheckStatus::Fail => "f",
+        CheckStatus::Blocked => "b",
+        CheckStatus::Unknown => "u",
+        CheckStatus::Unsupported => "x",
+        CheckStatus::NotApplicable => "n",
+    }
+}
+
 fn readme_has_required_sections(source: &str, required_headings: &[String]) -> bool {
     use markdown::mdast::Node;
 
@@ -4084,6 +4359,16 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static BUNDLE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn release_version_reads_workspace_package_and_ignores_versionless_governance_manifest() {
+        let repository_root =
+            std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).unwrap();
+        let expected = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+        assert!(
+            check_version_consistency(&repository_root).is_ok_and(|version| version == expected)
+        );
+    }
 
     struct TempBundle {
         root: PathBuf,

@@ -1093,9 +1093,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T024 — Validar versiones, tags y releases
 
-- [ ] **T024 completada y verificada**
+- [x] **T024 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T022. **Estado:** en curso (T024.src completa; T024.a activa).
+**Módulo:** `policy-engine`. **Dependencias:** T018, T022. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** check_version_consistency, check_release_artifacts, check_release_policy; semver/tag/changelog/artifacts/signature metadata según requisito. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1104,19 +1104,21 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 **Descomposición por fuente y límite de archivos:**
 - [x] **T024.src — Verificar contrato de releases y tags** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Diferenciar release publicada de Git ref/tag, fuente de versión de proyecto, digest de asset y metadata de firma.
 - Evidencia T024.src: GitHub release-list no incluye tags sin release y los drafts pueden depender de push; página llena de 100 es potencialmente truncada. `assets[].digest` nullable es metadata SHA-256 reportada, no verificación local del contenido. Release-by-tag sólo devuelve publicación; 403/404 quedan ambiguos. GET git ref separa lightweight/annotated; GET annotated tag expone `verification.verified/reason`. La versión se lee de Cargo workspace/package y/o Node package.json, nunca de la versión de skill; fuentes registradas en `docs/SOURCES.md`.
-- [ ] **T024.a — Conectar validación versionada y evidencia read-only** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/tests/release_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Reutiliza los flags tipados ya existentes de `Check::ReleaseContract`; el slice no requiere cambiar el contrato público de core/application.
-- RED T024.a: `cargo test -p jameskills-infra --locked --test release_checks current_project_version_requires_a_published_matching_release_with_asset_digest -- --exact` compila y falla por comportamiento ausente: `Unknown` en lugar de Pass porque el provider no dispatcha `ReleaseContract`. Completar fixtures para mismatch/prerelease/ausencia-permiso/digest/versiones/changelog/firma.
+- [x] **T024.a — Conectar validación versionada y evidencia read-only** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/tests/release_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Reutiliza los flags tipados ya existentes de `Check::ReleaseContract`; el slice no requiere cambiar el contrato público de core/application.
+- RED T024.a: `cargo test -p jameskills-infra --locked --test release_checks current_project_version_requires_a_published_matching_release_with_asset_digest -- --exact` compiló y falló por comportamiento ausente: `Unknown` en lugar de Pass porque el provider aún no dispatchaba `ReleaseContract`.
+- GREEN T024.a: `cargo test -p jameskills-infra --locked --test release_checks`: 12 passed, 1 opt-in ignored. Fakes cubren tag mismatch, draft/prerelease, release ausente vs 403/404, página de 100 sin paginación, digest nulo/ausente, version mismatch, manifest JSON duplicado, changelog vacío/incorrecto, tag verificado/unsigned/lightweight y flags de artefacto desactivados. La prueba inicial real tuvo root equivocado (cwd del binario del test); el opt-in se corrigió a la raíz del workspace (`CARGO_MANIFEST_DIR/../..`) y el GET read-only de release pasó 1/1 sin exigir que exista una release publicada.
+- Verificación acumulada: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `--all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt y diff-check pasaron. Release evidence local queda `LocalCheck`, nunca afirma trusted signer ni bytes re-hasheados.
 
 **Semántica acotada prevista para T024.a:** versión fuente es el paquete/proyecto del root aprobado (Cargo workspace/package y package.json); si coexisten deben coincidir. Aceptar tag SemVer exacta con o sin prefijo `v`; no inspeccionar `SkillManifest.semantic_version`. Consultar releases publicadas con páginas limitadas; un tag suelto no prueba publicación. Verificar sólo SHA-256 digest reportado para cada asset (sin descargar/re-hashear), y tag anotado GitHub-verificado sólo cuando `require_signature=true`. Pasos se exponen por guidance del requirement; nunca crear/taggear/publicar.
 
 **Aceptación:**
-- [ ] Versionado de skill y release de repo no se confunden.
-- [ ] Solo pedir criterios declarados por perfil; presencia de tag no prueba publicación.
-- [ ] Explicar pasos de release sin crear tags/publicar durante check.
+- [x] Versionado de skill y release de repo no se confunden.
+- [x] Solo pedir criterios declarados por perfil; presencia de tag no prueba publicación.
+- [x] Explicar pasos de release sin crear tags/publicar durante check.
 
 **Verificación:** cargo test -p jameskills-infra --locked release_checks; Git local y gh API JSON fake cubren casos; host real solo read-only autorizado.
 
-**Evidencia al ejecutar:** fuentes T024.src listas. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), gates, integración real read-only opcional y commit; no atribuir release publicada por tag.
+**Evidencia al ejecutar:** fuentes T024.src y RED/GREEN T024.a arriba. Gates pasan en Windows MSVC. Implementación/commit pendiente; integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
 
 ## C008 — Checkpoint tras T022–T024
 

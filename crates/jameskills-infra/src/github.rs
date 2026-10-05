@@ -707,6 +707,233 @@ impl<'a> GithubEvidenceDriver<'a> {
         )
     }
 
+    pub(crate) async fn check_release_policy(
+        &self,
+        repository: &GithubRepository,
+        revision: &RepositoryHead,
+        project_version: &semver::Version,
+        require_checksums: bool,
+        require_signature: bool,
+    ) -> AppResult<CheckObservation> {
+        let identity = self.identify_repository(repository, revision).await?;
+        if identity.status() != CheckStatus::Pass {
+            return self.release_observation(
+                repository,
+                project_version,
+                identity.status(),
+                "u",
+                "u",
+                "u",
+            );
+        }
+
+        let releases_endpoint = format!(
+            "repos/{}/{}/releases?per_page=100",
+            repository.owner(),
+            repository.name(),
+        );
+        let releases = match self
+            .run_api_get(&releases_endpoint, API_OUTPUT_LIMIT)
+            .await?
+        {
+            ApiResponse::Json(value) => match parse_release_list(&value) {
+                Some(releases) if releases.len() < 100 => releases,
+                _ => {
+                    return self.release_observation(
+                        repository,
+                        project_version,
+                        CheckStatus::Unknown,
+                        "u",
+                        "u",
+                        "u",
+                    );
+                }
+            },
+            ApiResponse::Denied | ApiResponse::Unauthorized | ApiResponse::RateLimited => {
+                return self.release_observation(
+                    repository,
+                    project_version,
+                    CheckStatus::Blocked,
+                    "u",
+                    "u",
+                    "u",
+                );
+            }
+            ApiResponse::NotFound | ApiResponse::Unknown => {
+                return self.release_observation(
+                    repository,
+                    project_version,
+                    CheckStatus::Unknown,
+                    "u",
+                    "u",
+                    "u",
+                );
+            }
+        };
+
+        let matches = releases
+            .into_iter()
+            .filter(|release| {
+                release_tag_version(&release.tag_name).as_ref() == Some(project_version)
+            })
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            return self.release_observation(
+                repository,
+                project_version,
+                CheckStatus::Fail,
+                "u",
+                "u",
+                "u",
+            );
+        }
+        if matches.len() != 1 {
+            return self.release_observation(
+                repository,
+                project_version,
+                CheckStatus::Unknown,
+                "u",
+                "u",
+                "u",
+            );
+        }
+        let release = &matches[0];
+        if release.draft || release.prerelease || !project_version.pre.is_empty() {
+            return self.release_observation(
+                repository,
+                project_version,
+                CheckStatus::Fail,
+                "u",
+                "u",
+                "u",
+            );
+        }
+
+        let digest_status = if require_checksums {
+            check_release_artifacts(&release.assets)
+        } else {
+            CheckStatus::Pass
+        };
+        let signature_status = if require_signature {
+            self.verify_release_tag_signature(repository, &release.tag_name)
+                .await?
+        } else {
+            CheckStatus::Pass
+        };
+        let status = combine_release_status(&[digest_status, signature_status]);
+        self.release_observation(
+            repository,
+            project_version,
+            status,
+            "p",
+            digest_evidence_code(digest_status, require_checksums),
+            signature_evidence_code(signature_status, require_signature),
+        )
+    }
+
+    async fn verify_release_tag_signature(
+        &self,
+        repository: &GithubRepository,
+        tag: &str,
+    ) -> AppResult<CheckStatus> {
+        let ref_endpoint = format!(
+            "repos/{}/{}/git/ref/tags/{}",
+            repository.owner(),
+            repository.name(),
+            encode_path_component(tag),
+        );
+        let reference = match self.run_api_get(&ref_endpoint, API_OUTPUT_LIMIT).await? {
+            ApiResponse::Json(value) => value,
+            ApiResponse::Denied | ApiResponse::Unauthorized | ApiResponse::RateLimited => {
+                return Ok(CheckStatus::Blocked);
+            }
+            ApiResponse::NotFound | ApiResponse::Unknown => return Ok(CheckStatus::Unknown),
+        };
+        let Some(object) = reference
+            .get("object")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return Ok(CheckStatus::Unknown);
+        };
+        match object.get("type").and_then(serde_json::Value::as_str) {
+            Some("commit") => return Ok(CheckStatus::Fail),
+            Some("tag") => {}
+            _ => return Ok(CheckStatus::Unknown),
+        }
+        let Some(tag_sha) = object.get("sha").and_then(serde_json::Value::as_str) else {
+            return Ok(CheckStatus::Unknown);
+        };
+        if !valid_git_object_id(tag_sha) {
+            return Ok(CheckStatus::Unknown);
+        }
+        let tag_endpoint = format!(
+            "repos/{}/{}/git/tags/{tag_sha}",
+            repository.owner(),
+            repository.name(),
+        );
+        let tag_object = match self.run_api_get(&tag_endpoint, API_OUTPUT_LIMIT).await? {
+            ApiResponse::Json(value) => value,
+            ApiResponse::Denied | ApiResponse::Unauthorized | ApiResponse::RateLimited => {
+                return Ok(CheckStatus::Blocked);
+            }
+            ApiResponse::NotFound | ApiResponse::Unknown => return Ok(CheckStatus::Unknown),
+        };
+        if tag_object.get("tag").and_then(serde_json::Value::as_str) != Some(tag)
+            || tag_object
+                .get("object")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|object| object.get("type"))
+                .and_then(serde_json::Value::as_str)
+                != Some("commit")
+        {
+            return Ok(CheckStatus::Unknown);
+        }
+        let Some(verification) = tag_object
+            .get("verification")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return Ok(CheckStatus::Unknown);
+        };
+        match (
+            verification
+                .get("verified")
+                .and_then(serde_json::Value::as_bool),
+            verification
+                .get("reason")
+                .and_then(serde_json::Value::as_str),
+        ) {
+            (Some(true), Some("valid")) => Ok(CheckStatus::Pass),
+            (Some(false), Some("unsigned" | "invalid" | "malformed_signature")) => {
+                Ok(CheckStatus::Fail)
+            }
+            _ => Ok(CheckStatus::Unknown),
+        }
+    }
+
+    fn release_observation(
+        &self,
+        repository: &GithubRepository,
+        project_version: &semver::Version,
+        status: CheckStatus,
+        published: &str,
+        digest: &str,
+        signature: &str,
+    ) -> AppResult<CheckObservation> {
+        let summary = format!(
+            "r={}/{};v={};pub={published};dig={digest};sig={signature};res={}",
+            repository.owner(),
+            repository.name(),
+            project_version,
+            short_status_code(status),
+        );
+        self.create_observation(
+            "github.release-contract",
+            status,
+            Some(Enforcement::LocalCheck),
+            summary,
+        )
+    }
+
     async fn required_check_sources(
         &self,
         repository: &GithubRepository,
@@ -1144,6 +1371,100 @@ fn aggregate_check_outcomes(outcomes: &[CheckOutcome]) -> CheckStatus {
     }
 }
 
+fn parse_release_list(value: &serde_json::Value) -> Option<Vec<ReleaseListItem>> {
+    let releases = value.as_array()?;
+    releases
+        .iter()
+        .map(|release| serde_json::from_value(release.clone()).ok())
+        .collect()
+}
+
+fn release_tag_version(tag: &str) -> Option<semver::Version> {
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    if version.len() > 64 {
+        return None;
+    }
+    semver::Version::parse(version).ok()
+}
+
+fn check_release_artifacts(assets: &serde_json::Value) -> CheckStatus {
+    let Some(assets) = assets.as_array() else {
+        return CheckStatus::Unknown;
+    };
+    if assets.is_empty() {
+        return CheckStatus::Fail;
+    }
+    if assets.len() >= 100 {
+        return CheckStatus::Unknown;
+    }
+    for asset in assets {
+        let Some(asset) = asset.as_object() else {
+            return CheckStatus::Unknown;
+        };
+        match asset.get("digest") {
+            None => return CheckStatus::Unknown,
+            Some(serde_json::Value::Null) => return CheckStatus::Fail,
+            Some(serde_json::Value::String(digest)) if valid_sha256_digest(digest) => {}
+            Some(serde_json::Value::String(_)) => return CheckStatus::Fail,
+            Some(_) => return CheckStatus::Unknown,
+        }
+    }
+    CheckStatus::Pass
+}
+
+fn valid_sha256_digest(digest: &str) -> bool {
+    digest
+        .strip_prefix("sha256:")
+        .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+fn valid_git_object_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn combine_release_status(statuses: &[CheckStatus]) -> CheckStatus {
+    if statuses.contains(&CheckStatus::Fail) {
+        CheckStatus::Fail
+    } else if statuses.contains(&CheckStatus::Blocked) {
+        CheckStatus::Blocked
+    } else if statuses.contains(&CheckStatus::Unknown) {
+        CheckStatus::Unknown
+    } else {
+        CheckStatus::Pass
+    }
+}
+
+fn digest_evidence_code(status: CheckStatus, required: bool) -> &'static str {
+    match (required, status) {
+        (false, _) => "na",
+        (true, CheckStatus::Pass) => "ok",
+        (true, CheckStatus::Fail) => "no",
+        (true, CheckStatus::Blocked) => "b",
+        (true, _) => "u",
+    }
+}
+
+fn signature_evidence_code(status: CheckStatus, required: bool) -> &'static str {
+    match (required, status) {
+        (false, _) => "na",
+        (true, CheckStatus::Pass) => "ok",
+        (true, CheckStatus::Fail) => "no",
+        (true, CheckStatus::Blocked) => "b",
+        (true, _) => "u",
+    }
+}
+
+fn short_status_code(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "p",
+        CheckStatus::Fail => "f",
+        CheckStatus::Blocked => "b",
+        CheckStatus::Unknown => "u",
+        CheckStatus::Unsupported => "x",
+        CheckStatus::NotApplicable => "n",
+    }
+}
+
 struct EffectiveRule {
     pull_request: bool,
     required_checks: BTreeMap<String, Option<i64>>,
@@ -1163,6 +1484,14 @@ enum CheckOutcome {
 struct CheckRunList {
     total_count: u64,
     check_runs: Vec<CheckRunItem>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseListItem {
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+    assets: serde_json::Value,
 }
 
 #[derive(Deserialize)]

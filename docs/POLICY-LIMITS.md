@@ -51,5 +51,42 @@ de un successful check sin regla host obligatoria tampoco satisface
 `RequiredCi`. Sin permiso para inspeccionar el estado o el enforcement, el
 resultado es `Blocked`/`Unknown` según la causa.
 
+## Versiones y releases
+
+`release-contract` obtiene la versión del proyecto del `Cargo.toml` del root
+(versión de paquete/workspace) o de `package.json`; si ambos existen deben
+coincidir. Manifiestos ausentes, inválidos, demasiado grandes o no regulares
+dejan la versión `Unknown`; una divergencia conocida es `Fail`. No se consulta
+`SkillManifest.semantic_version`. El tag de release debe ser exactamente el
+SemVer del proyecto, con o sin prefijo `v`.
+
+La lectura de `GET /repos/{owner}/{repo}/releases?per_page=100` separa releases
+publicadas de Git refs. Un listado completo que no contiene la versión requerida
+es `Fail`; respuesta de 100 elementos, 403/rate limit es `Blocked`, y 404,
+respuesta inválida o permisos ambiguos son `Unknown`. Releases draft o prerelease
+no satisfacen el contrato. La presencia de un tag sin release publicada nunca
+cuenta como publicación.
+
+Si `require_changelog=true`, `CHANGELOG.md` debe ser un archivo regular acotado
+con un heading Markdown cuyo SemVer coincida con el proyecto y contenido de
+notas no vacío bajo ese heading. Si
+`require_checksums=true`, la release debe tener assets y cada asset debe incluir
+un `digest` con formato `sha256:<64 hex>`; digest nulo o inválido es `Fail`,
+campo ausente/truncado es `Unknown`. Esto es metadata SHA-256 informada por
+GitHub, no una descarga ni un re-hash local del artefacto.
+
+Si `require_signature=true`, el driver resuelve `refs/tags/<tag>` y requiere un
+tag anotado cuyo endpoint de tag informe `verification.verified=true` y
+`reason=valid`. Tag lightweight/unsigned o firma conocida inválida es `Fail`;
+falta de permisos, clave/servicio no verificable, metadata contradictoria o
+respuesta incompleta es `Blocked`/`Unknown`. No se guarda firma, payload,
+identidad ni explicación cruda; `verified` no expresa por sí solo que la app
+confíe en una identidad de firmante concreta.
+
+Las llamadas GitHub usan solo `gh` aprobado/fingerprinted, GET fijo, salida y
+tiempo acotados, sin paginación automática ni descarga. Un check satisfactorio
+es evidencia read-only (`LocalCheck`), no crea tag/release, no prueba que el
+artefacto se haya descargado/reproducido y no afirma autorización para publicar.
+
 Todas las observaciones son read-only, seriales, acotadas por salida/timeout y
 TTL monotónico. No se sigue paginación ilimitada ni se aplican reglas remotas.
