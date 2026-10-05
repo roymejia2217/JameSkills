@@ -344,6 +344,52 @@ fn cargo_suite_missing_test_target_is_not_run_and_stale_head_blocks_spawn() {
 }
 
 #[test]
+fn cargo_unavailable_is_unknown_and_blocked_not_missing_or_failed() {
+    let root = TestRoot::new();
+    let process = Arc::new(FakeProcess::new(vec![
+        output(0, b"git version 2.50.0\n"),
+        output(0, HEAD_A),
+        output(0, b"git version 2.50.0\n"),
+        output(0, HEAD_A),
+    ]));
+    let provider = RepositoryPolicyCheckProvider::new(
+        root.approved(),
+        Some(root.tool("git")),
+        None,
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+        process.clone(),
+        Arc::new(TestClock),
+        ENVIRONMENT.to_owned(),
+    );
+    let runner = TestSuiteService::new(Arc::new(provider));
+    let token = CancellationToken::new();
+    let snapshot = block_on(runner.inspect(TestSuiteKind::CargoTest, token.clone())).unwrap();
+
+    assert!(matches!(
+        snapshot.declaration(),
+        TestSuiteDeclaration::Unknown
+    ));
+    let result = block_on(runner.run(
+        TestSuiteRunApproval::after_explicit_trust_confirmation(snapshot),
+        token,
+    ))
+    .unwrap();
+    assert!(matches!(result.execution(), TestSuiteExecution::Blocked));
+    assert_eq!(result.exit_code(), None);
+    assert!(
+        process
+            .invocations
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|invocation| !matches!(
+                invocation.permission,
+                ProcessPermission::ExplicitMutation(_)
+            ))
+    );
+}
+
+#[test]
 fn cargo_head_changed_after_metadata_revalidation_blocks_spawn() {
     let root = TestRoot::new();
     let process = Arc::new(FakeProcess::new(vec![
@@ -489,6 +535,15 @@ fn real_environment() -> ApprovedEnv {
         "LANGUAGE",
         "TEMP",
         "TMP",
+        "INCLUDE",
+        "LIB",
+        "LIBPATH",
+        "VCINSTALLDIR",
+        "VCToolsInstallDir",
+        "WindowsSdkDir",
+        "WindowsSDKVersion",
+        "UniversalCRTSdkDir",
+        "UCRTVersion",
     ] {
         if let Some(value) = std::env::var_os(key) {
             environment.insert(OsString::from(key), value);

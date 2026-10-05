@@ -40,21 +40,20 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Slice actual T020.c.b.b.b.c.a.src — fuentes MSVC
+## Slice actual T020.c.b.b.b.c.b — integración MSVC
 
-- Los slices Cargo ya están en commits separados: `4ffa1e6` runner/provider y `94d9c59` contrato/fuentes Cargo; checkpoint `7e876d0`.
-- La integración real se probó dos veces: en shell normal y en un shell cuyo `PATH` viene de `VsDevCmd`. Este último sí encuentra el `link.exe` x64 exacto, pero el runner sigue devolviendo exit 101. Diagnóstico causal: `ApprovedEnv` del fixture solo copiaba PATH/HOME/SYSTEMROOT/TEMP y descartaba LIB/INCLUDE/LIBPATH; Microsoft Learn confirma que las herramientas necesitan estas rutas. No afirmar pass real.
-- RED T020.c.b.b.b.c.a: `cargo test -p jameskills-core --locked --test process_contract approved_environment_accepts_msvc_tool_paths_without_compiler_options` compila en el entorno VsDevCmd y falla porque `ApprovedEnv` rechaza INCLUDE/LIB.
-- T020.c.b.b.b.c.a terminó en cinco archivos con commit `92ae96b fix(process): allow bounded MSVC build paths`.
-- RED/GREEN c.a: focused `process_contract` pasa 5/5; suite core y Clippy core `-D warnings` pasan desde VsDevCmd; fmt-check y diff-check limpios. No incluye ejecución Cargo real del runner todavía.
-- Microsoft Learn “Use the Microsoft C++ Build Tools from the command line” y “CL environment variables” revisadas. `docs/SOURCES.md` agrega referencias oficiales para rutas del toolchain y riesgos de `CL`/`_CL_`; este sub-slice documental incluye tres archivos.
-- CI remota continúa sin PR/runs; `git branch -vv` confirma que la rama no tiene upstream. No atribuir resultados locales a CI.
+- Commits en orden: `4ffa1e6` runner/provider Cargo; `94d9c59` contrato/fuentes Cargo; `7e876d0` checkpoint; `92ae96b` allowlist de rutas MSVC; `ef6b82d` fuentes Microsoft Learn.
+- La allowlist de `ApprovedEnv` conserva exclusivamente rutas/toolchain MSVC (`INCLUDE`, `LIB`, `LIBPATH`, VS/SDK paths); `CL` y `_CL_` se rechazan porque permiten inyectar opciones.
+- GREEN integración real: iniciado bajo el `VsDevCmd` x64 de VS2022 encontrado localmente, el test ignored `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` pasa 1/1 mediante `SystemProcessPort`. El test ejecuta dos fixtures: uno que pasa y otro que falla; ambos estados/exit codes esperados se comprobaron.
+- GREEN acumulado posterior: `cargo test -p jameskills-infra --locked` suite completa; Clippy infra `-D warnings`; fmt y diff-check pasan. El fake adicional distingue Cargo no disponible (Unknown/Blocked) de test ausente (Missing/NotRun) y failure (Failed/exit).
+- T020.c.b.b.b y T020.c.b.b quedan listas para marcar; c.b.b.b.c.b está en tres archivos con commit pendiente. T020.c.b puede cerrarse después de este commit; T020.c.c será el siguiente slice productivo.
+- CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; se requiere autorización expresa antes de push/PR para lanzar CI.
 
 ## Próxima acción exacta
 
-1. Cerrar .c.a.src con fmt/diff-check y Commitlint local en commit documental independiente.
-2. En `.c.b`, pasar `LIB`, `INCLUDE`, `LIBPATH` y las rutas de toolchain ya allowlisteadas desde VsDevCmd al `real_environment`; ejecutar la integración real Cargo pass/fail con `SystemProcessPort` y ajustar solo con nueva RED/evidencia.
-3. Mantener T020.c.b.b y T020.c abiertas hasta obtener la integración real requerida; T020.c.c queda después de ese gate secuencial. Hace falta autorización explícita para publicar la rama/abrir PR y obtener CI remota.
+1. Verificar formato/diff/Commitlint final, cerrar T020.c.b.b.b.c.b y crear su commit independiente de tres archivos.
+2. Cerrar T020.c.b tras revisar todas las acceptance items; continuar con T020.c.c (driver Node) sin marcar T020.c completo antes de probar ese driver.
+3. Solicitar autorización expresa para publicar rama/abrir PR y obtener gates remotos; nunca presentar CI local como CI remota.
 4. C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado
