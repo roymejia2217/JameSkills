@@ -5,6 +5,15 @@ Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
 
+## Checkpoint T020.c.c y fuentes de T020.b3
+
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `ead41e0`; árbol limpio al iniciar este slice. PR draft #22 mantiene ese SHA.
+- CI run `37270862536` terminó SUCCESS en fmt, Clippy, tests, build Linux, build Windows y validate-commit-messages; `README Policy`, `PR Governance` y `Required CI` también SUCCESS. Required CI es evidencia de resultado del workflow, no inspección de ruleset/protección de `main`.
+- T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
+- El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
+- Siguiente unidad elegible: T020.b3 implementación read-only. El hook actual `.husky/commit-msg` ejecuta `npm exec --no -- commitlint --edit "$1"`; no es demostrable como el driver aprobado Node+entrypoint fingerprinted. Mantener `LocalCheck` salvo evidencia verificable de identidad y argv, no modificar el hook como workaround.
+- Próxima acción: implementar la observación read-only efectiva del hook en <=5 archivos, con tests fake/fixture que comprueben ruta/config/modo/hash/argv y aseguren que ninguna rama ejecuta el hook; integrar evidencia al check convencional sin elevar autoridad por mensaje válido. Actualizar este checkpoint al terminar.
+
 ## Estado real
 
 - Se inspeccionaron `git status`, diff y log antes de continuar. El estado heredado tenía T017.a2–T019.c3 en una sola working tree dirty; no eran commits.
