@@ -1118,17 +1118,17 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 **Verificación:** cargo test -p jameskills-infra --locked release_checks; Git local y gh API JSON fake cubren casos; host real solo read-only autorizado.
 
-**Evidencia al ejecutar:** fuentes T024.src y RED/GREEN T024.a arriba. Gates pasan en Windows MSVC. Implementación/commit pendiente; integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
+**Evidencia al ejecutar:** fuentes T024.src en `b4419fe`/`dba65e5`; implementación `73a3f62`. Gates pasan en Windows MSVC. La integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
 
 ## C008 — Checkpoint tras T022–T024
 
-- [ ] **C008 verificado**
+- [x] **C008 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
 - GitHub evidence/protection/PR/releases verifican privilegios y fuente; no writes no solicitados.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia C008:** en Windows MSVC pasó `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check. Incluye T022 repo identity, T023 branch protection/CI SHA y T024 releases en fakes; las integraciones GitHub T022/T023/T024 ejecutadas fueron read-only. No se hizo ningún write/publicación. CI remoto conocido solo cubre `c976f02`, no los commits locales posteriores. Próxima tarea DAG: T025; dependencias T017/T018/T023/T024/T037 completas.
 
 <a id="t025"></a>
 
