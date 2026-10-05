@@ -2355,6 +2355,66 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
                 );
                 driver.identify_repository(&repository, &head).await
             }
+            Check::GithubBranchPolicy {
+                branch,
+                require_pull_request,
+                required_checks,
+                require_no_bypass,
+            } => {
+                let Some(git) = self.git.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let Some(gh) = self.github.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let repository_root = match std::fs::canonicalize(&self.root) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let repository = match observe_github_remote_host(
+                    &repository_root,
+                    Some(git),
+                    &self.environment,
+                    self.process.as_ref(),
+                    &observed_at,
+                )
+                .await?
+                {
+                    Ok(Some(repository)) => repository,
+                    Ok(None) | Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let head = match observe_repository_head(
+                    &repository_root,
+                    git,
+                    &self.environment,
+                    self.process.as_ref(),
+                )
+                .await?
+                {
+                    Some(head) => head,
+                    None => return Ok(CheckObservation::unknown()),
+                };
+                let github_root = ApprovedRoot::from_absolute_path(repository_root)
+                    .map_err(AppError::Validation)?;
+                let driver = GithubEvidenceDriver::new(
+                    gh,
+                    &github_root,
+                    &self.environment,
+                    self.process.as_ref(),
+                    self.clock.as_ref(),
+                    &self.environment_fingerprint,
+                );
+                driver
+                    .check_branch_policy(
+                        &repository,
+                        &head,
+                        branch,
+                        *require_pull_request,
+                        required_checks,
+                        *require_no_bypass,
+                    )
+                    .await
+            }
             Check::ReadmeSections { path, headings } => filesystem.check_readme_sections(
                 &root,
                 path,

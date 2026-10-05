@@ -1071,12 +1071,13 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 **Descomposición previa al código:**
 - [x] **T023.src — Verificar semántica REST efectiva y permisos visibles** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Consultar rules/branches efectivos, reglasets con padres/bypass, classic branch protection, check-runs exactos y statuses; decidir Unknown cuando bypass o permisos no sean visibles y limitar paginación.
 - Evidencia T023.src: los endpoints efectivos listan solo enforcement active (no evaluate/disabled); repo rulesets admiten includes_parents; bypass_actors puede estar oculto sin write access, y `current_user_can_bypass` no revela a todos los actores. Classic protection puede dar 404 por ausencia o acceso/plan. Check runs deben tener exact head_sha y conclusion success; status combinado es endpoint distinto. Implementación debe dejar desconocido bypass invisible, 403/404 ambiguos y check-run truncado; fuentes/límites registrados en `docs/SOURCES.md`.
+- [x] **T023.a — Leer reglas efectivas y classic protection** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Compara PR rule y required check contexts de la lista efectiva y classic endpoint; 404/403/truncamiento Unknown/Blocked.
+- Evidencia T023.a: RED `cargo test -p jameskills-infra --locked --test host_protection_checks explicit_empty_effective_rules_and_classic_protection_fail_main_policy -- --exact` devolvió Unknown porque el provider no manejaba `github-branch-policy`. GREEN enfocado host_protection_checks 4/4: regla ausente explícitamente observada falla; PR + required context efectivos visibles pasan como `HostRule`; ruleset activo puede demostrar reglas positivas aunque classic protection 404 deje bypass Unknown.
+- [x] **T023.b — Evaluar bypass actor y visibilidad de privilegios** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Con parents efectivos, classic enforce_admins/PR allowances y ruleset bypass_actors; campo oculto siempre Unknown cuando require_no_bypass.
+- Evidencia T023.b: unit `bypass_data_is_tri_state_and_branch_scoped` 1/1, host contract tests 4/4. No-bypass con visibilidad completa permite HostRule Pass; actor visible o admin bypass falla sin revelar identidad; bypassee ausente/wildcard/default-branch irresoluble produce Unknown. La evidencia informa none-visible/present/unknown sin exponer actors.
+- [ ] **T023.c — Comprobar required checks para el HEAD exacto** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. GitHub `check-runs` y commit statuses para SHA exacto; rule host mandatory + completions successful para RequiredCi.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/policy.rs`
-- `crates/jameskills-infra/src/github.rs`
-- `crates/jameskills-infra/tests/host_protection_checks.rs`
-- `docs/POLICY-LIMITS.md`
+**Archivos por incremento:** T023.src/a/b/c detallan cortes de <=5 archivos; los slices a/b comparten cinco paths y quedan agrupados en un commit local; el primer slice no modifica domain/core signatures.
 
 **Aceptación:**
 - [ ] Separar autoridad exigida/observada: RequiredCi requiere host regla mandatory y check actualSHA; HostRule exige configuración efectiva incluyendo classic+rulesets+bypass.

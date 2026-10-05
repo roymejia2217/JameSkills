@@ -11,7 +11,7 @@ use jameskills_core::{
     },
 };
 use serde::Deserialize;
-use std::{ffi::OsString, path::PathBuf, time::Duration};
+use std::{collections::BTreeSet, ffi::OsString, path::PathBuf, time::Duration};
 
 const AUTH_OUTPUT_LIMIT: usize = 64 * 1024;
 const API_OUTPUT_LIMIT: usize = 256 * 1024;
@@ -181,10 +181,24 @@ impl<'a> GithubEvidenceDriver<'a> {
         match self.inspect_host_auth().await? {
             GithubAuthState::Authenticated => {}
             GithubAuthState::Unauthenticated => {
-                return self.observation(CheckStatus::Blocked, None, repository, revision);
+                return self.observation(
+                    "github.repository.identity",
+                    CheckStatus::Blocked,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
             }
             GithubAuthState::Unknown => {
-                return self.observation(CheckStatus::Unknown, None, repository, revision);
+                return self.observation(
+                    "github.repository.identity",
+                    CheckStatus::Unknown,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
             }
         }
         let endpoint = format!("repos/{}/{}", repository.owner(), repository.name());
@@ -206,12 +220,26 @@ impl<'a> GithubEvidenceDriver<'a> {
             Ok(output) => output,
             Err(AppError::Cancelled) => return Err(AppError::Cancelled),
             Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
-                return self.observation(CheckStatus::Unknown, None, repository, revision);
+                return self.observation(
+                    "github.repository.identity",
+                    CheckStatus::Unknown,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
             }
             Err(error) => return Err(error),
         };
         if output.stdout().len() >= API_OUTPUT_LIMIT {
-            return self.observation(CheckStatus::Unknown, None, repository, revision);
+            return self.observation(
+                "github.repository.identity",
+                CheckStatus::Unknown,
+                None,
+                repository,
+                revision,
+                None,
+            );
         }
         let parsed = parse_repository_response(output.stdout(), output.exit_code(), repository);
         let status = match parsed {
@@ -228,7 +256,238 @@ impl<'a> GithubEvidenceDriver<'a> {
             CheckStatus::Pass | CheckStatus::Fail => Some(Enforcement::LocalCheck),
             _ => None,
         };
-        self.observation(status, enforcement, repository, revision)
+        self.observation(
+            "github.repository.identity",
+            status,
+            enforcement,
+            repository,
+            revision,
+            (status == CheckStatus::Pass).then_some("repo-read"),
+        )
+    }
+
+    pub async fn check_branch_policy(
+        &self,
+        repository: &GithubRepository,
+        revision: &RepositoryHead,
+        branch: &str,
+        require_pull_request: bool,
+        required_checks: &[String],
+        require_no_bypass: bool,
+    ) -> AppResult<CheckObservation> {
+        if !supported_branch_name(branch) {
+            return self.observation(
+                "github.branch-policy",
+                CheckStatus::Unsupported,
+                None,
+                repository,
+                revision,
+                None,
+            );
+        }
+        match self.inspect_host_auth().await? {
+            GithubAuthState::Authenticated => {}
+            GithubAuthState::Unauthenticated => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Blocked,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+            GithubAuthState::Unknown => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Unknown,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+        }
+        let branch_component = encode_path_component(branch);
+        let effective_endpoint = format!(
+            "repos/{}/{}/rules/branches/{branch_component}?per_page=100",
+            repository.owner(),
+            repository.name(),
+        );
+        let effective = self
+            .run_api_get(&effective_endpoint, API_OUTPUT_LIMIT)
+            .await?;
+        let rules = match effective {
+            ApiResponse::Json(value) => match value.as_array() {
+                Some(raw_rules) if raw_rules.len() < 100 => raw_rules
+                    .iter()
+                    .map(parse_effective_rule)
+                    .collect::<Option<Vec<_>>>(),
+                _ => None,
+            },
+            ApiResponse::Denied | ApiResponse::Unauthorized | ApiResponse::RateLimited => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Blocked,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+            ApiResponse::NotFound | ApiResponse::Unknown => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Unknown,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+        };
+        let Some(rules) = rules else {
+            return self.observation(
+                "github.branch-policy",
+                CheckStatus::Unknown,
+                None,
+                repository,
+                revision,
+                None,
+            );
+        };
+
+        let classic_endpoint = format!(
+            "repos/{}/{}/branches/{branch_component}/protection",
+            repository.owner(),
+            repository.name(),
+        );
+        let classic = self
+            .run_api_get(&classic_endpoint, API_OUTPUT_LIMIT)
+            .await?;
+        let classic_protection = match classic {
+            ApiResponse::Json(value) => match value.as_object() {
+                Some(protection) => Some(protection.clone()),
+                None => {
+                    return self.observation(
+                        "github.branch-policy",
+                        CheckStatus::Unknown,
+                        None,
+                        repository,
+                        revision,
+                        None,
+                    );
+                }
+            },
+            ApiResponse::Denied | ApiResponse::Unauthorized | ApiResponse::RateLimited => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Blocked,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+            // A 404 may mean no classic protection, inaccessible private
+            // settings, or plan limitation. Effective active rules can still
+            // prove requested positive rules; absent classic data stays unknown.
+            ApiResponse::NotFound => None,
+            ApiResponse::Unknown => {
+                return self.observation(
+                    "github.branch-policy",
+                    CheckStatus::Unknown,
+                    None,
+                    repository,
+                    revision,
+                    None,
+                );
+            }
+        };
+        let classic = classic_protection.as_ref();
+        let classic_pr =
+            classic.and_then(
+                |protection| match protection.get("required_pull_request_reviews") {
+                    Some(serde_json::Value::Null) => Some(false),
+                    Some(serde_json::Value::Object(_)) => Some(true),
+                    None | Some(_) => None,
+                },
+            );
+        let active_pr = rules.iter().any(|rule| rule.pull_request);
+        let pr_ok = if !require_pull_request || active_pr {
+            Some(true)
+        } else {
+            classic_pr
+        };
+        let mut host_checks = BTreeSet::new();
+        for rule in &rules {
+            host_checks.extend(rule.required_checks.iter().cloned());
+        }
+        let classic_checks = classic.and_then(parse_classic_required_checks);
+        let checks_ok = if required_checks.is_empty()
+            || required_checks
+                .iter()
+                .all(|required| host_checks.contains(required))
+        {
+            Some(true)
+        } else {
+            classic_checks.map(|classic_checks| {
+                required_checks.iter().all(|required| {
+                    host_checks.contains(required) || classic_checks.contains(required)
+                })
+            })
+        };
+        let rulesets_endpoint = format!(
+            "repos/{}/{}/rulesets?includes_parents=true&targets=branch&per_page=100",
+            repository.owner(),
+            repository.name(),
+        );
+        let ruleset_bypass = match self
+            .run_api_get(&rulesets_endpoint, API_OUTPUT_LIMIT)
+            .await?
+        {
+            ApiResponse::Json(value) => match value.as_array() {
+                Some(rulesets) if rulesets.len() < 100 => ruleset_bypass_state(rulesets, branch),
+                _ => BypassState::Unknown,
+            },
+            ApiResponse::Denied
+            | ApiResponse::Unauthorized
+            | ApiResponse::RateLimited
+            | ApiResponse::NotFound
+            | ApiResponse::Unknown => BypassState::Unknown,
+        };
+        let classic_bypass = classic.map_or(BypassState::Unknown, classic_bypass_state);
+        let bypass = combine_bypass_state(classic_bypass, ruleset_bypass);
+        let condition_status = match (pr_ok, checks_ok) {
+            (Some(false), _) | (_, Some(false)) => CheckStatus::Fail,
+            (Some(true), Some(true)) => CheckStatus::Pass,
+            _ => CheckStatus::Unknown,
+        };
+        let status = if require_no_bypass {
+            match bypass {
+                BypassState::NoneVisible => condition_status,
+                BypassState::Present => CheckStatus::Fail,
+                BypassState::Unknown if condition_status == CheckStatus::Fail => CheckStatus::Fail,
+                BypassState::Unknown => CheckStatus::Unknown,
+            }
+        } else {
+            condition_status
+        };
+        let observed_rule =
+            !rules.is_empty() || classic_pr == Some(true) || !host_checks.is_empty();
+        let enforcement = if status == CheckStatus::Unknown {
+            None
+        } else {
+            observed_rule.then_some(Enforcement::HostRule)
+        };
+        self.observation_with_detail(
+            "github.branch-policy",
+            status,
+            enforcement,
+            repository,
+            revision,
+            bypass_evidence(bypass),
+        )
     }
 
     async fn supports_verified_release(&self) -> AppResult<bool> {
@@ -289,20 +548,36 @@ impl<'a> GithubEvidenceDriver<'a> {
         self.process.run(spec).await
     }
 
+    async fn run_api_get(&self, endpoint: &str, output_limit: usize) -> AppResult<ApiResponse> {
+        let output = self
+            .run_gh(
+                [
+                    "api",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET",
+                    "--include",
+                    endpoint,
+                ],
+                output_limit,
+            )
+            .await?;
+        Ok(parse_api_response(&output, output_limit))
+    }
+
     fn observation(
         &self,
+        source_id: &'static str,
         status: CheckStatus,
         enforcement: Option<Enforcement>,
         repository: &GithubRepository,
         revision: &RepositoryHead,
+        capability: Option<&str>,
     ) -> AppResult<CheckObservation> {
-        let capability = if status == CheckStatus::Pass {
-            "repo-read"
-        } else {
-            "unconfirmed"
-        };
+        let capability = capability.unwrap_or("unconfirmed");
         let summary = format!(
-            "r={}/{};sha={};check=repo;cap={};result={}",
+            "r={}/{};sha={};cap={};result={}",
             repository.owner(),
             repository.name(),
             revision.as_str(),
@@ -316,8 +591,38 @@ impl<'a> GithubEvidenceDriver<'a> {
                 CheckStatus::NotApplicable => "not-applicable",
             },
         );
+        self.create_observation(source_id, status, enforcement, summary)
+    }
+
+    fn observation_with_detail(
+        &self,
+        source_id: &'static str,
+        status: CheckStatus,
+        enforcement: Option<Enforcement>,
+        repository: &GithubRepository,
+        revision: &RepositoryHead,
+        detail: &'static str,
+    ) -> AppResult<CheckObservation> {
+        let summary = format!(
+            "r={}/{};sha={};{};result={}",
+            repository.owner(),
+            repository.name(),
+            revision.as_str(),
+            detail,
+            status_name(status),
+        );
+        self.create_observation(source_id, status, enforcement, summary)
+    }
+
+    fn create_observation(
+        &self,
+        source_id: &'static str,
+        status: CheckStatus,
+        enforcement: Option<Enforcement>,
+        summary: String,
+    ) -> AppResult<CheckObservation> {
         let evidence = CheckEvidence::new(
-            "github.repository.identity",
+            source_id,
             &self.clock.now_utc(),
             None,
             self.environment_fingerprint,
@@ -326,6 +631,17 @@ impl<'a> GithubEvidenceDriver<'a> {
         )
         .map_err(AppError::Validation)?;
         CheckObservation::new(status, enforcement, vec![evidence]).map_err(AppError::Validation)
+    }
+}
+
+fn status_name(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "pass",
+        CheckStatus::Fail => "fail",
+        CheckStatus::Blocked => "blocked",
+        CheckStatus::Unknown => "unknown",
+        CheckStatus::Unsupported => "unsupported",
+        CheckStatus::NotApplicable => "not-applicable",
     }
 }
 
@@ -357,6 +673,292 @@ fn parse_auth_status(bytes: &[u8]) -> GithubAuthState {
         "error" | "timeout" => GithubAuthState::Unauthenticated,
         _ => GithubAuthState::Unknown,
     }
+}
+
+enum ApiResponse {
+    Json(serde_json::Value),
+    NotFound,
+    RateLimited,
+    Denied,
+    Unauthorized,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BypassState {
+    NoneVisible,
+    Present,
+    Unknown,
+}
+
+fn parse_api_response(output: &ProcessOutput, output_limit: usize) -> ApiResponse {
+    if output.stdout().len() >= output_limit {
+        return ApiResponse::Unknown;
+    }
+    let Ok(text) = std::str::from_utf8(output.stdout()) else {
+        return ApiResponse::Unknown;
+    };
+    let Some((headers, body)) = text.split_once("\r\n\r\n") else {
+        return ApiResponse::Unknown;
+    };
+    let status_line = headers.lines().next().unwrap_or_default();
+    if status_line.contains(" 401 ") {
+        return ApiResponse::Unauthorized;
+    }
+    if status_line.contains(" 429 ") {
+        return ApiResponse::RateLimited;
+    }
+    if status_line.contains(" 403 ") {
+        let rate_limited = headers.lines().any(|line| {
+            let (name, value) = line.split_once(':').unwrap_or_default();
+            (name.eq_ignore_ascii_case("retry-after") && !value.trim().is_empty())
+                || (name.eq_ignore_ascii_case("x-ratelimit-remaining") && value.trim() == "0")
+        });
+        return if rate_limited {
+            ApiResponse::RateLimited
+        } else {
+            ApiResponse::Denied
+        };
+    }
+    if status_line.contains(" 404 ") {
+        return ApiResponse::NotFound;
+    }
+    if !status_line.contains(" 200 ") || output.exit_code() != Some(0) {
+        return ApiResponse::Unknown;
+    }
+    serde_json::from_str(body).map_or(ApiResponse::Unknown, ApiResponse::Json)
+}
+
+struct EffectiveRule {
+    pull_request: bool,
+    required_checks: BTreeSet<String>,
+}
+
+fn parse_effective_rule(value: &serde_json::Value) -> Option<EffectiveRule> {
+    let object = value.as_object()?;
+    let rule_type = object.get("type")?.as_str()?;
+    if rule_type == "pull_request" {
+        return Some(EffectiveRule {
+            pull_request: true,
+            required_checks: BTreeSet::new(),
+        });
+    }
+    if rule_type != "required_status_checks" {
+        return Some(EffectiveRule {
+            pull_request: false,
+            required_checks: BTreeSet::new(),
+        });
+    }
+    let parameters = object.get("parameters")?.as_object()?;
+    let checks = parameters.get("required_status_checks")?.as_array()?;
+    let mut required_checks = BTreeSet::new();
+    for check in checks {
+        required_checks.insert(check.as_object()?.get("context")?.as_str()?.to_owned());
+    }
+    Some(EffectiveRule {
+        pull_request: false,
+        required_checks,
+    })
+}
+
+fn parse_classic_required_checks(
+    protection: &serde_json::Map<String, serde_json::Value>,
+) -> Option<BTreeSet<String>> {
+    let value = protection.get("required_status_checks")?;
+    if value.is_null() {
+        return Some(BTreeSet::new());
+    }
+    let checks = value.as_object()?;
+    let mut names = BTreeSet::new();
+    if let Some(contexts) = checks.get("contexts") {
+        for context in contexts.as_array()? {
+            names.insert(context.as_str()?.to_owned());
+        }
+    }
+    if let Some(contexts) = checks.get("checks") {
+        for check in contexts.as_array()? {
+            names.insert(check.as_object()?.get("context")?.as_str()?.to_owned());
+        }
+    }
+    Some(names)
+}
+
+fn classic_bypass_state(protection: &serde_json::Map<String, serde_json::Value>) -> BypassState {
+    let Some(enforce_admins) = protection
+        .get("enforce_admins")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|value| value.get("enabled"))
+        .and_then(serde_json::Value::as_bool)
+    else {
+        return BypassState::Unknown;
+    };
+    if !enforce_admins {
+        return BypassState::Present;
+    }
+    let Some(reviews) = protection.get("required_pull_request_reviews") else {
+        return BypassState::NoneVisible;
+    };
+    if reviews.is_null() {
+        return BypassState::NoneVisible;
+    }
+    let Some(allowances) = reviews
+        .as_object()
+        .and_then(|value| value.get("bypass_pull_request_allowances"))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return BypassState::Unknown;
+    };
+    let Some(users) = allowances
+        .get("users")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return BypassState::Unknown;
+    };
+    let Some(teams) = allowances
+        .get("teams")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return BypassState::Unknown;
+    };
+    let Some(apps) = allowances.get("apps").and_then(serde_json::Value::as_array) else {
+        return BypassState::Unknown;
+    };
+    if users.is_empty() && teams.is_empty() && apps.is_empty() {
+        BypassState::NoneVisible
+    } else {
+        BypassState::Present
+    }
+}
+
+fn ruleset_bypass_state(rulesets: &[serde_json::Value], branch: &str) -> BypassState {
+    let mut state = BypassState::NoneVisible;
+    for ruleset in rulesets {
+        let Some(object) = ruleset.as_object() else {
+            return BypassState::Unknown;
+        };
+        let Some(target) = object.get("target").and_then(serde_json::Value::as_str) else {
+            return BypassState::Unknown;
+        };
+        if target != "branch" {
+            continue;
+        }
+        let Some(enforcement) = object
+            .get("enforcement")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return BypassState::Unknown;
+        };
+        if enforcement == "disabled" || enforcement == "evaluate" {
+            continue;
+        }
+        if enforcement != "active" {
+            return BypassState::Unknown;
+        }
+        match ruleset_applies_to_branch(object.get("conditions"), branch) {
+            Some(false) => continue,
+            Some(true) => {}
+            None => return BypassState::Unknown,
+        }
+        let Some(actors) = object
+            .get("bypass_actors")
+            .and_then(serde_json::Value::as_array)
+        else {
+            // GitHub withholds this field for callers lacking ruleset write
+            // access. Absence therefore cannot prove that no actor can bypass.
+            return BypassState::Unknown;
+        };
+        if !actors.is_empty() {
+            return BypassState::Present;
+        }
+        match object
+            .get("current_user_can_bypass")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("never") => {}
+            Some("always" | "pull_requests_only" | "exempt") => {
+                state = BypassState::Present;
+            }
+            _ => return BypassState::Unknown,
+        }
+    }
+    state
+}
+
+fn ruleset_applies_to_branch(conditions: Option<&serde_json::Value>, branch: &str) -> Option<bool> {
+    let Some(conditions) = conditions else {
+        return Some(true);
+    };
+    if conditions.is_null() {
+        return Some(true);
+    }
+    let conditions = conditions.as_object()?;
+    let Some(ref_name) = conditions.get("ref_name") else {
+        return Some(true);
+    };
+    let ref_name = ref_name.as_object()?;
+    let includes = ref_name.get("include")?.as_array()?;
+    let excludes = ref_name.get("exclude")?.as_array()?;
+    let expected = format!("refs/heads/{branch}");
+    let mut included = false;
+    for pattern in includes {
+        let pattern = pattern.as_str()?;
+        match pattern {
+            "~ALL" => included = true,
+            "~DEFAULT_BRANCH" => return None,
+            value if value == expected => included = true,
+            value if value.contains(['*', '?', '[', ']']) => return None,
+            _ => {}
+        }
+    }
+    if !included {
+        return Some(false);
+    }
+    for pattern in excludes {
+        let pattern = pattern.as_str()?;
+        if pattern == expected || pattern == "~ALL" {
+            return Some(false);
+        }
+        if pattern == "~DEFAULT_BRANCH" || pattern.contains(['*', '?', '[', ']']) {
+            return None;
+        }
+    }
+    Some(true)
+}
+
+fn combine_bypass_state(first: BypassState, second: BypassState) -> BypassState {
+    match (first, second) {
+        (BypassState::Present, _) | (_, BypassState::Present) => BypassState::Present,
+        (BypassState::Unknown, _) | (_, BypassState::Unknown) => BypassState::Unknown,
+        _ => BypassState::NoneVisible,
+    }
+}
+
+fn bypass_evidence(state: BypassState) -> &'static str {
+    match state {
+        BypassState::NoneVisible => "bypass=none-visible",
+        BypassState::Present => "bypass=present",
+        BypassState::Unknown => "bypass=unknown",
+    }
+}
+
+fn supported_branch_name(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 128
+        && !branch.contains('*')
+        && !branch.bytes().any(|byte| byte.is_ascii_control())
+}
+
+fn encode_path_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 enum RepositoryResponse {
@@ -435,8 +1037,9 @@ fn parse_repository_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        GithubAuthState, GithubRepository, RepositoryResponse, parse_auth_status,
-        parse_repository_response,
+        BypassState, GithubAuthState, GithubRepository, RepositoryResponse, classic_bypass_state,
+        combine_bypass_state, parse_auth_status, parse_repository_response,
+        ruleset_applies_to_branch, ruleset_bypass_state,
     };
 
     #[test]
@@ -563,5 +1166,72 @@ mod tests {
             parse_repository_response(b"HTTP/2 200 OK\r\ncontent-type: application/json\r\n\r\n{\"full_name\":\"different/repo\",\"name\":\"repo\",\"owner\":{\"login\":\"different\"}}", Some(0), &GithubRepository { owner: "owner".into(), name: "repo".into() }),
             RepositoryResponse::Mismatch
         ));
+    }
+
+    #[test]
+    fn bypass_data_is_tri_state_and_branch_scoped() {
+        let no_bypass = serde_json::json!({
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+            "bypass_actors": [],
+            "current_user_can_bypass": "never"
+        });
+        assert_eq!(
+            ruleset_bypass_state(std::slice::from_ref(&no_bypass), "main"),
+            BypassState::NoneVisible
+        );
+        assert_eq!(
+            ruleset_applies_to_branch(no_bypass.get("conditions"), "main"),
+            Some(true)
+        );
+
+        let bypass = serde_json::json!({
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+            "bypass_actors": [{ "actor_type": "OrganizationAdmin", "bypass_mode": "always" }],
+            "current_user_can_bypass": "always"
+        });
+        assert_eq!(
+            ruleset_bypass_state(std::slice::from_ref(&bypass), "main"),
+            BypassState::Present
+        );
+
+        let hidden_bypass = serde_json::json!({
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+            "current_user_can_bypass": "never"
+        });
+        assert_eq!(
+            ruleset_bypass_state(std::slice::from_ref(&hidden_bypass), "main"),
+            BypassState::Unknown
+        );
+        assert_eq!(
+            ruleset_bypass_state(std::slice::from_ref(&bypass), "release"),
+            BypassState::NoneVisible
+        );
+
+        let classic_no_bypass = serde_json::json!({
+            "enforce_admins": { "enabled": true },
+            "required_pull_request_reviews": { "bypass_pull_request_allowances": { "users": [], "teams": [], "apps": [] } }
+        });
+        let classic_admin_bypass = serde_json::json!({
+            "enforce_admins": { "enabled": false },
+            "required_pull_request_reviews": null
+        });
+        assert_eq!(
+            classic_bypass_state(classic_no_bypass.as_object().unwrap()),
+            BypassState::NoneVisible
+        );
+        assert_eq!(
+            classic_bypass_state(classic_admin_bypass.as_object().unwrap()),
+            BypassState::Present
+        );
+        assert_eq!(
+            combine_bypass_state(BypassState::NoneVisible, BypassState::Unknown),
+            BypassState::Unknown
+        );
     }
 }
