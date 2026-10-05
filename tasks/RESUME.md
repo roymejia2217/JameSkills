@@ -70,9 +70,8 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar diff/estado y crear commit de T020.b2.b2.b.
-2. T020.b2 está verificada; seguir con T020.c, que solo ejecuta suites Rust/Node tras acción explícita y trust del repo.
-4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
+1. Seguir con T020.c: drivers de suites Rust/Node limitados a acción explícita, trust del repo y argv/cwd/timeout acotados.
+2. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## T020.b2.a completado
 
@@ -100,6 +99,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Suite completa `cargo test -p jameskills-infra --locked`, Clippy `-D warnings`, fmt y diff check pasan. Un warning Clippy `nonminimal_bool` se corrigió y la verificación se repitió.
 - Commit: `ae19691 feat(policy-engine): dispatch Commitlint through approved Node`.
 - Citas fuente: `docs/SOURCES.md` vincula `load-config.ts` y `get-edit-commit.ts`, tag v21.2.2, y registra el motivo técnico del `--cwd` de Git más `--config` absoluto.
+- Commit documental: `c9127cb docs(policy-engine): cite Commitlint cwd behavior`.
 - T020.b2 cerrada; T020.c queda pendiente. La integración real comprueba el paquete/entrypoint instalado en este host, no la supply chain completa de dependencias ni CI remota.
 
 ## Preservación y lecturas
