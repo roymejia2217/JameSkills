@@ -20,6 +20,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T022.registry.a/b/c cerradas: `github-access`, `gh repository-read`, nombre portable y loader runtime; profile general gh detecta v2 pero driver T022 solo acepta runtime exacto 2.102.0.
 - T022.windows-env cerrada: RED focused falló por `APPDATA` no allowlisted; GREEN focused 1/1 al allowlistear la ruta de configuración Windows. `GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN` continúan rechazados.
 - Gates finales: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Opt-in real GitHub read-only pasó 1/1 en este repo; comprobó Git remote/HEAD, gh auth y GET repo. No almacena token ni muestra identidad.
+- T023.src cerrada en working tree: fuentes REST oficiales consultadas para reglas efectivas (active solo), rulesets con padres/bypass, classic branch protection y check-runs/status exactos. Hallazgo determinante: `bypass_actors` puede omitirse sin write access; no declarar `HostRule`/no-bypass sin evidencia visible. Check-runs exactos requieren `head_sha` + `completed/success`, output bounded y max 100 sin paginación ilimitada; permisos classic/fine-grained pueden diferir. Ver URLs/semánticas en `docs/SOURCES.md`.
 
 ## Estado real
 

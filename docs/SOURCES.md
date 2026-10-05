@@ -269,6 +269,40 @@ also note that 404 can mask inaccessible private resources and that redirects
 exist; this reinforces binding requests to the approved GitHub API host and
 avoiding retry loops.
 
+T023 protection/evidence API contract (GitHub REST docs version current on
+2026-10-05):
+- [`GET /repos/{owner}/{repo}/rules/branches/{branch}`](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch)
+  returns active effective rules from repository and parent scopes, excluding
+  `evaluate` and `disabled` rulesets. It has a branch path parameter (no wildcard)
+  and paging up to 100; this driver will not paginate unboundedly.
+- [`GET /repos/{owner}/{repo}/rulesets`](https://docs.github.com/en/rest/repos/rules#list-repository-rulesets)
+  accepts `includes_parents=true` and branch `targets`, and exposes source,
+  enforcement and bypass metadata when authorized. GitHub's ruleset GET docs
+  state that `bypass_actors` is withheld unless the caller has write access to
+  that ruleset. A missing bypass field cannot establish absence of bypass;
+  `current_user_can_bypass` describes only the current actor, not all actors.
+- Classic [`GET /repos/{owner}/{repo}/branches/{branch}/protection`](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection)
+  returns required status checks, PR review requirements, admin enforcement,
+  and PR bypass allowances; availability depends on plan and access. A 404 is
+  not sufficient alone to infer no protection because private-resource access
+  may be hidden. Combine classic and active effective rules, or return Unknown.
+- [`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+  supports a specific ref/SHA and returns each run's `head_sha`, `name`,
+  `status`, and `conclusion`; only exact-SHA `completed/success` evidence passes.
+  Use per-page 100 without `--paginate`; if `total_count` indicates truncation,
+  Unknown. Legacy statuses are separate via [`GET /repos/{owner}/{repo}/commits/{ref}/status`](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference),
+  where GitHub defines combined state `success` only when every latest context
+  succeeds. Check-run access on private repos depends on token type/permission;
+  any 401/403/404 or unlisted fine-grained permission stays Blocked/Unknown.
+
+The [fine-grained token permission matrix](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+lists effective `rules/branches` and ruleset reads under repository Metadata
+read, and classic branch protection endpoints under Administration read.
+`X-Accepted-GitHub-Permissions` is a response hint for the endpoint, not proof
+that the active identity has that permission. HostRule can pass only if the
+required data—including bypass visibility when requested—is actually returned;
+RequiredCi additionally needs the active host rule and current-SHA checks.
+
 T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
 the Windows host together with Node `24.18.0`. The tagged
 [`package.json`](https://github.com/npm/cli/blob/v11.16.0/package.json) declares

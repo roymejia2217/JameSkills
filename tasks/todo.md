@@ -1068,6 +1068,10 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 **Red primero:** host_protection_checks PR requirement ausente, bypass actor, required check faltante, permiso insuficiente y ref distinta no pasan protección. RequiredCi solo pasa con rule host mandatory+currentSHA successful; valid workflow sin rule falla autoridad exigida.
 
+**Descomposición previa al código:**
+- [x] **T023.src — Verificar semántica REST efectiva y permisos visibles** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Consultar rules/branches efectivos, reglasets con padres/bypass, classic branch protection, check-runs exactos y statuses; decidir Unknown cuando bypass o permisos no sean visibles y limitar paginación.
+- Evidencia T023.src: los endpoints efectivos listan solo enforcement active (no evaluate/disabled); repo rulesets admiten includes_parents; bypass_actors puede estar oculto sin write access, y `current_user_can_bypass` no revela a todos los actores. Classic protection puede dar 404 por ausencia o acceso/plan. Check runs deben tener exact head_sha y conclusion success; status combinado es endpoint distinto. Implementación debe dejar desconocido bypass invisible, 403/404 ambiguos y check-run truncado; fuentes/límites registrados en `docs/SOURCES.md`.
+
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
 - `crates/jameskills-infra/src/github.rs`
