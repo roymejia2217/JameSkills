@@ -7,7 +7,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Checkpoint T020–T022 cerrado; T023 siguiente
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `8d14689`, 1 commit por delante de `origin/feat/t020-commit-test-checks`; PR draft #22 apunta aún al SHA anterior `c976f02`.
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `db5df25`, 4 commits por delante de `origin/feat/t020-commit-test-checks`; PR draft #22 aún apunta a `c976f02`.
 - CI run `37328599512` para SHA `c976f02` pasó fmt, Clippy, tests Linux, build Linux, build Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37328595359` también pasó. Pre-push completo pasó en VS Developer environment con linker MSVC explícito.
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
 - T021.src, `.dep`, `.a`, `.b` y `.a2.src` completadas. CI contract usa YAML bounded/inerte, required job IDs, triggers push/PR, action refs pin, permissions y predicados conservadores; local result solo `LocalCheck`. `CiEvidence` remains Unknown sin provider actual.
@@ -20,7 +20,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T022.registry.a/b/c cerradas: `github-access`, `gh repository-read`, nombre portable y loader runtime; profile general gh detecta v2 pero driver T022 solo acepta runtime exacto 2.102.0.
 - T022.windows-env cerrada: RED focused falló por `APPDATA` no allowlisted; GREEN focused 1/1 al allowlistear la ruta de configuración Windows. `GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN` continúan rechazados.
 - Gates finales: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Opt-in real GitHub read-only pasó 1/1 en este repo; comprobó Git remote/HEAD, gh auth y GET repo. No almacena token ni muestra identidad.
-- T023.src cerrada en working tree: fuentes REST oficiales consultadas para reglas efectivas (active solo), rulesets con padres/bypass, classic branch protection y check-runs/status exactos. Hallazgo determinante: `bypass_actors` puede omitirse sin write access; no declarar `HostRule`/no-bypass sin evidencia visible. Check-runs exactos requieren `head_sha` + `completed/success`, output bounded y max 100 sin paginación ilimitada; permisos classic/fine-grained pueden diferir. Ver URLs/semánticas en `docs/SOURCES.md`.
+- T023.src committed as `bd78191 docs(policy-engine): cite GitHub protection API contracts`: fuentes oficiales establecen reglas efectivas active-only, bypass metadata posiblemente oculta, classic 404 ambiguo y checks exact-SHA con límites de 100/paginación.
+- T023.a/b committed as `db5df25 feat(policy-engine): inspect active GitHub branch rules`: provider dispatches `github-branch-policy`, fixed GET effective rules + classic protection, compares PR/check contexts y registra bypass tri-state sin actor details. `host_protection_checks` pasa 4/4; parser unit bypass tri-state 1/1; Clippy infra `-D warnings`, fmt/diff-check pass. `require_no_bypass=true` permanece Unknown cuando bypass actors no son visibles, Fail cuando hay bypass, Pass HostRule solo con visibilidad completa y lista vacía.
+- T023.c siguiente: recoger contexts fuente/app y check-run+commit-status exactos del HEAD; no reutilizar un SHA anterior ni elevar `ci-contract` a RequiredCi.
 
 ## Estado real
 
