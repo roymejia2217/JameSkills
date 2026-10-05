@@ -49,18 +49,22 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T020.c.b queda cerrada localmente. Próxima unidad elegible T020.c.c: driver Node/npm de suites. T020.c parent permanece abierta hasta implementarla y verificarla.
 - CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; hace falta autorización expresa antes de push/PR para lanzar CI.
 
-## Slice actual T020.c.c.a — contrato/fuentes npm
+## Slice actual T020.c.c.b — runner Node/npm
 
-- Revisadas fuentes npm CLI `v11.16.0`, npm CLI docs v11 de run/config/.npmrc/folders y Node v24 docs. npm 11.16 declara Node `^20.17.0 || >=22.9.0`; host observado Node24.18.0/npm11.16.0 y probe vía `node npm-cli.js --version` dio `11.16.0`.
-- npm ejecuta el texto del script por `/bin/sh` o `cmd.exe`; `--ignore-scripts` mantiene el evento pedido y suprime pre/post. El contrato lo define como ejecución consentida de código del repo, no sandbox.
-- El diseño bloquea `.npmrc` del root y aísla config global/usuario. La huella de npm-cli.js no verifica todos los módulos relativos del paquete.
+- Contrato/fuentes en commit `c289aa7 docs(policy-engine): specify approved npm suite driver`; el implementation slice actual tiene 5 archivos y commit pendiente.
+- Fuentes/tag npm CLI `v11.16.0`, docs v11 de run/config/.npmrc/folders, npm/run-script v10.0.4 y Node v24 consultados. Host probado: Node24.18.0/npm11.16.0; npm 11.16 engine `^20.17.0 || >=22.9.0`.
+- La invocación Node directa al `npm-cli.js` no ejecuta `.cmd`; script ID solo `lint`/`test`/`build`; argv fija `--ignore-scripts` suprime lifecycle pre/post, pero el script pedido corre por shell del sistema bajo aprobación explícita. `.npmrc` root bloqueado; config global/usuario privada vacía; salida/cancelación/timeout acotados. La huella npm-cli.js no representa todo el árbol del paquete.
+- Verificación local acumulada: suite infra completa, Clippy infra `-D warnings`, fmt y diff-check pasan. Fakes prueban versiones compatibles/incompatibles, ausencia de tools/script, `.npmrc`, mapeo lint/test/build y permisos. Opt-in real `real_npm_test_driver_passes_and_fails_without_lifecycle_hooks` pasa 1/1 con Node24.18/npm11.16 vía `SystemProcessPort`, con fixture pass y fail y centinelas pre/post intactos.
+- T020.c.c.b pasa fake y real localmente; falta su commit y el sub-slice .c.c.c de fuente/run-script credential semantics. T020.c no se cierra hasta terminar ese registro.
+- Tras cerrar T020.c, T020.b3 (evidencia de autoridad `LocalHook`) seguirá pendiente, por lo que T020/T021 no se deben cerrar todavía.
+- CI remota aún no se ha lanzado en esta revisión; no hay PR asociada antes de publicar. La autorización del usuario permite preparar branch/PR después de validar este commit.
 
 ## Próxima acción exacta
 
-1. Cerrar .c.c.a con fmt/diff-check y Commitlint local en su commit documental.
-2. Implementar .c.c.b (Node/npm runner + tests) en máximo cuatro archivos; empezar por test que exija ejecutar solo el script solicitado y nunca npm.cmd, pre/post hooks ni repository `.npmrc`.
-3. Ejecutar opt-in real con Node24.18/npm11.16 en fixtures pass/fail y fake suite; revalidar manifest/HEAD y aislamiento de npm config antes del spawn.
-4. Solicitar autorización específica para publicar la rama/abrir PR y obtener CI remota; no reportar verdes locales como CI remota.
+1. Repetir fmt/diff-check y Commitlint, revisar el diff de 5 archivos y crear commit semántico T020.c.c.b.
+2. Cerrar .c.c.c con la cita npm/run-script/env heredado en un commit documental separado.
+3. Completar T020.c y luego T020.b3 para verificar observacionalmente el hook `commit-msg`; no marcar T020/T021 completos antes de sus criterios.
+4. Abrir/actualizar PR draft autorizada para lanzar CI remota; registrar el run una vez, sin polling.
 5. C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado

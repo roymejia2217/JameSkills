@@ -44,10 +44,14 @@ const MAX_GITIGNORE_PROBES: usize = 32;
 const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
+const MAX_NPM_VERSION_BYTES: usize = 1024;
+const MAX_NPM_OUTPUT_BYTES: usize = 64 * 1024;
+const REVIEWED_NPM_VERSION: &str = "11.16.0";
 const GITLEAKS_CONFIG_PLACEHOLDER: &str = "{APP_GITLEAKS_CONFIG}";
 const GITLEAKS_DEFAULT_CONFIG: &str = "[extend]\nuseDefault = true\n";
 static NEXT_GITLEAKS_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
 static NEXT_COMMIT_MESSAGE_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_NPM_RUN_ID: AtomicU64 = AtomicU64::new(0);
 
 struct PrivateCommitMessage {
     directory: PathBuf,
@@ -185,6 +189,87 @@ impl PrivateGitleaksConfig {
 }
 
 impl Drop for PrivateGitleaksConfig {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+struct PrivateNpmRunConfig {
+    directory: PathBuf,
+    user_config: PathBuf,
+    global_config: PathBuf,
+    cache: PathBuf,
+    logs: PathBuf,
+}
+
+impl PrivateNpmRunConfig {
+    fn create(repository_root: &Path) -> std::io::Result<Self> {
+        for _ in 0..8 {
+            let directory = std::env::temp_dir().join(format!(
+                "jameskills-npm-run-{}-{}",
+                std::process::id(),
+                NEXT_NPM_RUN_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            #[allow(unused_mut)]
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+            let canonical_directory = match std::fs::canonicalize(&directory) {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = std::fs::remove_dir_all(&directory);
+                    return Err(error);
+                }
+            };
+            if canonical_directory.starts_with(repository_root)
+                || repository_root.starts_with(&canonical_directory)
+            {
+                let _ = std::fs::remove_dir_all(&canonical_directory);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "private npm configuration overlaps the repository",
+                ));
+            }
+            let user_config = canonical_directory.join("user.npmrc");
+            let global_config = canonical_directory.join("global.npmrc");
+            let cache = canonical_directory.join("cache");
+            let logs = canonical_directory.join("logs");
+            for file in [&user_config, &global_config] {
+                if let Err(error) = write_private_file(file, b"") {
+                    let _ = std::fs::remove_dir_all(&canonical_directory);
+                    return Err(error);
+                }
+            }
+            for subdirectory in [&cache, &logs] {
+                if let Err(error) = std::fs::create_dir(subdirectory) {
+                    let _ = std::fs::remove_dir_all(&canonical_directory);
+                    return Err(error);
+                }
+            }
+            return Ok(Self {
+                directory: canonical_directory,
+                user_config,
+                global_config,
+                cache,
+                logs,
+            });
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "private npm configuration path is unavailable",
+        ))
+    }
+}
+
+impl Drop for PrivateNpmRunConfig {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.directory);
     }
@@ -1114,6 +1199,26 @@ pub struct ApprovedCommitlintNode {
     entrypoint_fingerprint: ExecutableFingerprint,
 }
 
+pub struct ApprovedNodeNpm {
+    node: ApprovedRepositoryTool,
+    entrypoint: ApprovedScript,
+    entrypoint_fingerprint: ExecutableFingerprint,
+}
+
+impl ApprovedNodeNpm {
+    pub fn new(
+        node: ApprovedRepositoryTool,
+        entrypoint: ApprovedScript,
+        entrypoint_fingerprint: ExecutableFingerprint,
+    ) -> Self {
+        Self {
+            node,
+            entrypoint,
+            entrypoint_fingerprint,
+        }
+    }
+}
+
 impl ApprovedCommitlintNode {
     pub fn new(
         node: ApprovedRepositoryTool,
@@ -1171,6 +1276,184 @@ fn node_path_argument(path: &Path) -> OsString {
     path.as_os_str().to_os_string()
 }
 
+fn is_npm_cli_entrypoint(path: &Path) -> bool {
+    let components = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    components.len() >= 4
+        && (components[components.len() - 4..]
+            .iter()
+            .zip(["node_modules", "npm", "bin", "npm-cli.js"])
+            .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+            || components[components.len() - 4..]
+                .iter()
+                .zip(["nodejs", "npm", "bin", "npm-cli.js"])
+                .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected)))
+}
+
+/// Resolves a registered npm launcher to the npm JavaScript entrypoint without
+/// executing the launcher (which may be a Windows `.cmd` shim).
+pub fn npm_cli_entrypoint_for_candidate(candidate: &ToolCandidate) -> Option<PathBuf> {
+    if candidate.tool_id() != ToolId::Npm {
+        return None;
+    }
+    let launcher = candidate.path()?;
+    let mut candidates = Vec::new();
+    if is_npm_cli_entrypoint(launcher) {
+        candidates.push(launcher.to_path_buf());
+    }
+    for ancestor in launcher.ancestors().take(6) {
+        for relative in [
+            Path::new("node_modules/npm/bin/npm-cli.js"),
+            Path::new("lib/node_modules/npm/bin/npm-cli.js"),
+            Path::new("share/nodejs/npm/bin/npm-cli.js"),
+            Path::new("lib/nodejs/npm/bin/npm-cli.js"),
+        ] {
+            candidates.push(ancestor.join(relative));
+        }
+    }
+    candidates.into_iter().find_map(|candidate| {
+        let metadata = std::fs::symlink_metadata(&candidate).ok()?;
+        if !metadata.file_type().is_file() {
+            return None;
+        }
+        let canonical = std::fs::canonicalize(candidate).ok()?;
+        is_npm_cli_entrypoint(&canonical).then_some(canonical)
+    })
+}
+
+fn npm_script_for_suite(suite: TestSuiteKind) -> Option<&'static str> {
+    match suite {
+        TestSuiteKind::NodeLint => Some("lint"),
+        TestSuiteKind::NodeTest => Some("test"),
+        TestSuiteKind::NodeBuild => Some("build"),
+        TestSuiteKind::CargoTest => None,
+    }
+}
+
+fn node_version_satisfies_npm_11(version: &semver::Version) -> bool {
+    let node_20_minimum = semver::Version::new(20, 17, 0);
+    let node_22_minimum = semver::Version::new(22, 9, 0);
+    (version.major == 20 && version >= &node_20_minimum)
+        || (version.major >= 22 && version < &semver::Version::new(25, 0, 0))
+            && version >= &node_22_minimum
+}
+
+fn approved_npm_shell(environment: &ApprovedEnv) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let system_root = environment
+            .entries()
+            .iter()
+            .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case("SYSTEMROOT"))
+            .map(|(_, value)| PathBuf::from(value.as_os_str()))?;
+        let shell = system_root.join("System32").join("cmd.exe");
+        return std::fs::metadata(&shell)
+            .is_ok_and(|metadata| metadata.is_file())
+            .then_some(shell);
+    }
+    #[cfg(unix)]
+    {
+        let shell = PathBuf::from("/bin/sh");
+        return std::fs::metadata(&shell)
+            .is_ok_and(|metadata| metadata.is_file())
+            .then_some(shell);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn approved_environment_with_node_path(
+    environment: &ApprovedEnv,
+    node_path: &Path,
+) -> AppResult<ApprovedEnv> {
+    let node_directory = node_path.parent().ok_or_else(|| {
+        AppError::Validation(vec![Diagnostic::error(
+            "test_suite.node.path.invalid",
+            "The approved Node executable has no parent directory.",
+        )])
+    })?;
+    let mut entries = environment.entries().clone();
+    let path_key = entries
+        .keys()
+        .find(|key| key.to_string_lossy().eq_ignore_ascii_case("PATH"))
+        .cloned();
+    let current_path = path_key.as_ref().and_then(|key| entries.get(key)).cloned();
+    entries.retain(|key, _| !key.to_string_lossy().eq_ignore_ascii_case("PATH"));
+    let mut paths = vec![node_directory.to_path_buf()];
+    if let Some(current_path) = current_path {
+        paths.extend(std::env::split_paths(&current_path));
+    }
+    let path = std::env::join_paths(paths).map_err(|_| {
+        AppError::Validation(vec![Diagnostic::error(
+            "test_suite.node.path.invalid",
+            "The approved Node search path could not be constructed.",
+        )])
+    })?;
+    entries.insert(OsString::from("PATH"), path);
+    ApprovedEnv::new(entries).map_err(AppError::Validation)
+}
+
+fn repository_has_npmrc(root: &Path) -> bool {
+    match std::fs::symlink_metadata(root.join(".npmrc")) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => true,
+    }
+}
+
+fn npm_config_args(config: &PrivateNpmRunConfig, root: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--userconfig"),
+        node_path_argument(&config.user_config),
+        OsString::from("--globalconfig"),
+        node_path_argument(&config.global_config),
+        OsString::from("--cache"),
+        node_path_argument(&config.cache),
+        OsString::from("--logs-dir"),
+        node_path_argument(&config.logs),
+        OsString::from("--offline"),
+        OsString::from("--no-audit"),
+        OsString::from("--no-fund"),
+        OsString::from("--no-update-notifier"),
+        OsString::from("--prefix"),
+        node_path_argument(root),
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn node_npm_process_spec(
+    driver: &ApprovedNodeNpm,
+    arguments: Vec<OsString>,
+    cwd: &ApprovedRoot,
+    environment: &ApprovedEnv,
+    permission: ProcessPermission,
+    cancellation: CancellationToken,
+    timeout: Duration,
+    output_limit_bytes: usize,
+) -> AppResult<ProcessSpec> {
+    Ok(ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(driver.node.executable.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        ToolId::Npm,
+        arguments,
+        ApprovedRoot::from_absolute_path(cwd.path().to_path_buf()).map_err(AppError::Validation)?,
+        ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+        timeout,
+        output_limit_bytes,
+        permission,
+        cancellation,
+    )
+    .map_err(AppError::Validation)?
+    .with_approved_executable_fingerprint(driver.node.fingerprint)
+    .with_approved_script(
+        ApprovedScript::from_absolute_path(driver.entrypoint.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        driver.entrypoint_fingerprint,
+    ))
+}
+
 async fn run_node_commitlint(
     driver: &ApprovedCommitlintNode,
     arguments: &[OsString],
@@ -1209,6 +1492,7 @@ pub struct RepositoryPolicyCheckProvider {
     git: Option<ApprovedRepositoryTool>,
     gitleaks: Option<ApprovedRepositoryTool>,
     cargo: Option<ApprovedRepositoryTool>,
+    node_npm: Option<ApprovedNodeNpm>,
     commitlint: Option<ApprovedCommitlint>,
     environment: ApprovedEnv,
     process: Arc<dyn ProcessPort>,
@@ -1231,6 +1515,7 @@ impl RepositoryPolicyCheckProvider {
             git,
             gitleaks,
             cargo: None,
+            node_npm: None,
             commitlint: None,
             environment,
             process,
@@ -1246,6 +1531,11 @@ impl RepositoryPolicyCheckProvider {
 
     pub fn with_cargo(mut self, cargo: ApprovedRepositoryTool) -> Self {
         self.cargo = Some(cargo);
+        self
+    }
+
+    pub fn with_node_npm(mut self, node_npm: ApprovedNodeNpm) -> Self {
+        self.node_npm = Some(node_npm);
         self
     }
 
@@ -1598,6 +1888,222 @@ impl RepositoryPolicyCheckProvider {
             exit_code,
         )
     }
+
+    async fn run_node_suite(
+        &self,
+        approval: TestSuiteRunApproval,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteRunResult> {
+        let snapshot = approval.snapshot();
+        let blocked = || {
+            suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            )
+        };
+        let Some(driver) = self.node_npm.as_ref() else {
+            return blocked();
+        };
+        let Some(script) = npm_script_for_suite(snapshot.suite()) else {
+            return blocked();
+        };
+        if !is_npm_cli_entrypoint(driver.entrypoint.path())
+            || repository_has_npmrc(snapshot.root().path())
+        {
+            return blocked();
+        }
+        if !matches!(
+            test_suite_manifest_fingerprint(snapshot.root().path()),
+            Ok(fingerprint) if &fingerprint == snapshot.manifest_fingerprint()
+        ) {
+            return blocked();
+        }
+        let config = match PrivateNpmRunConfig::create(snapshot.root().path()) {
+            Ok(config) => config,
+            Err(_) => return blocked(),
+        };
+        let environment = match approved_environment_with_node_path(
+            &self.environment,
+            driver.node.executable.path(),
+        ) {
+            Ok(environment) => environment,
+            Err(_) => return blocked(),
+        };
+        let shell = match approved_npm_shell(&environment) {
+            Some(shell) => shell,
+            None => return blocked(),
+        };
+
+        let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+        let Some(node_profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Node)
+        else {
+            return blocked();
+        };
+        let Some(npm_profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Npm)
+        else {
+            return blocked();
+        };
+        let platform = PlatformFacts::detect().platform;
+        let Some(node_candidate) =
+            candidate_for_approved_tool(node_profile, &driver.node, platform)
+        else {
+            return blocked();
+        };
+        if node_candidate.kind() != ToolCandidateKind::NativeExecutable {
+            return blocked();
+        }
+        let node_version_spec = registered_process_spec(
+            &driver.node,
+            ToolId::Node,
+            node_profile
+                .version_args()
+                .iter()
+                .cloned()
+                .map(OsString::from)
+                .collect(),
+            snapshot.root(),
+            &environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(3),
+            MAX_NPM_VERSION_BYTES,
+        )?;
+        let node_output = match self.process.run(node_version_spec).await {
+            Ok(output) if output.exit_code() == Some(0) => output,
+            Ok(_) => return blocked(),
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return blocked();
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(node_version) = parse_tool_version_output(node_profile, node_output.stdout())
+        else {
+            return blocked();
+        };
+        if !node_profile.version_range().matches(&node_version)
+            || !node_version_satisfies_npm_11(&node_version)
+        {
+            return blocked();
+        }
+
+        let mut npm_version_args = vec![node_path_argument(driver.entrypoint.path())];
+        npm_version_args.extend(npm_config_args(&config, snapshot.root().path()));
+        npm_version_args.push(OsString::from("--version"));
+        let npm_version_spec = node_npm_process_spec(
+            driver,
+            npm_version_args,
+            snapshot.root(),
+            &environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(5),
+            MAX_NPM_VERSION_BYTES,
+        )?;
+        let npm_output = match self.process.run(npm_version_spec).await {
+            Ok(output) if output.exit_code() == Some(0) => output,
+            Ok(_) => return blocked(),
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return blocked();
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(npm_version) = parse_tool_version_output(npm_profile, npm_output.stdout()) else {
+            return blocked();
+        };
+        if !npm_profile.version_range().matches(&npm_version)
+            || npm_version != semver::Version::parse(REVIEWED_NPM_VERSION).expect("app version")
+        {
+            return blocked();
+        }
+
+        if !matches!(
+            test_suite_manifest_fingerprint(snapshot.root().path()),
+            Ok(fingerprint) if &fingerprint == snapshot.manifest_fingerprint()
+        ) || repository_has_npmrc(snapshot.root().path())
+        {
+            return blocked();
+        }
+        let Some(git) = self.git.as_ref() else {
+            return blocked();
+        };
+        let head_spec = registered_process_spec(
+            git,
+            ToolId::Git,
+            ["rev-parse", "--verify", "HEAD"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+            snapshot.root(),
+            &environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(5),
+            256,
+        )?;
+        let current_head = match self.process.run(head_spec).await {
+            Ok(output) if output.exit_code() == Some(0) => std::str::from_utf8(output.stdout())
+                .ok()
+                .map(|head| head.trim_end_matches(['\r', '\n']).to_owned()),
+            Ok(_) => None,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => None,
+            Err(error) => return Err(error),
+        };
+        if !matches!(current_head.as_deref(), Some(head) if head == snapshot.expected_head().as_str())
+        {
+            return blocked();
+        }
+
+        let shell = node_path_argument(&shell);
+        let mut arguments = vec![node_path_argument(driver.entrypoint.path())];
+        arguments.extend(npm_config_args(&config, snapshot.root().path()));
+        arguments.extend([
+            OsString::from("--ignore-scripts"),
+            OsString::from("--script-shell"),
+            shell,
+            OsString::from("--workspaces=false"),
+            OsString::from("--include-workspace-root=false"),
+            OsString::from("run-script"),
+            OsString::from(script),
+        ]);
+        let spec = node_npm_process_spec(
+            driver,
+            arguments,
+            snapshot.root(),
+            &environment,
+            ProcessPermission::ExplicitMutation(approval.operation_id()),
+            cancellation,
+            Duration::from_secs(120),
+            MAX_NPM_OUTPUT_BYTES,
+        )?;
+        let output = match self.process.run(spec).await {
+            Ok(output) => output,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return blocked();
+            }
+            Err(error) => return Err(error),
+        };
+        let (execution, exit_code) = match output.exit_code() {
+            Some(0) => (TestSuiteExecution::Passed, Some(0)),
+            Some(code) => (TestSuiteExecution::Failed, Some(code)),
+            None => (TestSuiteExecution::Blocked, None),
+        };
+        suite_result(
+            snapshot.suite(),
+            snapshot.declaration(),
+            execution,
+            exit_code,
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -1770,12 +2276,7 @@ impl TestSuiteRunnerPort for RepositoryPolicyCheckProvider {
             TestSuiteDeclaration::Declared => match current.suite() {
                 TestSuiteKind::CargoTest => self.run_cargo_test(approval, cancellation).await,
                 TestSuiteKind::NodeLint | TestSuiteKind::NodeTest | TestSuiteKind::NodeBuild => {
-                    suite_result(
-                        current.suite(),
-                        current.declaration(),
-                        TestSuiteExecution::Blocked,
-                        None,
-                    )
+                    self.run_node_suite(approval, cancellation).await
                 }
             },
         }
@@ -1880,6 +2381,8 @@ fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {
         "Cargo.lock",
         "package.json",
         "package-lock.json",
+        ".npmrc",
+        ".npmrc",
     ] {
         hasher.update((name.len() as u64).to_le_bytes());
         hasher.update(name.as_bytes());

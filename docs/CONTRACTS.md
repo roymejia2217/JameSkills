@@ -279,6 +279,12 @@ evidencia. Root, HEAD, manifests, declaración y selección se revalidan antes d
 `ExplicitMutation`; cancelación, npm no disponible, script ausente y exit no
 cero mantienen estados separados. Un exit 0 certifica exit del script solicitado,
 no cobertura ni que el script haya probado un objetivo específico.
+`infra::fs::npm_cli_entrypoint_for_candidate(&ToolCandidate) -> Option<PathBuf>`
+resuelve layouts registrados de npm sin ejecutar el candidate launcher. El
+provider requiere un `ApprovedNodeNpm` que ata un Node aprobado a ese entrypoint
+JavaScript y su fingerprint; el ProcessPort vuelve a validar ambos antes de
+spawn. `.npmrc` root presente o no regular bloquea, y el fingerprint de npm-cli.js
+no acredita integridad del conjunto de módulos npm cargados.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
