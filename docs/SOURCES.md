@@ -214,6 +214,14 @@ driver to redirect user/global config to private empty files and block when a pr
 because credentials or config-defined shell behavior must not silently reach a
 suite. A package tree/lockfile does not pin the globally installed npm CLI.
 
+[`@npmcli/run-script` v10.0.4 `make-spawn-args.js`](https://github.com/npm/run-script/blob/v10.0.4/lib/make-spawn-args.js)
+starts its child environment from `process.env` and sets the configured shell on
+the spawn; [`run-script-pkg.js`](https://github.com/npm/run-script/blob/v10.0.4/lib/run-script-pkg.js)
+obtains command text from the selected package script. JameSkills calls npm with
+the minimal ProcessPort `ApprovedEnv`, suppresses lifecycle hooks and requires
+explicit repository trust. This does not sandbox a script from same-user
+filesystem access.
+
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
 `--version`. Para los subcomandos Cargo, sus README oficiales documentan su
