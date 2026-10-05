@@ -18,7 +18,7 @@ const MAX_ARGUMENT_BYTES: usize = 4096;
 const MAX_TOTAL_ARGUMENT_BYTES: usize = 16 * 1024;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_TIMEOUT: Duration = Duration::from_secs(120);
-const MAX_ENV_ENTRIES: usize = 16;
+const MAX_ENV_ENTRIES: usize = 24;
 const MAX_ENV_BYTES: usize = 16 * 1024;
 
 /// Absolute executable selected by trusted infrastructure or configuration.
@@ -412,6 +412,15 @@ fn approved_env_key(key: &OsStr) -> bool {
         "LANGUAGE",
         "TMP",
         "TEMP",
+        "INCLUDE",
+        "LIB",
+        "LIBPATH",
+        "VCINSTALLDIR",
+        "VCToolsInstallDir",
+        "WindowsSdkDir",
+        "WindowsSDKVersion",
+        "UniversalCRTSdkDir",
+        "UCRTVersion",
     ]
     .iter()
     .any(|approved| key.to_string_lossy().eq_ignore_ascii_case(approved))

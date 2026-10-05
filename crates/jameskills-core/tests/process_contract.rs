@@ -56,6 +56,47 @@ fn executable_root_and_environment_require_explicit_safe_values() {
 }
 
 #[test]
+fn approved_environment_accepts_msvc_tool_paths_without_compiler_options() {
+    let tool_paths = BTreeMap::from([
+        (OsString::from("INCLUDE"), OsString::from("C:\\VS\\include")),
+        (OsString::from("LIB"), OsString::from("C:\\VS\\lib")),
+        (
+            OsString::from("LIBPATH"),
+            OsString::from("C:\\VS\\metadata"),
+        ),
+        (OsString::from("VCINSTALLDIR"), OsString::from("C:\\VS\\VC")),
+        (
+            OsString::from("VCToolsInstallDir"),
+            OsString::from("C:\\VS\\VC\\Tools"),
+        ),
+        (
+            OsString::from("WindowsSdkDir"),
+            OsString::from("C:\\Windows Kits\\10"),
+        ),
+        (
+            OsString::from("WindowsSDKVersion"),
+            OsString::from("10.0.26100.0\\"),
+        ),
+        (
+            OsString::from("UniversalCRTSdkDir"),
+            OsString::from("C:\\Windows Kits\\10"),
+        ),
+        (
+            OsString::from("UCRTVersion"),
+            OsString::from("10.0.26100.0"),
+        ),
+    ]);
+    let environment = ApprovedEnv::new(tool_paths).unwrap();
+    assert_eq!(environment.entries().len(), 9);
+
+    let compiler_options = BTreeMap::from([(
+        OsString::from("CL"),
+        OsString::from("/DUNSAFE /link arbitrary.exe"),
+    )]);
+    assert!(ApprovedEnv::new(compiler_options).is_err());
+}
+
+#[test]
 fn cancellation_token_is_shared_across_process_owners() {
     let token = CancellationToken::new();
     let worker = token.clone();

@@ -40,30 +40,22 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Estado de ejecución reconstruido
+## Slice actual T020.c.b.b.b.c.a — allowlist MSVC
 
-- T020.b2 y T020.c.a están comprometidas; T020.c.b.a y T020.c.b.b.a tienen sus commits separados.
-- T020.c.b.b.b.a terminó en cinco archivos y commit separado `4ffa1e6 feat(policy-engine): run approved Cargo test suites`; el hook local rechazó el primer intento porque una línea del body superó 100 columnas y el commit corregido pasó.
-- GREEN local del slice: `cargo test -p jameskills-infra --locked --test test_suite_checks` 4/4 (un opt-in ignored); `cargo test -p jameskills-infra --locked` suite completa; `cargo test -p jameskills-core --locked`; `cargo clippy -p jameskills-infra -p jameskills-core --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; `scripts/test-commitlint.sh` con Git Bash; `npm exec --no -- commitlint --from main --to HEAD --verbose` pasan. `cargo fmt --all` corrigió el formato observado durante el repaso.
-- Prueba de integración real opt-in ejecutada explícitamente: `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` falla porque el fixture de pass obtiene Cargo exit 101 compilando en este host Windows MSVC. No cuenta como pass real. El test fake sí confirma que inspección usa ReadOnlyCheck y que un HEAD alterado después de metadata detiene el spawn mutante.
-- CI remota: `gh pr status` reporta que no hay PR asociada a `feat/t020-commit-test-checks`; ningún run puede atribuirse a este cambio. No confundir los GREEN locales con CI remota.
-- Revisión de fuentes: Cargo 1.95 metadata v1 tiene `workspace_members`, `packages[].targets[].test`; `cargo test --workspace --locked` ejecuta targets del workspace con el lock sin resolver versiones distintas. La fuente oficial GPUI Kit installation actual lista Kit 0.7.0/Rust 1.92+; el tag v0.7.0 confirma GPUI snapshot exacto 0.3.7. El pin y baseline local continúan justificados por compilación/requisitos del grafo, no por extrapolación de docs GPUI.
-
-## Estado verificado T020.c.b.b.b.a–b
-
-- Runner + servicio comprometidos en `4ffa1e6 feat(policy-engine): run approved Cargo test suites` (5 archivos); fuentes/contrato Cargo comprometidos separadamente en `94d9c59 docs(policy-engine): cite Cargo suite metadata contract` (4 archivos).
-- Cargo 1.95 metadata format 1 y test docs revisados desde URLs versionadas. La metadata local `--no-deps --format-version 1 --locked --offline` mostró miembros/targets `test=true` para los cuatro packages reales; no ejecutó las suites.
-- GREEN local acumulado tras el runner: test suite checks 4/4 fake, suite infra y core completas, Clippy infra/core `-D warnings`, fmt, diff-check, self-test de commitlint y rango `main..HEAD` Commitlint verde.
-- Opt-in real Cargo se ejecutó explícitamente pero falló: el fixture que debía pasar terminó con `exit 101`. `where.exe link.exe` no encuentra linker en el PATH del shell. `vswhere` sí encontró Visual Studio 2022 Build Tools y `VsDevCmd.bat`; aún no se probó usando ese entorno. No atribuir el 101 definitivamente a un error de dominio ni declarar integración real aprobada.
-- T020.c.b.b queda abierta: falta ejecución Cargo real que demuestre el driver con fixtures pass/fail. T020.c.c no se declara elegible hasta resolver/verificar este gate de subtareas secuenciales.
-- CI remota: branch sin tracking remoto, sin PR asociada y `gh run list --branch feat/t020-commit-test-checks` vacío. No hay verificación CI para estos commits.
+- Los slices Cargo ya están en commits separados: `4ffa1e6` runner/provider y `94d9c59` contrato/fuentes Cargo; checkpoint `7e876d0`.
+- La integración real se probó dos veces: en shell normal y en un shell cuyo `PATH` viene de `VsDevCmd`. Este último sí encuentra el `link.exe` x64 exacto, pero el runner sigue devolviendo exit 101. Diagnóstico causal: `ApprovedEnv` del fixture solo copiaba PATH/HOME/SYSTEMROOT/TEMP y descartaba LIB/INCLUDE/LIBPATH; Microsoft Learn confirma que las herramientas necesitan estas rutas. No afirmar pass real.
+- RED T020.c.b.b.b.c.a: `cargo test -p jameskills-core --locked --test process_contract approved_environment_accepts_msvc_tool_paths_without_compiler_options` compila en el entorno VsDevCmd y falla porque `ApprovedEnv` rechaza INCLUDE/LIB.
+- RED/GREEN T020.c.b.b.b.c.a: el focused process_contract falló antes del cambio y ahora pasa 5/5; suite core completa y Clippy core `-D warnings` pasan desde VsDevCmd. `cargo fmt --all` corrigió presentación y se repite fmt-check/diff-check antes del commit.
+- Implementación: allowlist de variables MSVC de rutas, rechazo de CL/_CL_ para evitar inyección de argumentos y límite de cantidad ajustado. Contrato y test incluidos; slice de 5 archivos.
+- Fuentes Microsoft Learn sobre variables y VsDevCmd revisadas; la cita se incorporará en el sub-slice documental separado T020.c.b.b.b.c.a.src.
+- CI remota continúa sin PR/runs; `git branch -vv` confirma que la rama no tiene upstream. No atribuir resultados locales a CI.
 
 ## Próxima acción exacta
 
-1. Verificar el fixture real dentro de un `VsDevCmd` oficial ya instalado sin cambiar la máquina; documentar solo resultados observados. Revisar además variables MSVC que el ProcessPort permite, sin pasar entorno arbitrario.
-2. Si el entorno approved-env es insuficiente, crear un slice <=5 archivos para ampliar su allowlist de forma mínima y probada; no relajar a herencia libre. Repetir el opt-in Cargo pass/fail; mantener T020.c.b.b abierto hasta tener evidencia real verde.
-3. CI remota aún no existe para la rama. Hace falta autorización expresa para publicar la rama/abrir PR; no confundir los commits locales validados por Commitlint con CI remota.
-4. Cuando b.b.b cierre, continuar el siguiente slice productivo T020.c.c (driver Node) según el DAG; C006/C005 y T019 conservan sus bloqueos independientes.
+1. Repetir fmt-check/diff-check post-rustfmt y registrar T020.c.b.b.b.c.a en un commit semántico independiente.
+2. Completar cita Microsoft Learn en .c.a.src y actualizar el checkpoint; después pasar solo las variables permitidas al `real_environment` del opt-in para intentar Cargo pass/fail con `SystemProcessPort`.
+3. Mantener T020.c.b.b y T020.c abiertas hasta obtener la integración real requerida; T020.c.c queda después de ese gate secuencial. Hace falta autorización explícita para publicar la rama/abrir PR y obtener CI remota.
+4. C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado
 

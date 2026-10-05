@@ -359,7 +359,14 @@ aprobados, fingerprints y límites bounded, y cancelan el grupo completo. El ID
 no constituye por sí solo trust/consent del repositorio: el driver de suites
 debe exigir la aprobación tipada explícita y construir argv desde registry antes
 de solicitar `ExplicitMutation`. Ningún policy inspection solicita esa acción.
-ApprovedEnv mínimo; rutas PATH necesarias, HOME/USERPROFILE por driver, idioma fijo cuando parseador depende. No heredar XAI_API_KEY/GEMINI_API_KEY ni credenciales ajenas.
+`ApprovedEnv` es mínimo y acepta las rutas `PATH`, `HOME`/`USERPROFILE` por
+driver e idioma fijo cuando el parser lo requiere. Para toolchain MSVC también
+puede conservar `INCLUDE`, `LIB`, `LIBPATH`, `VCINSTALLDIR`, `VCToolsInstallDir`,
+`WindowsSdkDir`, `WindowsSDKVersion`, `UniversalCRTSdkDir` y `UCRTVersion`, que
+ubican compilador, headers y bibliotecas del SDK. Estos nombres se allowlistean
+individualmente; `CL` y `_CL_` permanecen rechazados porque permiten añadir
+argumentos al compilador/linker mediante el entorno. Nunca heredar
+`XAI_API_KEY`/`GEMINI_API_KEY` ni credenciales ajenas.
 `ProcessSpec::with_approved_script(ApprovedScript, ExecutableFingerprint)` ata
 un entrypoint JavaScript aprobado al runtime aprobado. `SystemProcessPort`
 revalida que siga siendo un archivo regular, canónico y con el mismo SHA-256
