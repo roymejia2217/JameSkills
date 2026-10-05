@@ -185,6 +185,12 @@ Unknown`) de `TestSuiteExecution` (`NotRun | Blocked | Passed | Failed`) y
 `exit_code`. Solo `Passed` acepta exit 0 y `Failed` acepta exit distinto de 0;
 `NotRun`/`Blocked` no tienen exit code y una suite `Missing` no puede marcarse
 ejecutada. La ejecución es una acción explícita, separada de `PolicyService::check`.
+`TestSuiteRunApproval::after_explicit_trust_confirmation` es un DTO app-owned,
+no deserializable, que liga `ApprovedRoot`, suite fija, `RepositoryHead`, hash
+de manifests y `OperationId`; por sí solo no ejecuta procesos ni representa
+evidencia de suite exitosa. El servicio/runner concreto debe revalidar
+root/head/manifiestos justo antes del spawn; policy inspection nunca invoca el
+runner.
 
 `PolicyCheckProvider::observe(&Requirement)` es async e inyectado a
 `PolicyService::new(provider, clock)`. `PolicyService::check(CheckRequest)` es async y evalúa

@@ -1,10 +1,10 @@
 use crate::{
-    AppError, AppResult, Diagnostic,
+    AppError, AppResult, ContentHash, Diagnostic, OperationId,
     domain::policy::{
         ApplicabilityFact, CheckEvidence, CheckObservation, CheckReport, CheckStatus, Policy,
-        Requirement, evaluate_predicate, not_applicable_result,
+        RepositoryHead, Requirement, TestSuiteKind, evaluate_predicate, not_applicable_result,
     },
-    ports::ClockPort,
+    ports::{ClockPort, process::ApprovedRoot},
 };
 use async_trait::async_trait;
 use std::{
@@ -50,6 +50,53 @@ struct ApplicabilityObservation {
 pub struct CheckRequest {
     policy: Policy,
     context: CheckContext,
+}
+
+/// One-time, non-deserializable approval created only after the user trusts
+/// the selected repository and confirms this suite action.
+pub struct TestSuiteRunApproval {
+    operation_id: OperationId,
+    root: ApprovedRoot,
+    suite: TestSuiteKind,
+    expected_head: RepositoryHead,
+    manifest_fingerprint: ContentHash,
+}
+
+impl TestSuiteRunApproval {
+    pub fn after_explicit_trust_confirmation(
+        root: ApprovedRoot,
+        suite: TestSuiteKind,
+        expected_head: RepositoryHead,
+        manifest_fingerprint: ContentHash,
+    ) -> Self {
+        Self {
+            operation_id: OperationId::new(),
+            root,
+            suite,
+            expected_head,
+            manifest_fingerprint,
+        }
+    }
+
+    pub fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
+
+    pub fn root(&self) -> &ApprovedRoot {
+        &self.root
+    }
+
+    pub fn suite(&self) -> TestSuiteKind {
+        self.suite
+    }
+
+    pub fn expected_head(&self) -> &RepositoryHead {
+        &self.expected_head
+    }
+
+    pub fn manifest_fingerprint(&self) -> &ContentHash {
+        &self.manifest_fingerprint
+    }
 }
 
 impl CheckRequest {
@@ -129,5 +176,38 @@ impl PolicyService {
             }
         }
         Ok(CheckReport::new(results, required_ids))
+    }
+}
+
+#[cfg(test)]
+mod test_suite_tests {
+    use super::TestSuiteRunApproval;
+    use crate::{
+        ContentHash,
+        domain::policy::{RepositoryHead, TestSuiteKind},
+        ports::process::ApprovedRoot,
+    };
+
+    #[test]
+    fn explicit_suite_approval_binds_the_repo_head_manifest_and_suite() {
+        let root_path = std::env::current_dir().unwrap();
+        let approval = TestSuiteRunApproval::after_explicit_trust_confirmation(
+            ApprovedRoot::from_absolute_path(root_path.clone()).unwrap(),
+            TestSuiteKind::CargoTest,
+            RepositoryHead::parse(&"a".repeat(40)).unwrap(),
+            ContentHash::parse_hex(&"b".repeat(64)).unwrap(),
+        );
+        assert!(!approval.operation_id().as_uuid().is_nil());
+        assert!(matches!(approval.suite(), TestSuiteKind::CargoTest));
+        assert_eq!(approval.expected_head().as_str(), "a".repeat(40));
+        assert_eq!(approval.manifest_fingerprint().as_str(), "b".repeat(64));
+        assert_eq!(approval.root().path(), root_path);
+    }
+
+    #[test]
+    fn repository_head_rejects_unreviewed_or_malformed_identifiers() {
+        assert!(RepositoryHead::parse(&"A".repeat(40)).is_err());
+        assert!(RepositoryHead::parse(&"g".repeat(40)).is_err());
+        assert!(RepositoryHead::parse("short").is_err());
     }
 }

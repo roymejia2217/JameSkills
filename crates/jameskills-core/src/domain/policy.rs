@@ -261,6 +261,29 @@ pub enum TestSuiteExecution {
     Failed,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct RepositoryHead(String);
+
+impl RepositoryHead {
+    pub fn parse(value: &str) -> Result<Self, Vec<Diagnostic>> {
+        if !matches!(value.len(), 40 | 64)
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(vec![Diagnostic::error(
+                "policy.repository_head.invalid",
+                "Repository HEAD must be a lowercase Git object ID.",
+            )]);
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Keeps suite presence distinct from whether an explicit execution passed.
 #[derive(Clone, PartialEq, Eq)]
 pub struct TestSuiteRunResult {
