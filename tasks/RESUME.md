@@ -5,19 +5,20 @@ Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
 
-## Checkpoint T020.c.c y fuentes de T020.b3
+## Checkpoint T020 cerrado; T021 iniciado
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `ead41e0`; árbol limpio al iniciar este slice. PR draft #22 mantiene ese SHA.
-- CI run `37270862536` terminó SUCCESS en fmt, Clippy, tests, build Linux, build Windows y validate-commit-messages; `README Policy`, `PR Governance` y `Required CI` también SUCCESS. Required CI es evidencia de resultado del workflow, no inspección de ruleset/protección de `main`.
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, base T021 en `c8d76bb`; PR draft #22 sincronizada. Working tree ahora contiene el slice T021.dep en cinco archivos.
+- CI run `37308536795` para SHA `c8d76bb` terminó SUCCESS en fmt, Clippy, tests Linux, builds Linux/Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37308533712` también SUCCESS.
 - T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
 - El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
-- T020.b3.src committed/pushed as `849d6ed docs(policy-engine): cite local hook and CI authority`; no changes to the repository hook.
+- T020.b3.src committed/pushed as `849d6ed docs(policy-engine): cite local hook and CI authority`; implementación + test en `dc033f5`, corrección de fixture Unix en `c8d76bb`. No se cambió el hook gestionado.
 - El primer pre-push en PowerShell plano falló por `STATUS_DLL_INIT_FAILED (0xc0000142)` sin entorno MSVC. VsDevCmd después encontró que Git Bash resolvía `C:\Program Files\Git\usr\bin\link.exe` antes que el linker MSVC. Push+gate pasaron al inicializar VS 2026 Developer environment y fijar explícitamente `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` al `link.exe` de VS; no se omitió ningún gate.
-- T020.b3 code slice en working tree: provider consulta `git rev-parse --git-path hooks/commit-msg` con Git aprobado/read-only, rechaza targets externos/symlinks/no-regulares/over-limit, y compara SHA-256 de dos lecturas bounded. El check agrega evidencia sin paths/hashes ni contenido y conserva `LocalCheck`; inspección no prueba argv, identidad del driver ni invocación.
+- T020.b3 completada: provider consulta `git rev-parse --git-path hooks/commit-msg` con Git aprobado/read-only, rechaza targets externos/symlinks/no-regulares/over-limit, y compara SHA-256 de dos lecturas bounded. El check agrega evidencia sin paths/hashes ni contenido y conserva `LocalCheck`; inspección no prueba argv, identidad del driver ni invocación.
 - RED focal observado antes de la implementación: faltaba evidencia `repo.commit-hook`; GREEN pasó en Windows. El opt-in Node24.18/Commitlint21.2.2 con Git real verificó que el hook instalado se lee, sin ejecutarlo.
-- CI run `37307758381` en `dc033f5`: fmt, Clippy, builds Linux/Windows, Commitlint de PR y README pasaron; tests Linux falló porque el fixture Unix del hook no marcó el archivo ejecutable. `Required CI` falló como consecuencia; Governance pasó.
-- Corrección working-tree actual: test setea permisos `0755` bajo `cfg(unix)` al fixture de test, sin ejecutar su script. Revalidar prueba focal Windows y gates completos; el siguiente CI debe demostrar el resultado Linux antes de marcar T020.b3 completa.
-- T020.b3 nunca afirma `LocalHook`; T020 parent/T021 siguen abiertas. No debilitar checks por el fallo; actualizar checkpoint después del siguiente CI.
+- CI run `37307758381` en `dc033f5` detectó fixture Unix sin modo ejecutable; `c8d76bb` lo corrige con permisos `0755` bajo `cfg(unix)` sin ejecutar el hook. CI `37308536795` completa confirma GREEN en Linux y Windows.
+- T020 y subtareas verificadas cerradas. No se atribuye `LocalHook`; no se verificó aún una regla host que exija checks en `main` (eso corresponde a T022/T023).
+- T021 es la tarea activa. T021.src registra fuentes oficiales GitHub Actions/workflow syntax, matrix y required status checks. T021.dep da dependencia directa de serde-saphyr 1.3.0 a infra; RED `cargo check -p jameskills-infra --locked --offline` impide actualizar Cargo.lock y GREEN con `--offline` actualiza lock y checks locked pasan. Implementación local-first; YAML no cuenta como RequiredCi ni demuestra run del SHA actual.
+- Próximo: verificar diff/cargo fmt y Commitlint, cerrar T021.dep con commit separado; luego test-first de T021.a parser/provider de `ci-contract` con fixtures de YAML bueno/malformado/no soportado. Mantener `ci-evidence`/branch protection como Unknown o Blocked hasta drivers host/SHA de T022/T023.
 
 ## Estado real
 

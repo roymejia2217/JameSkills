@@ -161,6 +161,10 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GPUI headless recipes y APIs: fuente v0.7.0 indicada arriba.
 - MSRV/toolchain: https://doc.rust-lang.org/cargo/reference/rust-version.html
 - GitHub Actions permissions: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication
+- GitHub Actions workflow syntax: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+- GitHub Actions job matrices: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
+- GitHub protected branches/status checks: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+- GitHub ruleset rules: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets
 
 ## Guías oficiales de instalación para el registry de tools
 
@@ -195,6 +199,10 @@ Commitlint's [local setup guide](https://commitlint.js.org/guides/local-setup.ht
 GitHub's [protected-branch documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) states that required status checks must succeed before merging. Its [ruleset documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) describes layered active rulesets and their visible enforcement state. Workflow YAML and successful run evidence alone do not prove that the host requires the check.
 
 For cross-platform CI patterns, the live [`microsoft/vscode` workflow directory](https://github.com/microsoft/vscode/tree/main/.github/workflows) has reusable Linux, Windows, and macOS test workflows; the platform workflows select OS-specific runners/shells and pin GitHub actions by commit SHA. The live [`rust-lang/rust` CI workflow](https://github.com/rust-lang/rust/blob/main/.github/workflows/ci.yml) and its [job definitions](https://github.com/rust-lang/rust/blob/main/src/ci/github-actions/jobs.yml) enumerate Linux, macOS, Windows, and architecture-specific jobs. These are observed repository implementations, not a universal prescription to run every check on every OS.
+
+T021 CI-contract parser references: GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) specifies event triggers, job IDs, permissions and workflow fields; its [matrix guide](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) defines job matrix expansion. GitHub notes that a workflow skipped by filters can leave a required check pending. The [protected branch status-check rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) describe host-side merge enforcement; local YAML inspection cannot establish that rule or a check run for the current SHA.
+
+The T021 local workflow parser will use the already locked [`serde-saphyr` 1.3.0](https://docs.rs/serde-saphyr/1.3.0/serde_saphyr/) directly in infra with an explicit event/depth/node/scalar budget, duplicate-key errors, zero aliases/anchors, rejected custom tags/merge keys, and disabled snippets. YAML data remains inert; parser output is inspected as data and never executes workflow steps or Actions.
 
 T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
 the Windows host together with Node `24.18.0`. The tagged

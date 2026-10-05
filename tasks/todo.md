@@ -886,9 +886,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T020 — Comprobar Conventional Commits y pruebas declaradas
 
-- [ ] **T020 completada y verificada**
+- [x] **T020 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T016, T017. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T018, T016, T017. **Estado:** completada.
 
 **Implementación y funciones:** `check_conventional_commits` obtiene el mensaje de HEAD con Git aprobado, lo escribe en archivo temporal privado y ejecuta Commitlint 21.2.2 con `--default-config --edit`, cwd/config privados y config convencional incorporada; nunca carga config JS del repo. `check_test_commands` usa drivers Rust/Node registrados y solo corre tras acción explícita con trust del repo. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -943,8 +943,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T020.c.c.c: revisados `@npmcli/run-script` v10.0.4 `make-spawn-args.js` y `run-script-pkg.js`; la fuente confirma herencia de `process.env`, shell explícito y command text de la clave del manifest. Citado que no hay sandbox ni garantía de aislamiento para scripts ejecutados con trust del repositorio.
 - [x] **T020.b3.src — Fuentes para LocalHook, enforcement CI y CI multiplataforma** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Contrastar manual Git/Husky/Commitlint con prácticas observadas en Node.js, VS Code y Rust; registrar que hooks son feedback local eludible y que CI solo bloquea si el host exige el check.
 - Evidencia T020.b3.src: WebFetch de manual oficial Git hooks, guías oficiales Husky v9 y Commitlint local/CI; workflows live `nodejs/node` commit-lint + suites por OS, `microsoft/vscode` workflows reutilizables Linux/Windows/macOS y `rust-lang/rust` matrices/jobs; documentación GitHub de protected branches/rulesets. Los ejemplos muestran diseños reales distintos; no se extrapola validación de todos los commits cuando Node workflow observado valida el primero.
-- [ ] **T020.b3 — Observar hook efectivo sin ejecutarlo** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/commit_test_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git `rev-parse --git-path hooks/commit-msg` resuelve el target efectivo; lectura bounded/no-symlink y hash doble para cambio concurrente; evidencia saneada; no se eleva autoridad si argv/driver no se demuestra.
-- Evidencia T020.b3: RED focal en Windows antes de implementar: faltaba evidencia `repo.commit-hook`. GREEN focal, suite infra, Clippy infra y opt-in real Node/Commitlint pasan en Windows. CI run `37307758381` encontró que el fixture Unix no tenía permiso ejecutable, por lo que su observación era conservadoramente “no ejecutable”; se añadió `chmod` por metadata solo bajo `cfg(unix)`, sin ejecutar el hook. T020.b3 permanece abierta hasta que Linux CI confirme el arreglo.
+- [x] **T020.b3 — Observar hook efectivo sin ejecutarlo** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/commit_test_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git `rev-parse --git-path hooks/commit-msg` resuelve el target efectivo; lectura bounded/no-symlink y hash doble para cambio concurrente; evidencia saneada; no se eleva autoridad si argv/driver no se demuestra.
+- Evidencia T020.b3: RED focal en Windows antes de implementar: faltaba evidencia `repo.commit-hook`. GREEN focal, suite infra, Clippy infra y opt-in real Node/Commitlint pasan en Windows. CI run `37307758381` encontró que el fixture Unix no tenía permiso ejecutable; `c8d76bb` establece modo `0755` bajo `cfg(unix)` sin ejecutar el script. CI run `37308536795` pasa tests Linux y todos los quality/build gates para SHA `c8d76bb`.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
@@ -953,14 +953,14 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/commit_test_checks.rs`
 
 **Aceptación:**
-- [ ] Conventional Commits se verifica vía Commitlint; el hook efectivo se observa read-only y queda como LocalCheck porque no se prueba identidad/argv del driver aprobado; no se convierte un mensaje válido en hook aplicado. `LocalHook` sigue sin afirmarse.
-- [ ] Pruebas se ejecutan solo mediante acción explícita con cwd/argv/timeout conocidos; inspección no las dispara.
-- [ ] Logs acotados/saneados y evidencia del exit code no se confunde con existencia de tests.
-- [ ] Commitlint no carga configuración ejecutable del repositorio y solo prueba LocalCheck; LocalHook exige evidencia independiente de hook efectivo.
+- [x] Conventional Commits se verifica vía Commitlint; el hook efectivo se observa read-only y queda como LocalCheck porque no se prueba identidad/argv del driver aprobado; no se convierte un mensaje válido en hook aplicado. `LocalHook` sigue sin afirmarse.
+- [x] Pruebas se ejecutan solo mediante acción explícita con cwd/argv/timeout conocidos; inspección no las dispara.
+- [x] Logs acotados/saneados y evidencia del exit code no se confunde con existencia de tests.
+- [x] Commitlint no carga configuración ejecutable del repositorio y solo prueba LocalCheck; LocalHook exige evidencia independiente de hook efectivo.
 
 **Verificación:** cargo test -p jameskills-infra --locked commit_test_checks; ejecutar check sobre repo fixture con test registrado que pasa y otro que falla.
 
-**Evidencia al ejecutar:** T020.c.a/.b y driver Cargo/npm tienen pruebas fake y opt-in real pass/fail locales. T020.c.c.c registra la semántica de entorno/shell; T020.c (suite execution explícita) queda cerrada localmente. T020.b3 inspecciona el target Git y el archivo local sin spawn del hook; el vínculo de argv/driver no está demostrado, así que la autoridad observada es LocalCheck. T020 parent/T021 permanecen pendientes.
+**Evidencia al ejecutar:** suite `cargo test -p jameskills-infra --locked` y opt-in Commitlint Node24.18/21.2.2 pasan en Windows; pre-push workspace gate completo pasó en Developer environment; CI `37308536795` pasa Linux/Windows tests/builds, fmt, Clippy, validate-commit-messages, README Policy y Required CI; Governance `37308533712` pasó. T020 cerrada local y remotamente. Hook observado read-only, sin argv/driver/invocation proof: enforcement `LocalCheck`, nunca `LocalHook`.
 
 <a id="t021"></a>
 
@@ -973,6 +973,11 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 **Implementación y funciones:** check_ci_definition, inspect_workflow_requirements; separar archivo existente, jobs declarados y evidencia de ejecución/remoto. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** ci_definition_checks workflow sin test/PR trigger o con continue-on-error en gate requerido falla; YAML inválido/host distinto es Unknown con razón. Workflow válido con SHA viejo o sin rule host obligatoria no prueba RequiredCi.
+
+- [x] **T021.src — Citar semántica oficial de workflows y branch gates** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Fuentes oficiales cubren workflow event/trigger/filter, job/matrix semantics, `continue-on-error`, least-privilege permissions y branch status-check enforcement. Separar contrato del archivo de workflow de required-check host y ejecución para un SHA.
+- Evidencia T021.src: WebFetch GitHub Actions workflow syntax y matrix strategy, protected branches/status checks, available ruleset rules; revisión de workflows reales Node.js/VS Code/Rust ya anotados bajo T020.b3.src. Los workflows ilustran diseños reales, no se promueve `success/skipped` a autoridad sin el job Required CI revisando todas las gates que corresponden.
+- [ ] **T021.dep — Acceso directo al parser YAML acotado** (5 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Promover `serde-saphyr=1.3.0` ya bloqueado como dependencia directa de infra para inspeccionar datos YAML de workflows con quotas explícitas; no introducir parser nuevo ni ejecutar workflows/steps.
+- Evidencia RED/GREEN T021.dep: RED `cargo check -p jameskills-infra --locked --offline` rechaza el cambio de grafo hasta añadir la dependencia directa al lock; GREEN tras resolver con Cargo offline valida el grafo bloqueado. API y quotas se contrastan con la fuente versionada; parser behavior se prueba en T021.a.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
