@@ -56,13 +56,14 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - La invocación Node directa al `npm-cli.js` no ejecuta `.cmd`; script ID solo `lint`/`test`/`build`; argv fija `--ignore-scripts` suprime lifecycle pre/post, pero el script pedido corre por shell del sistema bajo aprobación explícita. `.npmrc` root bloqueado; config global/usuario privada vacía; salida/cancelación/timeout acotados. La huella npm-cli.js no representa todo el árbol del paquete.
 - Verificación local del code slice: suite infra completa, Clippy infra `-D warnings`, fmt y diff-check pasan. Fakes distinguen Unknown/Blocked, Missing/NotRun, versiones incompatibles, `.npmrc` bloqueado y los tres script IDs. Opt-in real `real_npm_test_driver_passes_and_fails_without_lifecycle_hooks` pasa 1/1 con Node24.18/npm11.16 vía `SystemProcessPort`: un fixture pass, uno fail, main script corre y pre/post markers no aparecen.
 - Fuentes npm/run-script tag v10.0.4 revisadas para documentar herencia de `process.env`, shell configurable y command text desde package.json; esto respalda ApprovedEnv mínimo, `.npmrc` project bloqueado y aprobación explícita, sin afirmar sandbox ni aislamiento del mismo usuario.
-- PR draft #22 para `feat/policy-engine: execute approved repository suites`, base `main`. CI run #37266801368 para SHA `656a860`: fmt, commitlint, tests, README Policy, build Linux/Windows y PR Governance SUCCESS; Clippy Linux FAILURE. Logs identifican `unused variable: environment` en `approved_npm_shell` bajo `cfg(unix)`; Windows local no lo detectaba.
-- Corrección en working tree: renombrar el argumento a `_environment` y usarlo solo bajo Windows. Local Clippy infra/core, fmt/diff-check y Commitlint pasan. Falta commit/push de corrección y CI de la nueva cabeza.
-- T020.c permanece funcionalmente completa, pero la entrega de esta rama tiene un gate CI rojo hasta que el nuevo run confirme Clippy. T020.b3 (autoridad LocalHook) sigue pendiente; T020/T021 permanecen abiertas.
+- PR draft #22 para `feat/policy-engine: execute approved repository suites`, base `main`. CI `37266801368` en SHA `656a860`: Clippy falló por parámetro usado solo Windows; formatter, tests, Commitlint, README y builds pasaron. Fix `3ffc1c7` se subió.
+- CI `37268520271` en SHA `3ffc1c7`: tests, Commitlint, fmt, README, build Linux/Windows y PR Governance SUCCESS; Clippy volvió a fallar en `test_suite_checks.rs:204` por `unused_mut` del helper de entorno Windows cfg en Linux.
+- Corrección local actual: `node_process_environment()` ahora declara un binding independiente bajo `cfg(windows)` y `cfg(not(windows))`, quitando el `mut` visible en Unix. Falta commit/push y nuevo run Linux.
+- T020.c está funcionalmente lista localmente; la PR sigue con Clippy remoto rojo. T020.b3 (autoridad LocalHook) sigue pendiente; T020/T021 permanecen abiertas.
 
 ## Próxima acción exacta
 
-1. Repetir `cargo clippy -p jameskills-infra --all-targets --locked -- -D warnings`, fmt-check, diff-check y Commitlint; crear un commit de corrección específico.
+1. Repetir tests/fmt/Clippy infra local, `scripts/check-workspace.sh` en Developer environment, diff-check y Commitlint; crear un commit de corrección específico.
 2. Push de la corrección al PR #22 autorizado y verificar el nuevo run CI una vez; no marcar Clippy como verde hasta verlo.
 3. Después continuar T020.b3 para la evidencia LocalHook, manteniendo T020/T021 abiertas hasta pasar acceptance.
 4. C006/C005 y T019 conservan sus bloqueos independientes.

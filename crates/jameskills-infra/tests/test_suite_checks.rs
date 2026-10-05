@@ -201,12 +201,13 @@ impl ProcessPort for FakeProcess {
 }
 
 fn node_process_environment() -> ApprovedEnv {
-    let mut environment = BTreeMap::new();
     #[cfg(windows)]
-    environment.insert(
+    let environment = BTreeMap::from([(
         OsString::from("SYSTEMROOT"),
         std::env::var_os("SYSTEMROOT").expect("Windows has a system root"),
-    );
+    )]);
+    #[cfg(not(windows))]
+    let environment = BTreeMap::new();
     ApprovedEnv::new(environment).unwrap()
 }
 
