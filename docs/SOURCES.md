@@ -207,6 +207,68 @@ The T021 local workflow parser will use the already locked [`serde-saphyr` 1.3.0
 
 T021 host discrimination uses Git's [`remote -v` documentation](https://git-scm.com/docs/git-remote), which reports remote names and configured fetch/push URLs. This is local configuration only (no network request); URLs may contain credentials and must stay in bounded process memory, never evidence/log output. A GitHub Actions YAML file without an observed supported GitHub remote remains Unknown, not RequiredCi.
 
+T022 GitHub CLI/API evidence is pinned to the installed, fingerprinted `gh` tool
+profile (the current host was observed as `gh 2.102.0`; this is not a claim
+about other releases). General tool discovery remains `>=2.0.0,<3.0.0`, while
+the GitHub repository-evidence driver itself accepts only `2.102.0` until a
+new release receives source/fixture review. The official [`gh auth status` manual](https://cli.github.com/manual/gh_auth_status)
+documents `--hostname`, `--active`, and JSON `hosts`; importantly JSON mode
+returns exit 0 even when auth is unhealthy. Never pass `--show-token`: it emits
+the credential in text and JSON. The tagged [`v2.102.0 auth status source`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/auth/status/status.go)
+shows host entries expose state, active, login, tokenSource and scopes, with
+token omitted unless explicitly requested. Parse only the fields required for
+an app-owned auth observation; do not persist the login, token source, raw
+error, scopes string, or raw command output. Scope labels are not a general
+permission inventory: GitHub documents fine-grained permissions separately and
+per endpoint.
+
+The official [`gh` environment manual](https://cli.github.com/manual/gh_help_environment)
+documents the Windows default auth/config location as `$AppData/GitHub CLI`
+unless `GH_CONFIG_DIR` is set. JameSkills therefore allowlists only the
+platform-provided `APPDATA` path on Windows; it does not pass `GH_CONFIG_DIR`
+or auth/host override variables to the child.
+
+The official [`gh api` manual](https://cli.github.com/manual/gh_api) documents
+that requests are authenticated, that `--hostname` selects the host, and that
+adding fields/input can change the default method to POST. The tagged
+[`v2.102.0 api source`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/api/api.go)
+confirms these semantics and that `GH_HOST` can select a different host.
+Therefore the driver must use an app-built fixed argv with explicit `--method
+GET`, explicit `--hostname github.com`, registered API paths, no arbitrary
+fields/input/pagination/verbose/cache, and an environment that excludes
+`GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN`, enterprise-token overrides, and user
+arguments. Repository owner/name are accepted only after parsing the approved
+Git remote and validating bounded path components; they never supply scheme,
+host, endpoint path, or flags. `gh` follows REST redirects; its tagged
+[`AddAuthTokenHeader` source](https://github.com/cli/cli/blob/v2.102.0/api/http_client.go)
+only adds the configured token on the original hostname, and explicitly omits
+it if a redirect changes hostname. JameSkills does not consume redirect URLs
+as subsequent endpoints and still validates the final typed repository
+identity before reporting `repo-read`.
+
+For identity, GitHub REST [`GET /repos/{owner}/{repo}`](https://docs.github.com/en/rest/repos/repos#get-a-repository)
+returns repository `full_name`, `owner.login` and `name`; the driver should
+compare those typed fields with the selected remote and discard unrelated
+response fields (including URLs, descriptions and permission metadata). REST
+authentication docs describe 401 invalid credentials and 403/404 for missing
+permissions/private resources; therefore 404 cannot safely prove nonexistence.
+Fine-grained permissions are endpoint-specific and may be reported in
+`X-Accepted-GitHub-Permissions`; OAuth scope headers do not enumerate
+fine-grained grants. Record only the response category and explicitly observed
+capability, not inferred permissions from account identity or a token scope
+string.
+
+REST [`rate limits`](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
+document primary 403/429 and `Retry-After`/`X-RateLimit-Remaining`/`Reset`
+handling; secondary limits may also return 403/429. A read-only evidence driver
+must perform a small serial request set with bounded output/time and no
+automatic pagination. It may expose a bounded retry hint, but exhaustion,
+malformed/missing rate headers or ambiguous 403 remains Blocked/Unknown, never
+Pass. GitHub's [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+also note that 404 can mask inaccessible private resources and that redirects
+exist; this reinforces binding requests to the approved GitHub API host and
+avoiding retry loops.
+
 T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
 the Windows host together with Node `24.18.0`. The tagged
 [`package.json`](https://github.com/npm/cli/blob/v11.16.0/package.json) declares

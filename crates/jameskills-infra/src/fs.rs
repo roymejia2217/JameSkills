@@ -1,3 +1,4 @@
+use crate::github::{GithubEvidenceDriver, GithubRepository};
 use crate::platform::{
     PlatformFacts, ToolCandidate, ToolCandidateKind, ToolProfile, find_tool_candidates,
     load_tool_profiles, parse_tool_version_output, probe_registered_tool_version,
@@ -1099,7 +1100,7 @@ impl LocalFileSystem {
         match observe_github_remote_host(&repository_root, git, environment, process, observed_at)
             .await?
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(summary) => return report(CheckStatus::Unknown, None, summary),
         }
 
@@ -1368,6 +1369,14 @@ impl ApprovedRepositoryTool {
             executable,
             fingerprint,
         }
+    }
+
+    pub(crate) fn executable_path(&self) -> &Path {
+        self.executable.path()
+    }
+
+    pub(crate) fn fingerprint(&self) -> ExecutableFingerprint {
+        self.fingerprint
     }
 }
 
@@ -1672,6 +1681,7 @@ pub struct RepositoryPolicyCheckProvider {
     cargo: Option<ApprovedRepositoryTool>,
     node_npm: Option<ApprovedNodeNpm>,
     commitlint: Option<ApprovedCommitlint>,
+    github: Option<ApprovedRepositoryTool>,
     environment: ApprovedEnv,
     process: Arc<dyn ProcessPort>,
     clock: Arc<dyn ClockPort>,
@@ -1695,6 +1705,7 @@ impl RepositoryPolicyCheckProvider {
             cargo: None,
             node_npm: None,
             commitlint: None,
+            github: None,
             environment,
             process,
             clock,
@@ -1704,6 +1715,11 @@ impl RepositoryPolicyCheckProvider {
 
     pub fn with_commitlint(mut self, commitlint: ApprovedCommitlint) -> Self {
         self.commitlint = Some(commitlint);
+        self
+    }
+
+    pub fn with_github_cli(mut self, gh: ApprovedRepositoryTool) -> Self {
+        self.github = Some(gh);
         self
     }
 
@@ -2292,6 +2308,53 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
         let observed_at = self.clock.now_utc();
         let filesystem = LocalFileSystem;
         match requirement.check() {
+            Check::GithubAccess => {
+                let Some(git) = self.git.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let Some(gh) = self.github.as_ref() else {
+                    return Ok(CheckObservation::unknown());
+                };
+                let repository_root = match std::fs::canonicalize(&self.root) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let repository = match observe_github_remote_host(
+                    &repository_root,
+                    Some(git),
+                    &self.environment,
+                    self.process.as_ref(),
+                    &observed_at,
+                )
+                .await?
+                {
+                    Ok(Some(repository)) => repository,
+                    Ok(None) => return Ok(CheckObservation::unknown()),
+                    Err(_) => return Ok(CheckObservation::unknown()),
+                };
+                let head = match observe_repository_head(
+                    &repository_root,
+                    git,
+                    &self.environment,
+                    self.process.as_ref(),
+                )
+                .await?
+                {
+                    Some(head) => head,
+                    None => return Ok(CheckObservation::unknown()),
+                };
+                let github_root = ApprovedRoot::from_absolute_path(repository_root)
+                    .map_err(AppError::Validation)?;
+                let driver = GithubEvidenceDriver::new(
+                    gh,
+                    &github_root,
+                    &self.environment,
+                    self.process.as_ref(),
+                    self.clock.as_ref(),
+                    &self.environment_fingerprint,
+                );
+                driver.identify_repository(&repository, &head).await
+            }
             Check::ReadmeSections { path, headings } => filesystem.check_readme_sections(
                 &root,
                 path,
@@ -2677,7 +2740,7 @@ async fn observe_github_remote_host(
     environment: &ApprovedEnv,
     process: &dyn ProcessPort,
     observed_at: &str,
-) -> AppResult<Result<(), &'static str>> {
+) -> AppResult<Result<Option<GithubRepository>, &'static str>> {
     let unknown = "The configured Git remote host is absent, unsupported, or unreadable.";
     let Some(git) = git else {
         return Ok(Err(
@@ -2745,7 +2808,49 @@ async fn observe_github_remote_host(
     if output.stdout().len() > 4096 || !remote_list_targets_github(output.stdout()) {
         return Ok(Err(unknown));
     }
-    Ok(Ok(()))
+    Ok(Ok(GithubRepository::from_git_remote_output(
+        output.stdout(),
+    )))
+}
+
+async fn observe_repository_head(
+    repository_root: &Path,
+    git: &ApprovedRepositoryTool,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+) -> AppResult<Option<RepositoryHead>> {
+    let cwd = ApprovedRoot::from_absolute_path(repository_root.to_path_buf())
+        .map_err(AppError::Validation)?;
+    let spec = registered_process_spec(
+        git,
+        ToolId::Git,
+        ["rev-parse", "HEAD"]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+        &cwd,
+        environment,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+        Duration::from_secs(5),
+        128,
+    )?;
+    let output = match process.run(spec).await {
+        Ok(output) if output.exit_code() == Some(0) => output,
+        Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+        Ok(_) | Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let Ok(text) = std::str::from_utf8(output.stdout()) else {
+        return Ok(None);
+    };
+    let value = text.trim_end_matches(['\r', '\n']);
+    if value.contains(['\r', '\n', '\0']) {
+        return Ok(None);
+    }
+    Ok(RepositoryHead::parse(value).ok())
 }
 
 fn remote_list_targets_github(output: &[u8]) -> bool {

@@ -58,7 +58,7 @@ install_guides = { windows = "gh-install-windows", linux = "gh-install-linux" }
 version_range = ">=2.0.0, <3.0.0"
 version_args = ["--version"]
 version_prefix = "gh version "
-operations = ["version", "branch-rules", "check-runs"]
+operations = ["version", "repository-read", "branch-rules", "check-runs"]
 
 [[tools]]
 tool_id = "gitleaks"

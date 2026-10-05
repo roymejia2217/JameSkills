@@ -1,6 +1,6 @@
 use jameskills_core::domain::{
     ToolId, ToolOperation,
-    policy::{ApplicabilityFact, parse_policy},
+    policy::{ApplicabilityFact, Check, parse_policy},
 };
 
 const POLICY: &str = include_str!("../../../tests/fixtures/valid-suite/policies/repository.toml");
@@ -116,6 +116,36 @@ fn policy_conditions_are_typed_and_reject_unregistered_facts_or_values() {
             "policy.applies_when.invalid"
         );
     }
+}
+
+#[test]
+fn github_access_policy_check_is_a_closed_read_only_kind() {
+    let source = r#"
+schema_version = 1
+profile = "repository-foundation"
+scope = "project"
+
+[[tool_requirements]]
+tool_id = "gh"
+operation = "repository-read"
+version = "=2.102.0"
+
+[[requirements]]
+id = "repo.github-access"
+description = "The selected GitHub repository can be read."
+severity = "error"
+required = true
+phase = "ci"
+enforcement = "local-check"
+depends_on = []
+[requirements.check]
+kind = "github-access"
+"#;
+    let policy = parse_policy(source.as_bytes()).unwrap();
+    assert!(matches!(
+        policy.requirements()[0].check(),
+        Check::GithubAccess
+    ));
 }
 
 #[test]

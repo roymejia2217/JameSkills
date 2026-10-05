@@ -97,6 +97,20 @@ fn approved_environment_accepts_msvc_tool_paths_without_compiler_options() {
 }
 
 #[test]
+fn github_cli_can_resolve_windows_user_config_without_host_or_token_overrides() {
+    let appdata = BTreeMap::from([(
+        OsString::from("APPDATA"),
+        OsString::from("C:\\Users\\user\\AppData\\Roaming"),
+    )]);
+    assert!(ApprovedEnv::new(appdata).is_ok());
+
+    for forbidden in ["GH_HOST", "GH_TOKEN", "GITHUB_TOKEN"] {
+        let entries = BTreeMap::from([(OsString::from(forbidden), OsString::from("untrusted"))]);
+        assert!(ApprovedEnv::new(entries).is_err(), "{forbidden}");
+    }
+}
+
+#[test]
 fn cancellation_token_is_shared_across_process_owners() {
     let token = CancellationToken::new();
     let worker = token.clone();

@@ -848,6 +848,7 @@ fn parse_tool_operation(value: &str) -> Option<ToolOperation> {
         "scan-tracked" => Some(ToolOperation::ScanTracked),
         "lint-message" => Some(ToolOperation::LintMessage),
         "branch-rules" => Some(ToolOperation::BranchRules),
+        "repository-read" => Some(ToolOperation::RepositoryRead),
         "check-runs" => Some(ToolOperation::CheckRuns),
         "quality-suite" => Some(ToolOperation::QualitySuite),
         "version" => Some(ToolOperation::Version),
@@ -871,7 +872,10 @@ fn profile_operation_allowed(tool: ToolId, operation: ToolOperation) -> bool {
             ToolOperation::Version | ToolOperation::LintMessage
         ) | (
             ToolId::Gh,
-            ToolOperation::Version | ToolOperation::BranchRules | ToolOperation::CheckRuns
+            ToolOperation::Version
+                | ToolOperation::BranchRules
+                | ToolOperation::RepositoryRead
+                | ToolOperation::CheckRuns
         ) | (
             ToolId::Cargo | ToolId::Npm,
             ToolOperation::Version | ToolOperation::QualitySuite
@@ -1018,6 +1022,7 @@ mod tests {
         DirectoryBases, HostPlatform, Observation, PlatformFacts, TOOL_PROFILE_SOURCE, detect_from,
         namespace_directories, parse_tool_profiles, resolve_user_dirs,
     };
+    use jameskills_core::domain::policy::{ToolId, ToolOperation};
     use std::path::PathBuf;
 
     #[test]
@@ -1149,6 +1154,12 @@ mod tests {
         );
         assert!(parse_tool_profiles(&crossed_operation).is_err());
 
+        let github_operation_on_git = TOOL_PROFILE_SOURCE.replace(
+            "operations = [\"version\", \"repository-root\", \"ignore-check\"]",
+            "operations = [\"version\", \"repository-root\", \"repository-read\"]",
+        );
+        assert!(parse_tool_profiles(&github_operation_on_git).is_err());
+
         let unregistered_guide =
             TOOL_PROFILE_SOURCE.replace("git-install-windows", "https://example.invalid/install");
         assert!(parse_tool_profiles(&unregistered_guide).is_err());
@@ -1162,5 +1173,18 @@ mod tests {
         let invalid_scan_exit =
             TOOL_PROFILE_SOURCE.replace("findings_exit_code = 3", "findings_exit_code = 1");
         assert!(parse_tool_profiles(&invalid_scan_exit).is_err());
+    }
+
+    #[test]
+    fn github_profile_registers_read_only_repository_identity_operation() {
+        let profiles = parse_tool_profiles(TOOL_PROFILE_SOURCE).unwrap();
+        let gh = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Gh);
+        assert!(gh.is_some_and(|profile| {
+            profile
+                .operations()
+                .contains(&ToolOperation::RepositoryRead)
+        }));
     }
 }
