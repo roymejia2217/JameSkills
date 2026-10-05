@@ -1,6 +1,6 @@
 use crate::platform::{
     PlatformFacts, ToolCandidate, ToolCandidateKind, ToolProfile, find_tool_candidates,
-    load_tool_profiles, probe_registered_tool_version,
+    load_tool_profiles, parse_tool_version_output, probe_registered_tool_version,
 };
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
@@ -19,8 +19,8 @@ use jameskills_core::{
         validate_archive_entries,
     },
     ports::process::{
-        ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
-        ProcessPermission, ProcessPort, ProcessSpec,
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, ApprovedScript, CancellationToken,
+        ExecutableFingerprint, ProcessPermission, ProcessPort, ProcessSpec,
     },
 };
 use std::collections::BTreeMap;
@@ -493,8 +493,8 @@ impl LocalFileSystem {
     pub async fn check_conventional_commit(
         &self,
         root: &ApprovedRoot,
-        git: &ApprovedRepositoryTool,
-        commitlint: &ApprovedRepositoryTool,
+        git: Option<&ApprovedRepositoryTool>,
+        commitlint: Option<&ApprovedCommitlint>,
         environment: &ApprovedEnv,
         process: &dyn ProcessPort,
         observed_at: &str,
@@ -516,6 +516,13 @@ impl LocalFileSystem {
         if !root_path.is_dir() {
             return Err(AppError::NotFound);
         }
+        let (Some(git), Some(commitlint)) = (git, commitlint) else {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Approved Git and Commitlint execution identities are required.",
+            );
+        };
         let profiles = load_tool_profiles().map_err(AppError::Validation)?;
         let Some(git_profile) = profiles
             .iter()
@@ -545,49 +552,185 @@ impl LocalFileSystem {
                 "The approved Git executable is not a registered candidate.",
             );
         };
-        let Some(commitlint_candidate) =
-            candidate_for_approved_tool(commitlint_profile, commitlint, platform)
-        else {
+        if git_candidate.kind() != ToolCandidateKind::NativeExecutable {
             return report(
                 CheckStatus::Blocked,
                 None,
-                "The approved Commitlint executable is not a registered candidate.",
-            );
-        };
-        if git_candidate.kind() != ToolCandidateKind::NativeExecutable
-            || commitlint_candidate.kind() != ToolCandidateKind::NativeExecutable
-        {
-            return report(
-                CheckStatus::Blocked,
-                None,
-                "Git and Commitlint command shims are not executed by this driver.",
+                "Git command shims are not executed by this driver.",
             );
         }
         let environment =
             ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?;
-        for (profile, candidate, tool) in [
-            (git_profile, &git_candidate, git),
-            (commitlint_profile, &commitlint_candidate, commitlint),
-        ] {
-            let version = probe_registered_tool_version(
-                profile,
-                candidate,
-                Some(tool.fingerprint),
-                root,
-                &environment,
-                process,
-                observed_at,
-            )
-            .await?;
-            if version.availability() != ToolAvailability::Candidate
-                || version.version_status() != ToolVersionStatus::Compatible
-                || version.version().is_none()
-            {
-                return report(
-                    CheckStatus::Blocked,
-                    None,
-                    "Git or Commitlint version is outside the verified app-owned profile.",
-                );
+        let commitlint_route = match commitlint {
+            ApprovedCommitlint::Native(tool) => {
+                let Some(candidate) =
+                    candidate_for_approved_tool(commitlint_profile, tool, platform)
+                else {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "The approved Commitlint executable is not registered.",
+                    );
+                };
+                if candidate.kind() != ToolCandidateKind::NativeExecutable {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Commitlint command shims are not executed by this driver.",
+                    );
+                }
+                CommitlintRoute::Native { tool, candidate }
+            }
+            ApprovedCommitlint::Node(driver) => {
+                let Some(node_profile) = profiles
+                    .iter()
+                    .find(|profile| profile.tool_id() == ToolId::Node)
+                else {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "The app-owned Node profile is unavailable.",
+                    );
+                };
+                let Some(candidate) =
+                    candidate_for_approved_tool(node_profile, &driver.node, platform)
+                else {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "The approved Node executable is not registered.",
+                    );
+                };
+                if candidate.kind() != ToolCandidateKind::NativeExecutable
+                    || !is_commitlint_cli_entrypoint(driver.entrypoint.path())
+                {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Node or the approved Commitlint CLI entrypoint is not supported.",
+                    );
+                }
+                CommitlintRoute::Node {
+                    driver,
+                    profile: node_profile,
+                    candidate,
+                }
+            }
+        };
+        let git_version = probe_registered_tool_version(
+            git_profile,
+            &git_candidate,
+            Some(git.fingerprint),
+            root,
+            &environment,
+            process,
+            observed_at,
+        )
+        .await?;
+        if git_version.availability() != ToolAvailability::Candidate
+            || git_version.version_status() != ToolVersionStatus::Compatible
+            || git_version.version().is_none()
+        {
+            return report(
+                CheckStatus::Blocked,
+                None,
+                "Git version is outside the verified app-owned profile.",
+            );
+        }
+        match &commitlint_route {
+            CommitlintRoute::Native { tool, candidate } => {
+                let version = probe_registered_tool_version(
+                    commitlint_profile,
+                    candidate,
+                    Some(tool.fingerprint),
+                    root,
+                    &environment,
+                    process,
+                    observed_at,
+                )
+                .await?;
+                if version.availability() != ToolAvailability::Candidate
+                    || version.version_status() != ToolVersionStatus::Compatible
+                    || version.version().is_none()
+                {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Commitlint version is outside the verified app-owned profile.",
+                    );
+                }
+            }
+            CommitlintRoute::Node {
+                driver,
+                profile: node_profile,
+                candidate: node_candidate,
+            } => {
+                let node_version = probe_registered_tool_version(
+                    node_profile,
+                    node_candidate,
+                    Some(driver.node.fingerprint),
+                    root,
+                    &environment,
+                    process,
+                    observed_at,
+                )
+                .await?;
+                let minimum_node = semver::Version::new(22, 12, 0);
+                if node_version.availability() != ToolAvailability::Candidate
+                    || node_version.version_status() != ToolVersionStatus::Compatible
+                    || node_version
+                        .version()
+                        .is_none_or(|version| version < &minimum_node)
+                {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Commitlint v21.2.2 requires approved Node >=22.12.0.",
+                    );
+                }
+                let version_output = match run_node_commitlint(
+                    driver,
+                    &[OsString::from("--version")],
+                    root,
+                    &environment,
+                    process,
+                )
+                .await
+                {
+                    Ok(output) => output,
+                    Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+                    Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                        return report(
+                            CheckStatus::Blocked,
+                            None,
+                            "Commitlint CLI version could not be verified through Node.",
+                        );
+                    }
+                    Err(error) => return Err(error),
+                };
+                let version =
+                    parse_tool_version_output(commitlint_profile, version_output.stdout());
+                if version_output.exit_code() != Some(0) {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Node could not query the Commitlint CLI version successfully.",
+                    );
+                }
+                let Some(version) = version else {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Commitlint CLI version output did not match its registered format.",
+                    );
+                };
+                if !commitlint_profile.version_range().matches(&version) {
+                    return report(
+                        CheckStatus::Blocked,
+                        None,
+                        "Commitlint CLI is not the reviewed 21.2.2 package.",
+                    );
+                }
             }
         }
 
@@ -670,17 +813,49 @@ impl LocalFileSystem {
         commitlint_environment_entries.insert(OsString::from("PATH"), path);
         let commitlint_environment =
             ApprovedEnv::new(commitlint_environment_entries).map_err(AppError::Validation)?;
-        let commitlint_args = ["--default-config", "--config"]
-            .into_iter()
-            .map(OsString::from)
-            .chain([message_file.config_path.as_os_str().to_os_string()])
-            .chain([OsString::from("--edit")])
-            .chain([message_file.path.as_os_str().to_os_string()])
-            .chain([OsString::from("--quiet"), OsString::from("--color=false")])
-            .collect();
+        let mut commitlint_args = match &commitlint_route {
+            CommitlintRoute::Native { .. } => Vec::new(),
+            CommitlintRoute::Node { driver, .. } => {
+                vec![
+                    node_path_argument(driver.entrypoint.path()),
+                    OsString::from("--cwd"),
+                    node_path_argument(&root_path),
+                ]
+            }
+        };
+        commitlint_args.extend(
+            ["--default-config", "--config"]
+                .into_iter()
+                .map(OsString::from),
+        );
+        let config_argument = if matches!(&commitlint_route, CommitlintRoute::Node { .. }) {
+            node_path_argument(&message_file.config_path)
+        } else {
+            message_file.config_path.as_os_str().to_os_string()
+        };
+        commitlint_args.push(config_argument);
+        commitlint_args.push(OsString::from("--edit"));
+        let message_argument = if matches!(&commitlint_route, CommitlintRoute::Node { .. }) {
+            node_path_argument(&message_file.path)
+        } else {
+            message_file.path.as_os_str().to_os_string()
+        };
+        commitlint_args.push(message_argument);
+        commitlint_args.extend([OsString::from("--quiet"), OsString::from("--color=false")]);
+        let (executable, executable_fingerprint) = match &commitlint_route {
+            CommitlintRoute::Native { tool, .. } => (
+                ApprovedExecutable::from_absolute_path(tool.executable.path().to_path_buf())
+                    .map_err(AppError::Validation)?,
+                tool.fingerprint,
+            ),
+            CommitlintRoute::Node { driver, .. } => (
+                ApprovedExecutable::from_absolute_path(driver.node.executable.path().to_path_buf())
+                    .map_err(AppError::Validation)?,
+                driver.node.fingerprint,
+            ),
+        };
         let commitlint_spec = ProcessSpec::new(
-            ApprovedExecutable::from_absolute_path(commitlint.executable.path().to_path_buf())
-                .map_err(AppError::Validation)?,
+            executable,
             ToolId::Commitlint,
             commitlint_args,
             ApprovedRoot::from_absolute_path(message_file.directory.clone())
@@ -692,7 +867,15 @@ impl LocalFileSystem {
             CancellationToken::new(),
         )
         .map_err(AppError::Validation)?
-        .with_approved_executable_fingerprint(commitlint.fingerprint);
+        .with_approved_executable_fingerprint(executable_fingerprint);
+        let commitlint_spec = match &commitlint_route {
+            CommitlintRoute::Native { .. } => commitlint_spec,
+            CommitlintRoute::Node { driver, .. } => commitlint_spec.with_approved_script(
+                ApprovedScript::from_absolute_path(driver.entrypoint.path().to_path_buf())
+                    .map_err(AppError::Validation)?,
+                driver.entrypoint_fingerprint,
+            ),
+        };
         let output = match process.run(commitlint_spec).await {
             Ok(output) => output,
             Err(AppError::Cancelled) => return Err(AppError::Cancelled),
@@ -918,12 +1101,107 @@ impl ApprovedRepositoryTool {
     }
 }
 
+pub struct ApprovedCommitlintNode {
+    node: ApprovedRepositoryTool,
+    entrypoint: ApprovedScript,
+    entrypoint_fingerprint: ExecutableFingerprint,
+}
+
+impl ApprovedCommitlintNode {
+    pub fn new(
+        node: ApprovedRepositoryTool,
+        entrypoint: ApprovedScript,
+        entrypoint_fingerprint: ExecutableFingerprint,
+    ) -> Self {
+        Self {
+            node,
+            entrypoint,
+            entrypoint_fingerprint,
+        }
+    }
+}
+
+pub enum ApprovedCommitlint {
+    Native(ApprovedRepositoryTool),
+    Node(ApprovedCommitlintNode),
+}
+
+enum CommitlintRoute<'a> {
+    Native {
+        tool: &'a ApprovedRepositoryTool,
+        candidate: ToolCandidate,
+    },
+    Node {
+        driver: &'a ApprovedCommitlintNode,
+        profile: &'a ToolProfile,
+        candidate: ToolCandidate,
+    },
+}
+
+fn is_commitlint_cli_entrypoint(path: &Path) -> bool {
+    let components = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    components.len() >= 4
+        && components[components.len() - 4..]
+            .iter()
+            .zip(["node_modules", "@commitlint", "cli", "cli.js"])
+            .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+}
+
+fn node_path_argument(path: &Path) -> OsString {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(unc_path) = value.strip_prefix(r"\\?\UNC\") {
+            return OsString::from(format!(r"\\{unc_path}"));
+        }
+        if let Some(path) = value.strip_prefix(r"\\?\") {
+            return OsString::from(path);
+        }
+    }
+    path.as_os_str().to_os_string()
+}
+
+async fn run_node_commitlint(
+    driver: &ApprovedCommitlintNode,
+    arguments: &[OsString],
+    cwd: &ApprovedRoot,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+) -> AppResult<jameskills_core::ports::process::ProcessOutput> {
+    let mut args = vec![node_path_argument(driver.entrypoint.path())];
+    args.extend_from_slice(arguments);
+    let spec = ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(driver.node.executable.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        ToolId::Commitlint,
+        args,
+        ApprovedRoot::from_absolute_path(cwd.path().to_path_buf()).map_err(AppError::Validation)?,
+        ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+        Duration::from_secs(5),
+        16 * 1024,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .map_err(AppError::Validation)?
+    .with_approved_executable_fingerprint(driver.node.fingerprint)
+    .with_approved_script(
+        ApprovedScript::from_absolute_path(driver.entrypoint.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        driver.entrypoint_fingerprint,
+    );
+    process.run(spec).await
+}
+
 /// Per-repository provider. It stores only approved executable identities and
 /// returns Unknown for check kinds that do not have an implemented driver.
 pub struct RepositoryPolicyCheckProvider {
     root: PathBuf,
     git: Option<ApprovedRepositoryTool>,
     gitleaks: Option<ApprovedRepositoryTool>,
+    commitlint: Option<ApprovedCommitlint>,
     environment: ApprovedEnv,
     process: Arc<dyn ProcessPort>,
     clock: Arc<dyn ClockPort>,
@@ -944,11 +1222,17 @@ impl RepositoryPolicyCheckProvider {
             root: root.path().to_path_buf(),
             git,
             gitleaks,
+            commitlint: None,
             environment,
             process,
             clock,
             environment_fingerprint,
         }
+    }
+
+    pub fn with_commitlint(mut self, commitlint: ApprovedCommitlint) -> Self {
+        self.commitlint = Some(commitlint);
+        self
     }
 }
 
@@ -1026,6 +1310,19 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
                         &candidate,
                         approved_fingerprint,
                         *include_history,
+                        &self.environment,
+                        self.process.as_ref(),
+                        &observed_at,
+                        &self.environment_fingerprint,
+                    )
+                    .await
+            }
+            Check::ConventionalCommit => {
+                filesystem
+                    .check_conventional_commit(
+                        &root,
+                        self.git.as_ref(),
+                        self.commitlint.as_ref(),
                         &self.environment,
                         self.process.as_ref(),
                         &observed_at,

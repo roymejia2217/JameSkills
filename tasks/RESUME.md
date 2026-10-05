@@ -70,9 +70,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar diff y crear commit de T020.b2.b1.
-2. Implementar T020.b2.b2 en <=5 archivos: resolver `@commitlint/cli/cli.js` con Node aprobado, validar la versión exacta y cablear `conventional-commit` como LocalCheck; tests fake no equivalen a integración real.
-3. Implementar T020.c como acción explícita; inspección normal no debe lanzar Cargo/npm scripts. Cada slice <=5 archivos y commit tras verificación.
+1. Revisar diff/estado y crear commit de T020.b2.b2.a.
+2. Registrar en `docs/SOURCES.md` `load-config.ts` y `get-edit-commit.ts` del tag Commitlint v21.2.2, y actualizar checkpoint b2.b2.b en <=5 archivos.
+3. Completar wiring T020.b2; T020.c sigue pendiente y solo ejecuta suites por acción explícita.
 4. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## T020.b2.a completado
@@ -84,12 +84,22 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - `ProcessSpec` protege el entrypoint aprobado; la confianza del paquete y sus dependencias debe resolverse por separado en el driver Commitlint. No afirmar integración real.
 - Commit: `945167c feat(process): fingerprint approved script entrypoints`.
 
-## T020.b2.b1 en curso
+## T020.b2.b1 completado
 
 - La fuente oficial `@commitlint/cli` tag v21.2.2 declara en su `package.json` `engines.node >=22.12.0`; Node release schedule registra v24 LTS hasta 2028-04-30.
 - RED: `cargo test -p jameskills-infra --locked --test tool_detection node_profile_covers_commitlint_supported_node_24_runtime` falla porque el profile Node existente excluye v24 (`<23`).
 - Cambio propuesto: ampliar solo el rango de detección genérico a `>=18,<25`; el driver Commitlint comprobará aparte el mínimo oficial v22.12.0. No se autoriza Node 25 sin revisar el nuevo major.
 - GREEN: `cargo test -p jameskills-infra --locked --test tool_detection` pasa 13/13; Clippy infra `-D warnings`, fmt y diff check pasan. Node 24 LTS ahora está dentro del rango genérico y Node 25 continúa fuera.
+- Commit: `d2a859f build(policy-engine): recognize Node 24 for Commitlint`.
+
+## T020.b2.b2.a completado localmente; pendiente commit
+
+- RED de comportamiento: el test de PolicyService devolvía Unknown porque no existía el dispatch `conventional-commit`.
+- GREEN fake: `cargo test -p jameskills-infra --locked --test commit_test_checks` pasa 6 tests y deja la integración real explícitamente ignored.
+- Integración real Windows: el host tiene Node 24.18.0 y `@commitlint/cli`/`@commitlint/config-conventional` 21.2.2 instalados desde lock. Ejecutar explícitamente `cargo test -p jameskills-infra --locked --test commit_test_checks real_node_commitlint_package_passes_through_repository_policy_provider -- --ignored --exact`: 1/1 Pass LocalCheck usando SystemProcessPort y no ejecutando `.cmd`.
+- Hallazgo corregido por evidencia: `--edit` de Commitlint falla desde cwd externo al repo. El proceso mantiene cwd privado y pasa `--cwd` con root aprobado; `--config` es JSON absoluto privado y `load-config.ts` de la fuente tag selecciona carga explícita (sin búsqueda cosmiconfig ascendente). Rutas Windows `\\?\` se normalizan en argv Node para que el runtime reconozca el entrypoint y staging privados.
+- Suite completa `cargo test -p jameskills-infra --locked`, Clippy `-D warnings`, fmt y diff check pasan. Un warning Clippy `nonminimal_bool` se corrigió y la verificación se repitió.
+- Citas nuevas de fuente oficial aún pendientes en `docs/SOURCES.md`; la integración real no demuestra dependencias completas revisadas.
 
 ## Preservación y lecturas
 

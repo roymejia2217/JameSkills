@@ -203,18 +203,29 @@ el target y no ofrece un bypass independiente. `include_history=true` devuelve
 Unsupported hasta que el ejecutable Git hijo tenga un driver/identidad aprobada
 independiente. Ningún output crudo se copia a CheckEvidence.
 
+`RepositoryPolicyCheckProvider::with_commitlint` acepta un `ApprovedCommitlint`
+nativo o `ApprovedCommitlintNode`. El route Node exige Node nativo con fingerprint
+aprobado, Node dentro del rango app-owned y >=22.12.0, y entrypoint aprobado cuyo
+path termina en `node_modules/@commitlint/cli/cli.js`; valida con ese entrypoint
+la versión exacta `@commitlint/cli@21.2.2`. `ProcessSpec` revalida los fingerprints
+del runtime y del script antes de spawn. No se ejecuta el `.cmd` de npm ni se usa
+shell.
+
 `LocalFileSystem::check_conventional_commit(root, git, commitlint, environment,
 process, observed_at, environment_fingerprint)` lee solo el mensaje HEAD con
 Git `--no-pager log -1 --format=%B` (máximo 64 KiB), lo escribe junto con una
 config JSON app-owned vacía en un directorio privado fuera del repo y ejecuta el
 CLI Commitlint 21.2.2 con `--default-config --config <private-json> --edit
 <private-message>`. El cwd privado y `--config` explícito evitan ejecutar
-configuración del proyecto. El `--edit` oficial consulta `git config
-core.commentChar`; el PATH de Commitlint antepone la carpeta del Git aprobado y
-su fingerprint se revalida antes del spawn. Exit 0/1 significa Pass/Fail como
-LocalCheck; otro código o CLI no registrado queda Blocked. Message, stdout y
-stderr no se copian a evidencia. Los npm `.cmd` shims no se ejecutan y quedan
-Blocked hasta que exista un driver nativo aprobado.
+configuración del proyecto. Para el route Node, el proceso conserva cwd privado
+y pasa `--cwd <repo-root>` al CLI: el `--edit` oficial exige resolver el root
+Git, mientras `--config` absoluto obliga a cargar solo el JSON privado. El PATH
+antepone la carpeta del Git aprobado para la llamada interna `git config
+core.commentChar`. Las rutas Windows `\\?\` se normalizan solo en argv Node;
+los paths originales permanecen aprobados y fingerprinted por el ProcessPort.
+Exit 0/1 significa Pass/Fail como LocalCheck; otro código o CLI no registrado
+queda Blocked. Message, stdout y stderr no se copian a evidencia. El fingerprint
+del entrypoint no equivale a una auditoría completa del árbol de dependencias Node.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.

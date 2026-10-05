@@ -1,14 +1,23 @@
 use async_trait::async_trait;
 use jameskills_core::{
     AppError,
-    domain::{ToolId, policy::CheckStatus},
+    application::policy::{CheckContext, CheckRequest, PolicyService},
+    domain::{
+        ToolId,
+        policy::{CheckStatus, Enforcement, parse_policy},
+    },
+    ports::ClockPort,
     ports::process::{
-        ApprovedEnv, ApprovedExecutable, ApprovedRoot, ProcessOutput, ProcessPort, ProcessSpec,
+        ApprovedEnv, ApprovedExecutable, ApprovedRoot, ApprovedScript, ProcessOutput, ProcessPort,
+        ProcessSpec,
     },
 };
 use jameskills_infra::{
-    fs::{ApprovedRepositoryTool, LocalFileSystem},
-    process::fingerprint_executable,
+    fs::{
+        ApprovedCommitlint, ApprovedCommitlintNode, ApprovedRepositoryTool, LocalFileSystem,
+        RepositoryPolicyCheckProvider,
+    },
+    process::{SystemProcessPort, fingerprint_executable},
 };
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -22,6 +31,27 @@ use std::{
 
 const NOW: &str = "2026-10-04T00:00:00Z";
 const ENVIRONMENT: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const CONVENTIONAL_COMMIT_POLICY: &str = r#"
+schema_version = 1
+profile = "repository-foundation"
+scope = "project"
+
+[[tool_requirements]]
+tool_id = "commitlint"
+operation = "lint-message"
+version = "=21.2.2"
+
+[[requirements]]
+id = "commit-message"
+description = "The current commit uses Conventional Commits."
+severity = "error"
+required = true
+phase = "commit"
+enforcement = "local-check"
+depends_on = []
+[requirements.check]
+kind = "conventional-commit"
+"#;
 static NEXT_ROOT_ID: AtomicU64 = AtomicU64::new(0);
 
 struct TestRoot(PathBuf);
@@ -68,8 +98,21 @@ impl Drop for TestRoot {
     }
 }
 
+struct TestClock;
+
+impl ClockPort for TestClock {
+    fn now_utc(&self) -> String {
+        NOW.to_owned()
+    }
+
+    fn monotonic_ms(&self) -> u64 {
+        10
+    }
+}
+
 struct Invocation {
     tool_id: ToolId,
+    executable: PathBuf,
     args: Vec<OsString>,
     cwd: PathBuf,
     edit_path: Option<PathBuf>,
@@ -77,6 +120,8 @@ struct Invocation {
     config_path: Option<PathBuf>,
     config: Option<Vec<u8>>,
     path_environment: Option<OsString>,
+    approved_script: Option<PathBuf>,
+    approved_script_fingerprint: Option<Vec<u8>>,
 }
 
 struct FakeProcess {
@@ -112,6 +157,7 @@ impl ProcessPort for FakeProcess {
             .and_then(|path| std::fs::read(path).ok());
         self.invocations.lock().unwrap().push(Invocation {
             tool_id: spec.tool_id(),
+            executable: spec.executable().path().to_path_buf(),
             args: spec.args().to_vec(),
             cwd: spec.cwd().path().to_path_buf(),
             edit_path,
@@ -119,6 +165,12 @@ impl ProcessPort for FakeProcess {
             config_path,
             config,
             path_environment: spec.env().entries().get(&OsString::from("PATH")).cloned(),
+            approved_script: spec
+                .approved_script()
+                .map(|(script, _)| script.path().to_path_buf()),
+            approved_script_fingerprint: spec
+                .approved_script()
+                .map(|(_, fingerprint)| fingerprint.as_bytes().to_vec()),
         });
         self.outputs
             .lock()
@@ -138,7 +190,7 @@ fn output(exit_code: i32, stdout: &[u8]) -> ProcessOutput {
 fn run_check(
     root: &TestRoot,
     git: &ApprovedRepositoryTool,
-    commitlint: &ApprovedRepositoryTool,
+    commitlint: ApprovedRepositoryTool,
     process: Arc<FakeProcess>,
 ) -> jameskills_core::domain::policy::CheckObservation {
     let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
@@ -148,8 +200,8 @@ fn run_check(
     runtime
         .block_on(LocalFileSystem.check_conventional_commit(
             &root.approved(),
-            git,
-            commitlint,
+            Some(git),
+            Some(&ApprovedCommitlint::Native(commitlint)),
             &environment,
             process.as_ref(),
             NOW,
@@ -172,7 +224,7 @@ fn conventional_commit_check_uses_private_message_file_and_builtin_rules() {
         output(0, b""),
     ]));
 
-    let status = run_check(&root, &git, &commitlint, Arc::clone(&process));
+    let status = run_check(&root, &git, commitlint, Arc::clone(&process));
 
     assert_eq!(status.status(), CheckStatus::Pass);
     let invocations = process.invocations.lock().unwrap();
@@ -222,7 +274,7 @@ fn conventional_commit_failure_withholds_message_and_tool_output() {
         output(1, b"secret-marker-42 invalid commit message"),
     ]));
 
-    let observation = run_check(&root, &git, &commitlint, process);
+    let observation = run_check(&root, &git, commitlint, process);
 
     assert_eq!(observation.status(), CheckStatus::Fail);
     assert!(
@@ -242,7 +294,7 @@ fn conventional_commit_blocks_unreviewed_version_and_unregistered_executable() {
         output(0, b"git version 2.55.0\n"),
         output(0, b"@commitlint/cli@21.2.3\n"),
     ]));
-    let observation = run_check(&root, &git, &commitlint, Arc::clone(&unreviewed));
+    let observation = run_check(&root, &git, commitlint, Arc::clone(&unreviewed));
     assert_eq!(observation.status(), CheckStatus::Blocked);
     assert_eq!(unreviewed.invocations.lock().unwrap().len(), 2);
 
@@ -250,7 +302,258 @@ fn conventional_commit_blocks_unreviewed_version_and_unregistered_executable() {
     let git = root.tool("git");
     let commitlint = root.tool_named("commitlint-helper.exe");
     let blocked_process = Arc::new(FakeProcess::new(Vec::new()));
-    let observation = run_check(&root, &git, &commitlint, Arc::clone(&blocked_process));
+    let observation = run_check(&root, &git, commitlint, Arc::clone(&blocked_process));
     assert_eq!(observation.status(), CheckStatus::Blocked);
     assert!(blocked_process.invocations.lock().unwrap().is_empty());
+}
+
+#[test]
+fn provider_runs_reviewed_commitlint_cli_through_approved_node_as_local_check() {
+    let root = TestRoot::new();
+    let git = root.tool("git");
+    let node = root.tool("node");
+    let cli_directory = root.0.join("node_modules").join("@commitlint").join("cli");
+    std::fs::create_dir_all(&cli_directory).unwrap();
+    let cli_path = cli_directory.join("cli.js");
+    std::fs::write(&cli_path, b"reviewed Commitlint entrypoint fixture").unwrap();
+    let cli_path = std::fs::canonicalize(cli_path).unwrap();
+    let cli_fingerprint = fingerprint_executable(&cli_path).unwrap();
+    let process = Arc::new(FakeProcess::new(vec![
+        output(0, b"git version 2.55.0\n"),
+        output(0, b"v24.18.0\n"),
+        output(0, b"@commitlint/cli@21.2.2\n"),
+        output(0, b"feat(policy-engine): verify node entrypoint\n"),
+        output(0, b""),
+    ]));
+    let report = run_node_policy_check(&root, git, node, &cli_path, process.clone());
+
+    assert_eq!(report.results().len(), 1);
+    assert_eq!(report.results()[0].status(), CheckStatus::Pass);
+    assert!(matches!(
+        report.results()[0].enforcement(),
+        Some(Enforcement::LocalCheck)
+    ));
+    assert_eq!(report.strict_exit(), 0);
+    let invocations = process.invocations.lock().unwrap();
+    assert_eq!(invocations.len(), 5);
+    assert!(matches!(invocations[1].tool_id, ToolId::Node));
+    assert!(matches!(invocations[2].tool_id, ToolId::Commitlint));
+    assert_eq!(invocations[2].executable, node_path(&invocations));
+    assert!(invocations[2].args[0].to_string_lossy().ends_with("cli.js"));
+    assert!(
+        !invocations[2].args[0]
+            .to_string_lossy()
+            .starts_with(r"\\?\")
+    );
+    assert_eq!(invocations[2].args[1], "--version");
+    assert!(matches!(invocations[4].tool_id, ToolId::Commitlint));
+    assert_eq!(invocations[4].executable, node_path(&invocations));
+    assert!(invocations[4].args[0].to_string_lossy().ends_with("cli.js"));
+    assert!(
+        !invocations[4].args[0]
+            .to_string_lossy()
+            .starts_with(r"\\?\")
+    );
+    assert_eq!(invocations[4].args[1], "--cwd");
+    assert!(
+        invocations[4].args[2]
+            .to_string_lossy()
+            .ends_with(root.0.file_name().unwrap().to_string_lossy().as_ref())
+    );
+    assert!(
+        invocations[4]
+            .args
+            .iter()
+            .any(|arg| arg == "--default-config")
+    );
+    assert_eq!(
+        invocations[4].approved_script.as_deref(),
+        Some(cli_path.as_path())
+    );
+    assert_eq!(
+        invocations[4].approved_script_fingerprint.as_deref(),
+        Some(cli_fingerprint.as_bytes().as_slice())
+    );
+}
+
+#[test]
+fn provider_blocks_node_below_commitlint_engine_minimum() {
+    let root = TestRoot::new();
+    let git = root.tool("git");
+    let node = root.tool("node");
+    let cli_directory = root.0.join("node_modules").join("@commitlint").join("cli");
+    std::fs::create_dir_all(&cli_directory).unwrap();
+    let cli_path = cli_directory.join("cli.js");
+    std::fs::write(&cli_path, b"reviewed Commitlint entrypoint fixture").unwrap();
+    let process = Arc::new(FakeProcess::new(vec![
+        output(0, b"git version 2.55.0\n"),
+        output(0, b"v22.11.0\n"),
+    ]));
+
+    let report = run_node_policy_check(&root, git, node, &cli_path, process.clone());
+
+    assert_eq!(report.results()[0].status(), CheckStatus::Blocked);
+    assert_eq!(report.strict_exit(), 1);
+    assert_eq!(process.invocations.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn provider_blocks_when_commitlint_driver_is_not_approved() {
+    let root = TestRoot::new();
+    let process = Arc::new(FakeProcess::new(Vec::new()));
+    let provider = RepositoryPolicyCheckProvider::new(
+        root.approved(),
+        None,
+        None,
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+        process.clone(),
+        Arc::new(TestClock),
+        ENVIRONMENT.to_owned(),
+    );
+    let service = PolicyService::new(Arc::new(provider), Arc::new(TestClock));
+    let report = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(service.check(CheckRequest::new(
+            parse_policy(CONVENTIONAL_COMMIT_POLICY.as_bytes()).unwrap(),
+            CheckContext::default(),
+        )))
+        .unwrap();
+
+    assert_eq!(report.results()[0].status(), CheckStatus::Blocked);
+    assert_eq!(report.strict_exit(), 1);
+    assert!(process.invocations.lock().unwrap().is_empty());
+}
+
+fn run_node_policy_check(
+    root: &TestRoot,
+    git: ApprovedRepositoryTool,
+    node: ApprovedRepositoryTool,
+    cli_path: &std::path::Path,
+    process: Arc<FakeProcess>,
+) -> jameskills_core::domain::policy::CheckReport {
+    let cli_path = std::fs::canonicalize(cli_path).unwrap();
+    let cli_fingerprint = fingerprint_executable(&cli_path).unwrap();
+    let provider = RepositoryPolicyCheckProvider::new(
+        root.approved(),
+        Some(git),
+        None,
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+        process,
+        Arc::new(TestClock),
+        ENVIRONMENT.to_owned(),
+    )
+    .with_commitlint(ApprovedCommitlint::Node(ApprovedCommitlintNode::new(
+        node,
+        ApprovedScript::from_absolute_path(cli_path).unwrap(),
+        cli_fingerprint,
+    )));
+    let service = PolicyService::new(Arc::new(provider), Arc::new(TestClock));
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(service.check(CheckRequest::new(
+            parse_policy(CONVENTIONAL_COMMIT_POLICY.as_bytes()).unwrap(),
+            CheckContext::default(),
+        )))
+        .unwrap()
+}
+
+#[test]
+#[ignore = "requires explicitly installed Node 22.12+ and locked Commitlint 21.2.2 package"]
+fn real_node_commitlint_package_passes_through_repository_policy_provider() {
+    let repository = std::fs::canonicalize(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("infra crate has a workspace root"),
+    )
+    .unwrap();
+    let cli_path = repository.join("node_modules/@commitlint/cli/cli.js");
+    if !cli_path.is_file() {
+        panic!("run npm ci before explicitly running this ignored integration test");
+    }
+    let cli_path = std::fs::canonicalize(cli_path).unwrap();
+    let git_path = find_executable("git").expect("approved Git must be available");
+    let node_path = find_executable("node").expect("approved Node must be available");
+    let git = ApprovedRepositoryTool::new(
+        ApprovedExecutable::from_absolute_path(git_path.clone()).unwrap(),
+        fingerprint_executable(&git_path).unwrap(),
+    );
+    let node = ApprovedRepositoryTool::new(
+        ApprovedExecutable::from_absolute_path(node_path.clone()).unwrap(),
+        fingerprint_executable(&node_path).unwrap(),
+    );
+    let commitlint = ApprovedCommitlint::Node(ApprovedCommitlintNode::new(
+        node,
+        ApprovedScript::from_absolute_path(cli_path.clone()).unwrap(),
+        fingerprint_executable(&cli_path).unwrap(),
+    ));
+    let mut environment = BTreeMap::new();
+    for key in [
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "SYSTEMROOT",
+        "WINDIR",
+        "LANG",
+        "LC_ALL",
+        "LANGUAGE",
+        "TMP",
+        "TEMP",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            environment.insert(OsString::from(key), value);
+        }
+    }
+    let provider = RepositoryPolicyCheckProvider::new(
+        ApprovedRoot::from_absolute_path(repository).unwrap(),
+        Some(git),
+        None,
+        ApprovedEnv::new(environment).unwrap(),
+        Arc::new(SystemProcessPort),
+        Arc::new(TestClock),
+        ENVIRONMENT.to_owned(),
+    )
+    .with_commitlint(commitlint);
+    let service = PolicyService::new(Arc::new(provider), Arc::new(TestClock));
+    let report = service.check(CheckRequest::new(
+        parse_policy(CONVENTIONAL_COMMIT_POLICY.as_bytes()).unwrap(),
+        CheckContext::default(),
+    ));
+    let report = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(report)
+        .unwrap();
+
+    assert_eq!(report.results()[0].status(), CheckStatus::Pass);
+    assert!(matches!(
+        report.results()[0].enforcement(),
+        Some(Enforcement::LocalCheck)
+    ));
+    assert_eq!(report.strict_exit(), 0);
+}
+
+fn find_executable(name: &str) -> Option<PathBuf> {
+    let filename = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(&filename))
+        .find_map(|path| {
+            let metadata = std::fs::symlink_metadata(&path).ok()?;
+            if !metadata.file_type().is_file() {
+                return None;
+            }
+            std::fs::canonicalize(path).ok()
+        })
+}
+
+fn node_path(invocations: &[Invocation]) -> PathBuf {
+    invocations[1].executable.clone()
 }
