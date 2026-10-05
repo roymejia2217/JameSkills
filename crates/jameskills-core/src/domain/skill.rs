@@ -1,4 +1,5 @@
-use super::policy::{Policy, parse_policy};
+use super::guidance::{GuidanceAction, GuidanceCondition, GuidancePlan, OfficialGuidanceSource};
+use super::policy::{ApplicabilityFact, Policy, ToolId, ToolOperation, parse_policy};
 use super::{
     BundleEntry, ContentHash, EntryKind, PathValidationError, PortablePath, SkillId,
     ValidatedInventory, validate_bundle_inventory,
@@ -84,6 +85,8 @@ impl SkillManifest {
 #[derive(Clone, PartialEq, Eq)]
 pub struct ValidatedBundle {
     manifest: SkillManifest,
+    policies: Vec<Policy>,
+    guidance_plans: Vec<GuidancePlan>,
     content_hash: ContentHash,
     file_count: usize,
 }
@@ -91,6 +94,14 @@ pub struct ValidatedBundle {
 impl ValidatedBundle {
     pub fn manifest(&self) -> &SkillManifest {
         &self.manifest
+    }
+
+    pub fn policies(&self) -> &[Policy] {
+        &self.policies
+    }
+
+    pub fn guidance_plans(&self) -> &[GuidancePlan] {
+        &self.guidance_plans
     }
 
     pub fn content_hash(&self) -> &ContentHash {
@@ -685,8 +696,8 @@ pub fn validate_bundle(
     let mut guidance_plans = BTreeMap::new();
     for path in &manifest.guidance_files {
         let bytes = files.get(path).ok_or_else(|| missing_resource(path))?;
-        for (plan_id, requirements) in validate_guidance_file(bytes, path, &policies)? {
-            if guidance_plans.insert(plan_id, requirements).is_some() {
+        for plan in validate_guidance_file(bytes, path, &policies)? {
+            if guidance_plans.insert(plan.id().to_owned(), plan).is_some() {
                 return Err(bundle_diagnostic(
                     "bundle.guidance.plan.id.invalid",
                     "Guidance plan IDs must be unique across guidance files.",
@@ -698,9 +709,11 @@ pub fn validate_bundle(
     for policy in &policies {
         for requirement in policy.requirements() {
             if let Some(guidance_id) = requirement.guidance_id()
-                && !guidance_plans
-                    .get(guidance_id)
-                    .is_some_and(|ids| ids.contains(requirement.id()))
+                && !guidance_plans.get(guidance_id).is_some_and(|plan| {
+                    plan.requirement_ids()
+                        .iter()
+                        .any(|id| id == requirement.id())
+                })
             {
                 return Err(bundle_diagnostic(
                     "bundle.guidance.requirement.missing",
@@ -721,6 +734,8 @@ pub fn validate_bundle(
     })?;
     Ok(ValidatedBundle {
         manifest,
+        policies,
+        guidance_plans: guidance_plans.into_values().collect(),
         content_hash,
         file_count: inventory.files().len(),
     })
@@ -799,7 +814,7 @@ fn validate_guidance_file(
     bytes: &[u8],
     path: &PortablePath,
     policies: &[Policy],
-) -> Result<BTreeMap<String, BTreeSet<String>>, Vec<Diagnostic>> {
+) -> Result<Vec<GuidancePlan>, Vec<Diagnostic>> {
     let source = std::str::from_utf8(bytes).map_err(|_| {
         bundle_diagnostic(
             "bundle.guidance.invalid_utf8",
@@ -851,7 +866,7 @@ fn validate_guidance_file(
 
     let mut known_requirements = BTreeSet::new();
     let mut requirement_guidance = BTreeMap::new();
-    let mut registered_tools = BTreeSet::new();
+    let mut registered_tools = BTreeMap::new();
     for policy in policies {
         for requirement in policy.requirements() {
             known_requirements.insert(requirement.id().to_owned());
@@ -860,10 +875,13 @@ fn validate_guidance_file(
             }
         }
         for tool in policy.tool_requirements() {
-            registered_tools.insert((
-                tool_id_name(tool.tool_id()),
-                tool_operation_name(tool.operation()),
-            ));
+            registered_tools.insert(
+                (
+                    tool_id_name(tool.tool_id()),
+                    tool_operation_name(tool.operation()),
+                ),
+                (tool.tool_id(), tool.operation()),
+            );
         }
     }
 
@@ -943,6 +961,7 @@ fn validate_guidance_file(
         }
         plan_requirements.insert(id.to_owned(), ids);
     }
+    let mut parsed_plans = Vec::with_capacity(plans.len());
     for plan in plans {
         let table = plan.as_table().expect("plan table validated above");
         let Some(steps) = table.get("steps").and_then(toml::Value::as_array) else {
@@ -952,17 +971,47 @@ fn validate_guidance_file(
                 Some(path.as_str()),
             ));
         };
-        validate_guidance_steps(steps, &known_requirements, &registered_tools, path)?;
+        let id = table["id"]
+            .as_str()
+            .expect("plan ID validated above")
+            .to_owned();
+        let requirement_ids = table["requirement_ids"]
+            .as_array()
+            .expect("plan requirement IDs validated above")
+            .iter()
+            .map(|requirement| {
+                requirement
+                    .as_str()
+                    .expect("requirement ID validated above")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        let plan_requirement_ids = plan_requirements
+            .get(&id)
+            .expect("plan requirement set validated above");
+        let parsed_steps = validate_guidance_steps(
+            steps,
+            &known_requirements,
+            plan_requirement_ids,
+            &registered_tools,
+            path,
+        )?;
+        parsed_plans.push(GuidancePlan::from_validated(
+            id,
+            requirement_ids,
+            parsed_steps,
+        ));
     }
-    Ok(plan_requirements)
+    Ok(parsed_plans)
 }
 
 fn validate_guidance_steps(
     steps: &[toml::Value],
     known_requirements: &BTreeSet<String>,
-    registered_tools: &BTreeSet<(&str, &str)>,
+    plan_requirement_ids: &BTreeSet<String>,
+    registered_tools: &BTreeMap<(&str, &str), (ToolId, ToolOperation)>,
     path: &PortablePath,
-) -> Result<(), Vec<Diagnostic>> {
+) -> Result<Vec<super::guidance::GuidanceStep>, Vec<Diagnostic>> {
     if steps.is_empty() || steps.len() > 512 {
         return Err(bundle_diagnostic(
             "bundle.guidance.steps.invalid",
@@ -971,6 +1020,7 @@ fn validate_guidance_steps(
         ));
     }
     let mut step_ids = BTreeSet::new();
+    let mut parsed_steps = Vec::with_capacity(steps.len());
     for step in steps {
         let Some(table) = step.as_table() else {
             return Err(bundle_diagnostic(
@@ -1012,6 +1062,7 @@ fn validate_guidance_steps(
         };
         if !valid_namespaced_id(id)
             || !step_ids.insert(id.to_owned())
+            || prompt.trim().is_empty()
             || prompt.chars().count() > 4096
         {
             return Err(bundle_diagnostic(
@@ -1020,52 +1071,81 @@ fn validate_guidance_steps(
                 Some(path.as_str()),
             ));
         }
-        for key in ["requires", "verification_requirement_ids"] {
-            if !table.get(key).is_some_and(toml::Value::is_array) {
+        let Some(requires) = table.get("requires").and_then(toml::Value::as_array) else {
+            return Err(bundle_diagnostic(
+                "bundle.guidance.step.invalid",
+                "Guidance step references must be arrays.",
+                Some(path.as_str()),
+            ));
+        };
+        let mut require_ids = BTreeSet::new();
+        let mut dependencies = Vec::with_capacity(requires.len());
+        for dependency in requires {
+            let Some(dependency) = dependency.as_str() else {
                 return Err(bundle_diagnostic(
-                    "bundle.guidance.step.invalid",
-                    "Guidance step references must be arrays.",
-                    Some(path.as_str()),
-                ));
-            }
-        }
-        for requirement in table["verification_requirement_ids"].as_array().unwrap() {
-            if !requirement
-                .as_str()
-                .is_some_and(|id| known_requirements.contains(id))
-            {
-                return Err(bundle_diagnostic(
-                    "bundle.guidance.requirement.invalid",
-                    "Guidance step references an unknown requirement.",
-                    Some(path.as_str()),
-                ));
-            }
-        }
-        if let Some(applies_when) = table.get("applies_when") {
-            let Some(condition) = applies_when.as_table() else {
-                return Err(bundle_diagnostic(
-                    "bundle.guidance.condition.invalid",
-                    "Guidance condition must be a typed fact comparison.",
+                    "bundle.guidance.step.reference.invalid",
+                    "Guidance step dependency must be a step ID.",
                     Some(path.as_str()),
                 ));
             };
-            let fact = condition.get("fact").and_then(toml::Value::as_str);
-            let value = condition.get("equals").and_then(toml::Value::as_str);
-            if !only_keys(condition, &["fact", "equals"])
-                || !matches!(
-                    fact,
-                    Some("os" | "arch" | "stack" | "host" | "context" | "capability")
-                )
-                || !value.is_some_and(|value| !value.trim().is_empty() && value.len() <= 128)
-            {
+            if !require_ids.insert(dependency.to_owned()) {
                 return Err(bundle_diagnostic(
-                    "bundle.guidance.condition.invalid",
-                    "Guidance condition must name a registered fact and value.",
+                    "bundle.guidance.step.reference.invalid",
+                    "Guidance step dependencies cannot be duplicated.",
                     Some(path.as_str()),
                 ));
             }
+            dependencies.push(dependency.to_owned());
         }
-        validate_guidance_action(table.get("action"), registered_tools, path)?;
+        let Some(verification_ids) = table
+            .get("verification_requirement_ids")
+            .and_then(toml::Value::as_array)
+        else {
+            return Err(bundle_diagnostic(
+                "bundle.guidance.step.invalid",
+                "Guidance step verification IDs must be an array.",
+                Some(path.as_str()),
+            ));
+        };
+        if verification_ids.is_empty() {
+            return Err(bundle_diagnostic(
+                "bundle.guidance.verification.empty",
+                "Every guidance step must have a verification requirement.",
+                Some(path.as_str()),
+            ));
+        }
+        let mut verified_ids = BTreeSet::new();
+        let mut verifications = Vec::with_capacity(verification_ids.len());
+        for requirement in verification_ids {
+            let Some(requirement) = requirement.as_str() else {
+                return Err(bundle_diagnostic(
+                    "bundle.guidance.requirement.invalid",
+                    "Guidance verification IDs must be strings.",
+                    Some(path.as_str()),
+                ));
+            };
+            if !known_requirements.contains(requirement)
+                || !plan_requirement_ids.contains(requirement)
+                || !verified_ids.insert(requirement.to_owned())
+            {
+                return Err(bundle_diagnostic(
+                    "bundle.guidance.requirement.invalid",
+                    "Guidance verification must be a unique requirement in this plan.",
+                    Some(path.as_str()),
+                ));
+            }
+            verifications.push(requirement.to_owned());
+        }
+        let applies_when = parse_guidance_condition(table.get("applies_when"), path)?;
+        let action = parse_guidance_action(table.get("action"), registered_tools, path)?;
+        parsed_steps.push(super::guidance::GuidanceStep::from_validated(
+            id.to_owned(),
+            prompt.to_owned(),
+            dependencies,
+            verifications,
+            applies_when,
+            action,
+        ));
     }
 
     let mut remaining = step_ids.clone();
@@ -1107,14 +1187,72 @@ fn validate_guidance_steps(
             remaining.remove(&id);
         }
     }
-    Ok(())
+    Ok(parsed_steps)
 }
 
-fn validate_guidance_action(
-    action: Option<&toml::Value>,
-    registered_tools: &BTreeSet<(&str, &str)>,
+fn parse_guidance_condition(
+    condition: Option<&toml::Value>,
     path: &PortablePath,
-) -> Result<(), Vec<Diagnostic>> {
+) -> Result<Option<GuidanceCondition>, Vec<Diagnostic>> {
+    let Some(condition) = condition else {
+        return Ok(None);
+    };
+    let Some(condition) = condition.as_table() else {
+        return Err(bundle_diagnostic(
+            "bundle.guidance.condition.invalid",
+            "Guidance condition must be a typed fact comparison.",
+            Some(path.as_str()),
+        ));
+    };
+    let fact = condition.get("fact").and_then(toml::Value::as_str);
+    let value = condition.get("equals").and_then(toml::Value::as_str);
+    let fact = match fact {
+        Some("os") => ApplicabilityFact::Os,
+        Some("arch") => ApplicabilityFact::Architecture,
+        Some("stack") => ApplicabilityFact::Stack,
+        Some("host") => ApplicabilityFact::Host,
+        Some("context") => ApplicabilityFact::Context,
+        Some("capability") => ApplicabilityFact::Capability,
+        _ => {
+            return Err(bundle_diagnostic(
+                "bundle.guidance.condition.invalid",
+                "Guidance condition must name a registered fact and value.",
+                Some(path.as_str()),
+            ));
+        }
+    };
+    let Some(value) = value.filter(|value| fact.accepts_value(value)) else {
+        return Err(bundle_diagnostic(
+            "bundle.guidance.condition.invalid",
+            "Guidance condition must name a registered fact and value.",
+            Some(path.as_str()),
+        ));
+    };
+    if !only_keys(condition, &["fact", "equals"]) {
+        return Err(bundle_diagnostic(
+            "bundle.guidance.condition.invalid",
+            "Guidance condition contains unsupported fields.",
+            Some(path.as_str()),
+        ));
+    }
+    Ok(Some(GuidanceCondition::from_validated(
+        fact,
+        value.to_owned(),
+    )))
+}
+
+fn parse_guidance_action(
+    action: Option<&toml::Value>,
+    registered_tools: &BTreeMap<(&str, &str), (ToolId, ToolOperation)>,
+    path: &PortablePath,
+) -> Result<GuidanceAction, Vec<Diagnostic>> {
+    let invalid = || {
+        bundle_diagnostic(
+            "bundle.guidance.action.invalid",
+            "Guidance action is unsupported or contains unregistered fields.",
+            Some(path.as_str()),
+        )
+    };
     let Some(action) = action.and_then(toml::Value::as_table) else {
         return Err(bundle_diagnostic(
             "bundle.guidance.action.invalid",
@@ -1129,61 +1267,75 @@ fn validate_guidance_action(
             Some(path.as_str()),
         ));
     };
-    let valid = match kind {
-        "manual-instruction" | "recheck" => only_keys(action, &["kind"]),
-        "open-official-url" => {
-            only_keys(action, &["kind", "source_id"])
-                && matches!(
-                    action.get("source_id").and_then(toml::Value::as_str),
-                    Some(
-                        "git-install"
-                            | "gitleaks"
-                            | "conventional-commits"
-                            | "github-cli"
-                            | "github-rulesets"
-                    )
-                )
+    match kind {
+        "manual-instruction" if only_keys(action, &["kind"]) => {
+            Ok(GuidanceAction::ManualInstruction)
         }
-        "copy-approved-command" => {
+        "recheck" if only_keys(action, &["kind"]) => Ok(GuidanceAction::Recheck),
+        "open-official-url" if only_keys(action, &["kind", "source_id"]) => {
+            let source = match action.get("source_id").and_then(toml::Value::as_str) {
+                Some("git-install") => OfficialGuidanceSource::GitInstall,
+                Some("gitleaks") => OfficialGuidanceSource::Gitleaks,
+                Some("conventional-commits") => OfficialGuidanceSource::ConventionalCommits,
+                Some("github-cli") => OfficialGuidanceSource::GithubCli,
+                Some("github-rulesets") => OfficialGuidanceSource::GithubRulesets,
+                _ => return Err(invalid()),
+            };
+            Ok(GuidanceAction::OpenOfficialUrl { source })
+        }
+        "copy-approved-command" if only_keys(action, &["kind", "tool_id", "operation"]) => {
             let tool_id = action.get("tool_id").and_then(toml::Value::as_str);
             let operation = action.get("operation").and_then(toml::Value::as_str);
-            only_keys(action, &["kind", "tool_id", "operation"])
-                && tool_id
-                    .zip(operation)
-                    .is_some_and(|pair| registered_tools.contains(&pair))
+            let Some((tool_id, operation)) = tool_id
+                .zip(operation)
+                .and_then(|pair| registered_tools.get(&pair))
+                .copied()
+            else {
+                return Err(invalid());
+            };
+            Ok(GuidanceAction::CopyApprovedCommand { tool_id, operation })
         }
-        "select-local-path" => {
-            only_keys(action, &["kind", "purpose"])
-                && action
-                    .get("purpose")
-                    .and_then(toml::Value::as_str)
-                    .is_some_and(|purpose| !purpose.trim().is_empty() && purpose.len() <= 128)
+        "select-local-path" if only_keys(action, &["kind", "purpose"]) => {
+            let Some(purpose) = action
+                .get("purpose")
+                .and_then(toml::Value::as_str)
+                .filter(|purpose| !purpose.trim().is_empty() && purpose.len() <= 128)
+            else {
+                return Err(invalid());
+            };
+            Ok(GuidanceAction::SelectLocalPath {
+                purpose: purpose.to_owned(),
+            })
         }
-        "answer-choice" => {
-            only_keys(action, &["kind", "choices"])
-                && action
-                    .get("choices")
-                    .and_then(toml::Value::as_array)
-                    .is_some_and(|choices| {
-                        !choices.is_empty()
-                            && choices.len() <= 32
-                            && choices.iter().all(|choice| {
-                                choice.as_str().is_some_and(|choice| {
-                                    !choice.trim().is_empty() && choice.chars().count() <= 256
-                                })
+        "answer-choice" if only_keys(action, &["kind", "choices"]) => {
+            let Some(choices) = action
+                .get("choices")
+                .and_then(toml::Value::as_array)
+                .filter(|choices| {
+                    !choices.is_empty()
+                        && choices.len() <= 32
+                        && choices.iter().all(|choice| {
+                            choice.as_str().is_some_and(|choice| {
+                                !choice.trim().is_empty() && choice.chars().count() <= 256
                             })
+                        })
+                })
+            else {
+                return Err(invalid());
+            };
+            Ok(GuidanceAction::AnswerChoice {
+                choices: choices
+                    .iter()
+                    .map(|choice| {
+                        choice
+                            .as_str()
+                            .expect("choice strings validated")
+                            .to_owned()
                     })
+                    .collect(),
+            })
         }
-        _ => false,
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(bundle_diagnostic(
-            "bundle.guidance.action.invalid",
-            "Guidance action is unsupported or contains unregistered fields.",
-            Some(path.as_str()),
-        ))
+        _ => Err(invalid()),
     }
 }
 

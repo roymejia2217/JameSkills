@@ -10,6 +10,7 @@ pub use bundle::{
     BundleEntry, EntryKind, ValidatedFile, ValidatedInventory, validate_bundle_inventory,
 };
 pub use guidance::{
+    GuidanceAction, GuidanceCondition, GuidancePlan, GuidanceStep, OfficialGuidanceSource,
     ToolAvailability, ToolCapabilitySupport, ToolDetection, ToolEvidence, ToolVersionStatus,
 };
 pub use ids::{

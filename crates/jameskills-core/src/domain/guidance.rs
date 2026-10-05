@@ -1,3 +1,4 @@
+use super::policy::ApplicabilityFact;
 use super::policy::{ToolId, ToolOperation};
 use crate::{Diagnostic, DiagnosticSeverity};
 use semver::{Version, VersionReq};
@@ -187,6 +188,141 @@ impl ToolDetection {
 
     pub fn evidence(&self) -> &ToolEvidence {
         &self.evidence
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OfficialGuidanceSource {
+    GitInstall,
+    Gitleaks,
+    ConventionalCommits,
+    GithubCli,
+    GithubRulesets,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum GuidanceAction {
+    ManualInstruction,
+    OpenOfficialUrl {
+        source: OfficialGuidanceSource,
+    },
+    CopyApprovedCommand {
+        tool_id: ToolId,
+        operation: ToolOperation,
+    },
+    SelectLocalPath {
+        purpose: String,
+    },
+    AnswerChoice {
+        choices: Vec<String>,
+    },
+    Recheck,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct GuidanceCondition {
+    fact: ApplicabilityFact,
+    equals: String,
+}
+
+impl GuidanceCondition {
+    pub(super) fn from_validated(fact: ApplicabilityFact, equals: String) -> Self {
+        Self { fact, equals }
+    }
+
+    pub fn fact(&self) -> ApplicabilityFact {
+        self.fact
+    }
+
+    pub fn equals(&self) -> &str {
+        &self.equals
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct GuidanceStep {
+    id: String,
+    prompt_es: String,
+    requires: Vec<String>,
+    verification_requirement_ids: Vec<String>,
+    applies_when: Option<GuidanceCondition>,
+    action: GuidanceAction,
+}
+
+impl GuidanceStep {
+    pub(super) fn from_validated(
+        id: String,
+        prompt_es: String,
+        requires: Vec<String>,
+        verification_requirement_ids: Vec<String>,
+        applies_when: Option<GuidanceCondition>,
+        action: GuidanceAction,
+    ) -> Self {
+        Self {
+            id,
+            prompt_es,
+            requires,
+            verification_requirement_ids,
+            applies_when,
+            action,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn prompt_es(&self) -> &str {
+        &self.prompt_es
+    }
+
+    pub fn requires(&self) -> &[String] {
+        &self.requires
+    }
+
+    pub fn verification_requirement_ids(&self) -> &[String] {
+        &self.verification_requirement_ids
+    }
+
+    pub fn applies_when(&self) -> Option<&GuidanceCondition> {
+        self.applies_when.as_ref()
+    }
+
+    pub fn action(&self) -> &GuidanceAction {
+        &self.action
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct GuidancePlan {
+    id: String,
+    requirement_ids: Vec<String>,
+    steps: Vec<GuidanceStep>,
+}
+
+impl GuidancePlan {
+    pub(super) fn from_validated(
+        id: String,
+        requirement_ids: Vec<String>,
+        steps: Vec<GuidanceStep>,
+    ) -> Self {
+        Self {
+            id,
+            requirement_ids,
+            steps,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn requirement_ids(&self) -> &[String] {
+        &self.requirement_ids
+    }
+
+    pub fn steps(&self) -> &[GuidanceStep] {
+        &self.steps
     }
 }
 
