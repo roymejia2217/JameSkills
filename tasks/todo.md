@@ -1017,9 +1017,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T022 — Obtener auth y evidencia de GitHub con mínimos permisos
 
-- [ ] **T022 completada y verificada**
+- [x] **T022 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T016. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T018, T016. **Estado:** completada.
 
 **Implementación y funciones:** GitHubEvidenceDriver, inspect_host_auth, identify_repository_host; gh auth status y gh api read-only aprobado con JSON bounds/typed observations, sin extraer token del CLI. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1054,7 +1054,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Evidencia al ejecutar:** `cargo test --workspace --locked --features jameskills-desktop/test-support` pasa en Windows MSVC; incluye core/CLI/desktop headless/infra suites y deja los opt-in no relacionados ignorados. Workspace Clippy `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt y diff-check pasan. `github_evidence` fakes 5/5; opt-in real `cargo test -p jameskills-infra --locked --test github_evidence real_github_access_verifies_the_checked_out_repository_without_exporting_auth_data -- --ignored --exact` pasa 1/1, repo actual, `gh 2.102.0`, solo auth status+REST GET. CI remoto del SHA final pendiente; `ci-evidence`/RequiredCi son T023.
 
-T022 aceptación y evidencia local satisfechas; mantener el padre abierto hasta registrar el commit convencional correspondiente. El run remoto `37328599512` solo cubre `c976f02` y no se atribuye a estos cambios.
+T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repository access`. El run remoto `37328599512` solo cubre `c976f02`; no se presenta como CI de `8d14689`. La validación T022 se completa con workspace tests, Clippy, fuentes y opt-in read-only; T023 observa rulesets/check-runs por separado.
 
 <a id="t023"></a>
 
