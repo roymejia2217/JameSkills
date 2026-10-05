@@ -7,7 +7,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Checkpoint T020 cerrado; T021 iniciado
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD local `2c6a75f` sobre la base publicada `c8d76bb`; PR draft #22. Working tree contiene solo el incremento T021.a pendiente de commit.
+- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `4d4d1ae` publicado en PR draft #22; T021.b guidance está en working tree.
 - CI run `37308536795` para SHA `c8d76bb` terminó SUCCESS en fmt, Clippy, tests Linux, builds Linux/Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37308533712` también SUCCESS.
 - T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
 - El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
@@ -17,9 +17,11 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - RED focal observado antes de la implementación: faltaba evidencia `repo.commit-hook`; GREEN pasó en Windows. El opt-in Node24.18/Commitlint21.2.2 con Git real verificó que el hook instalado se lee, sin ejecutarlo.
 - CI run `37307758381` en `dc033f5` detectó fixture Unix sin modo ejecutable; `c8d76bb` lo corrige con permisos `0755` bajo `cfg(unix)` sin ejecutar el hook. CI `37308536795` completa confirma GREEN en Linux y Windows.
 - T020 y subtareas verificadas cerradas. No se atribuye `LocalHook`; no se verificó aún una regla host que exija checks en `main` (eso corresponde a T022/T023).
-- T021.src/T021.dep completadas; dependencia directa/parser sources en commit local `2c6a75f`. RED observada: `cargo check -p jameskills-infra --locked --offline` rechazó lock desactualizado; GREEN offline actualizó Cargo.lock y ambos checks offline pasaron.
-- T021.a RED funcional ejecutado: `cargo test -p jameskills-infra --locked --test ci_definition_checks` tuvo tres fallas de estado esperado (ci-contract desconocido), mientras malformed YAML permaneció Unknown. GREEN parcial Windows: 21 tests pasan para triggers/activity types, tag-only push, PR filters, jobs/runners/needs, continue-on-error, permisos/action refs, YAML duplicate/alias/over-limit, workflow checked-in y `ci-evidence` Unknown. Clippy infra `-D warnings` pasa; ejecutar la suite completa y gates/CI Linux antes de cerrar.
-- El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023. Próximo: commit del slice actual, terminar T021.a en <=5 archivos, pre-push/CI; considerar alinear el fixture repository-foundation con el nombre de job requerido `required-ci` sin atribuir host authority prematuramente.
+- T021.src/T021.dep completadas; dependency commit local/pushed `2c6a75f`. RED observada: `cargo check -p jameskills-infra --locked --offline` rechazó lock desactualizado; GREEN offline actualizó Cargo.lock y checks locked pasaron.
+- T021.a completada en `4d4d1ae`: parser bounded/inert, 21 pruebas focused + suite infra en Windows y Clippy `-D warnings`. CI run `37317369713` para SHA `4d4d1ae` pasó pruebas Linux, Clippy, fmt, builds Linux/Windows, README Policy, Commitlint y Required CI; PR Governance run `37317365655` pasó.
+- El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023.
+- T021.b (4 archivos) RED/GREEN: la prueba de paridad falló con `examples/repository-foundation/guidance/repository.toml` desactualizada; ambas copias ahora separan configuración del workflow, permisos/actions y evidencia host/SHA en pasos manual/recheck. `cargo test -p jameskills-core --locked --test bundle_manifest` pasa 23/23.
+- Próximo: verificar bundle completo/fmt/Commitlint y gates del pre-push; commit/push autorizado, comprobar CI; mantener RequiredCi Unknown hasta que los proveedores T022/T023 observen host y SHA actual.
 
 ## Estado real
 
