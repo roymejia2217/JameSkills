@@ -269,6 +269,35 @@ also note that 404 can mask inaccessible private resources and that redirects
 exist; this reinforces binding requests to the approved GitHub API host and
 avoiding retry loops.
 
+T024 release evidence (GitHub REST docs current on 2026-10-05):
+- [`GET /repos/{owner}/{repo}/releases`](https://docs.github.com/en/rest/releases/releases#list-releases)
+  returns releases, not unassociated Git tags. Public published releases are
+  visible; drafts are listed only to users with push access. Entries expose
+  `tag_name`, `draft`, `prerelease`, and assets with nullable `digest`; response
+  sizes are bounded and the checker does not paginate. A full 100-entry page is
+  treated as possibly truncated. The digest is GitHub-reported SHA-256 metadata;
+  the checker does not download or independently hash asset bytes.
+- [`GET /repos/{owner}/{repo}/releases/tags/{tag}`](https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name)
+  retrieves a published release by tag, not a bare Git ref. Therefore a tag
+  existing without a release cannot satisfy a release requirement. 403/404 do
+  not independently prove absence or permission; only a complete successful
+  release listing can establish that a required published version is absent.
+- GitHub [Git references](https://docs.github.com/en/rest/git/refs#get-a-reference)
+  resolve `refs/tags/<tag>` to an object and identify lightweight versus
+  annotated tags. The [Get a tag endpoint](https://docs.github.com/en/rest/git/tags#get-a-tag)
+  accepts an annotated tag-object SHA and reports GitHub signature verification
+  metadata (`verification.verified`/`reason`). Signature/payload bytes and
+  identities are not retained. Signed-tag requirements must remain Unknown for
+  inaccessible or unsupported objects and Fail for known unsigned/unverified
+  tags.
+- Cargo's [workspace package fields](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-workspacepackage-table)
+  allow a workspace root to declare the shared project version; npm's
+  [`package.json` version field](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#version)
+  declares a Node project's package version. T024 uses bounded, no-follow local
+  manifests as project-version evidence, never `SkillManifest.semantic_version`.
+  If both Rust and Node versions are present they must agree; absent, invalid,
+  or ambiguous version sources remain Unknown.
+
 T023 protection/evidence API contract (GitHub REST docs version current on
 2026-10-05):
 - [`GET /repos/{owner}/{repo}/rules/branches/{branch}`](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch)
