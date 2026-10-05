@@ -70,7 +70,8 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Diseñar consentimiento tipado y driver Cargo fijo en T020.c.b, sin ejecutar suites en `observe`.
+1. Revisar diff/estado y crear commit de T020.c.b.a.
+2. Diseñar aprobación tipada y driver Cargo fijo en T020.c.b.b, sin ejecutar suites en `observe`.
 3. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## T020.b2.a completado
@@ -108,6 +109,11 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - GREEN: el mismo test pasa 1/1 y confirma ejecución argv-only del test harness aprobado, limitando salida y timeout; `cargo test -p jameskills-infra --locked` completo, Clippy `-D warnings`, fmt y diff check pasan.
 - c.a habilita solo la semántica de permiso low-level. No se añadió ruta desde inspección, manifiestos, UI o CLI; el siguiente c.b debe exigir aprobación tipada/trust, fijar HEAD/manifests y construir driver Cargo app-owned antes de usarlo.
 - Commit: `992160a feat(process): honor explicit mutation permission`.
+
+## T020.c.b.a completado localmente; pendiente commit
+
+- RED: `cargo test -p jameskills-core --locked --test policy_evaluation suite_run_result_rejects_exit_and_execution_status_mismatches` falla porque el modelo inicial aceptaba exit 1 como Passed.
+- GREEN: `cargo test -p jameskills-core --locked --test policy_evaluation suite_run_result` pasa 2/2; la declaración de suite permanece independiente del resultado de ejecución y exit code.
 
 ## Preservación y lecturas
 

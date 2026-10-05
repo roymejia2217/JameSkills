@@ -238,6 +238,86 @@ pub enum Check {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TestSuiteKind {
+    CargoTest,
+    NodeLint,
+    NodeTest,
+    NodeBuild,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TestSuiteDeclaration {
+    Declared,
+    Missing,
+    Unknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TestSuiteExecution {
+    NotRun,
+    Blocked,
+    Passed,
+    Failed,
+}
+
+/// Keeps suite presence distinct from whether an explicit execution passed.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TestSuiteRunResult {
+    suite: TestSuiteKind,
+    declaration: TestSuiteDeclaration,
+    execution: TestSuiteExecution,
+    exit_code: Option<i32>,
+}
+
+impl TestSuiteRunResult {
+    pub fn new(
+        suite: TestSuiteKind,
+        declaration: TestSuiteDeclaration,
+        execution: TestSuiteExecution,
+        exit_code: Option<i32>,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        let valid = match execution {
+            TestSuiteExecution::NotRun | TestSuiteExecution::Blocked => exit_code.is_none(),
+            TestSuiteExecution::Passed => {
+                declaration != TestSuiteDeclaration::Missing && exit_code == Some(0)
+            }
+            TestSuiteExecution::Failed => {
+                declaration != TestSuiteDeclaration::Missing
+                    && exit_code.is_some_and(|code| code != 0)
+            }
+        };
+        if !valid {
+            return Err(vec![Diagnostic::error(
+                "policy.test_suite_result.inconsistent",
+                "Suite declaration, execution state, and exit code are inconsistent.",
+            )]);
+        }
+        Ok(Self {
+            suite,
+            declaration,
+            execution,
+            exit_code,
+        })
+    }
+
+    pub fn suite(&self) -> TestSuiteKind {
+        self.suite
+    }
+
+    pub fn declaration(&self) -> TestSuiteDeclaration {
+        self.declaration
+    }
+
+    pub fn execution(&self) -> TestSuiteExecution {
+        self.execution
+    }
+
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawPolicy {

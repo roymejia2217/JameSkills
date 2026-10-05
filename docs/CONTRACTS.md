@@ -180,6 +180,12 @@ pub fn evaluate_predicate(
 pub fn strict_exit(report: &CheckReport) -> u8;
 ~~~
 
+`TestSuiteRunResult` separa `TestSuiteDeclaration` (`Declared | Missing |
+Unknown`) de `TestSuiteExecution` (`NotRun | Blocked | Passed | Failed`) y
+`exit_code`. Solo `Passed` acepta exit 0 y `Failed` acepta exit distinto de 0;
+`NotRun`/`Blocked` no tienen exit code y una suite `Missing` no puede marcarse
+ejecutada. La ejecución es una acción explícita, separada de `PolicyService::check`.
+
 `PolicyCheckProvider::observe(&Requirement)` es async e inyectado a
 `PolicyService::new(provider, clock)`. `PolicyService::check(CheckRequest)` es async y evalúa
 todos los requisitos, conserva autoridad observada aparte de la exigida y devuelve

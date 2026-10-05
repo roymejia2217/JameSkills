@@ -4,7 +4,8 @@ use jameskills_core::{
     application::policy::{CheckContext, CheckRequest, PolicyCheckProvider, PolicyService},
     domain::policy::{
         ApplicabilityFact, CheckEvidence, CheckObservation, CheckResult, CheckStatus, Enforcement,
-        Policy, Requirement, parse_policy, strict_exit,
+        Policy, Requirement, TestSuiteDeclaration, TestSuiteExecution, TestSuiteKind,
+        TestSuiteRunResult, parse_policy, strict_exit,
     },
     ports::ClockPort,
 };
@@ -419,5 +420,93 @@ fn passing_predicate_without_evidence_is_unknown_and_has_no_observed_authority()
         result(report.results(), "policy.commit")
             .enforcement()
             .is_none()
+    );
+}
+
+#[test]
+fn suite_run_result_keeps_declaration_separate_from_exit_status() {
+    let passed = TestSuiteRunResult::new(
+        TestSuiteKind::CargoTest,
+        TestSuiteDeclaration::Declared,
+        TestSuiteExecution::Passed,
+        Some(0),
+    )
+    .unwrap();
+    assert!(matches!(
+        passed.declaration(),
+        TestSuiteDeclaration::Declared
+    ));
+    assert!(matches!(passed.execution(), TestSuiteExecution::Passed));
+    assert_eq!(passed.exit_code(), Some(0));
+
+    let missing = TestSuiteRunResult::new(
+        TestSuiteKind::NodeTest,
+        TestSuiteDeclaration::Missing,
+        TestSuiteExecution::NotRun,
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        missing.declaration(),
+        TestSuiteDeclaration::Missing
+    ));
+    assert!(matches!(missing.execution(), TestSuiteExecution::NotRun));
+    assert_eq!(missing.exit_code(), None);
+
+    let failed = TestSuiteRunResult::new(
+        TestSuiteKind::CargoTest,
+        TestSuiteDeclaration::Declared,
+        TestSuiteExecution::Failed,
+        Some(1),
+    )
+    .unwrap();
+    assert!(matches!(failed.execution(), TestSuiteExecution::Failed));
+    assert_eq!(failed.exit_code(), Some(1));
+
+    let unknown_declaration = TestSuiteRunResult::new(
+        TestSuiteKind::NodeTest,
+        TestSuiteDeclaration::Unknown,
+        TestSuiteExecution::Passed,
+        Some(0),
+    )
+    .unwrap();
+    assert!(matches!(
+        unknown_declaration.declaration(),
+        TestSuiteDeclaration::Unknown
+    ));
+    assert!(matches!(
+        unknown_declaration.execution(),
+        TestSuiteExecution::Passed
+    ));
+}
+
+#[test]
+fn suite_run_result_rejects_exit_and_execution_status_mismatches() {
+    assert!(
+        TestSuiteRunResult::new(
+            TestSuiteKind::CargoTest,
+            TestSuiteDeclaration::Declared,
+            TestSuiteExecution::Passed,
+            Some(1),
+        )
+        .is_err()
+    );
+    assert!(
+        TestSuiteRunResult::new(
+            TestSuiteKind::NodeTest,
+            TestSuiteDeclaration::Missing,
+            TestSuiteExecution::Passed,
+            Some(0),
+        )
+        .is_err()
+    );
+    assert!(
+        TestSuiteRunResult::new(
+            TestSuiteKind::CargoTest,
+            TestSuiteDeclaration::Declared,
+            TestSuiteExecution::NotRun,
+            Some(0),
+        )
+        .is_err()
     );
 }
