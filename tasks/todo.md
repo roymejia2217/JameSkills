@@ -1136,7 +1136,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T025 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.a completa; T025.b siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b.src en curso).
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1149,8 +1149,11 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - RED T025.a: `cargo test -p jameskills-core --locked --test guidance_schema` falló en empty-verifier y cross-plan IDs: ambos bundles se aceptaban aunque debían rechazarse. Después, `validated_bundle_retains_parsed_policies_and_guidance_steps` falló porque el validador no exponía/retained los DTOs compilados.
 - GREEN T025.a: la misma suite pasa 5/5; `ValidatedBundle` conserva policies y planes/steps/actions tipados; parser rechaza verifier vacío/fuera del plan y fact value no registrado; fixtures verifican source registry y `ToolOperation` del command action.
 - Gates T025.a: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
-- [ ] **T025.b — Planificar pasos con facts y evidencia fresca** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Topological ready step; aplica facts tipados, applicability y CheckReport observado.
-- [ ] **T025.c — Avanzar/recheck y conectar al runtime** (4 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`. Recheck llama providers reales actuales y reemplaza evidence antigua; composition expone el servicio.
+- [x] **T025.b.src — Contratar facts, estados y recheck** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. GuidanceFacts llevan valores tipados + CheckEvidence/fingerprint; el planner consume CheckReports, no claims.
+- Evidencia T025.b.src: el planner deriva estado solo de applicability facts con evidence fresca, DAG de steps y CheckReport; UserAnswer no tiene autoridad para completar un step. Recheck usa GuidanceFactsProvider + PolicyService, reemplaza report y borra choices si cambia environment fingerprint. Sesiones process-local no se presentan como durables.
+- [ ] **T025.b — Planificar próximo step desde facts/evidence** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Orden topológico; rama Unknown no se selecciona; step solo completa con fresh Pass de todos sus verifiers.
+- [ ] **T025.c — Crear servicio de sesiones y recheck real** (4 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
+- [ ] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
 
 **Semántica obligatoria:** facts desconocidos nunca seleccionan rama; “lo completé” solo registra una respuesta y no produce Pass; step solo Completed con fresh Pass para todos los `verification_requirement_ids`. Cambio de fingerprint/revision invalida respuestas/evidence dependientes. Acción copiar/abrir es inerte; credenciales y texto libre secreto no entran a la sesión.
 
