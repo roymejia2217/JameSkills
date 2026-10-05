@@ -70,8 +70,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Revisar diff/estado y crear commit de T020.c.b.b.a.
-2. Implementar T020.c.b.b.b con Cargo metadata/test driver, revalidación de snapshot y fixture pass/fail; mantener `observe` sin side effects.
+1. Implementar T020.c.b.b.b con Cargo metadata/test driver, revalidación de snapshot y fixture pass/fail; mantener `observe` sin side effects.
 3. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
 
 ## T020.b2.a completado
@@ -110,12 +109,14 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - c.a habilita solo la semántica de permiso low-level. No se añadió ruta desde inspección, manifiestos, UI o CLI; el siguiente c.b debe exigir aprobación tipada/trust, fijar HEAD/manifests y construir driver Cargo app-owned antes de usarlo.
 - Commit: `992160a feat(process): honor explicit mutation permission`.
 
-## T020.c.b.b.a completado localmente; pendiente commit
+## T020.c.b.b.a completado
 
 - RED: `cargo test -p jameskills-core --locked --test policy_evaluation suite_run_result_rejects_exit_and_execution_status_mismatches` falla porque el modelo inicial aceptaba exit 1 como Passed.
 - GREEN: `cargo test -p jameskills-core --locked --test policy_evaluation suite_run_result` pasa 2/2; la declaración de suite permanece independiente del resultado de ejecución y exit code.
 - RED aprobación: `cargo test -p jameskills-core --locked --lib repository_head_rejects_unreviewed_or_malformed_identifiers` falla si el parser acepta mayúsculas/longitud inválida; el constructor validado restaura la distinción de trust.
 - Approval DTO: `TestSuiteRunApproval` no deriva Deserialize, liga root/suite/head/hash de manifiestos/OperationId y no ejecuta procesos ni declara un resultado. El servicio/runner real se añade junto con el driver Cargo; `PolicyService.check` no se conecta a suites.
+- GREEN full: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff check pasan.
+- Commit: `3949ed3 feat(policy-engine): add explicit test suite approval`.
 
 ## Preservación y lecturas
 
