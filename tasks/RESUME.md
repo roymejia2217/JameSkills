@@ -49,12 +49,19 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T020.c.b queda cerrada localmente. Próxima unidad elegible T020.c.c: driver Node/npm de suites. T020.c parent permanece abierta hasta implementarla y verificarla.
 - CI remota sigue ausente: no hay upstream, PR ni runs asociados a `feat/t020-commit-test-checks`. Los resultados son locales; hace falta autorización expresa antes de push/PR para lanzar CI.
 
+## Slice actual T020.c.c.a — contrato/fuentes npm
+
+- Revisadas fuentes npm CLI `v11.16.0`, npm CLI docs v11 de run/config/.npmrc/folders y Node v24 docs. npm 11.16 declara Node `^20.17.0 || >=22.9.0`; host observado Node24.18.0/npm11.16.0 y probe vía `node npm-cli.js --version` dio `11.16.0`.
+- npm ejecuta el texto del script por `/bin/sh` o `cmd.exe`; `--ignore-scripts` mantiene el evento pedido y suprime pre/post. El contrato lo define como ejecución consentida de código del repo, no sandbox.
+- El diseño bloquea `.npmrc` del root y aísla config global/usuario. La huella de npm-cli.js no verifica todos los módulos relativos del paquete.
+
 ## Próxima acción exacta
 
-1. Cerrar checkpoint T020.c.b con fmt/diff-check/Commitlint y commit documental separado.
-2. Continuar T020.c.c (driver Node) como siguiente slice productivo; no marcar T020.c completo antes de probar ese driver.
-3. Solicitar autorización expresa para publicar rama/abrir PR y obtener gates remotos; nunca presentar CI local como CI remota.
-4. C006/C005 y T019 conservan sus bloqueos independientes.
+1. Cerrar .c.c.a con fmt/diff-check y Commitlint local en su commit documental.
+2. Implementar .c.c.b (Node/npm runner + tests) en máximo cuatro archivos; empezar por test que exija ejecutar solo el script solicitado y nunca npm.cmd, pre/post hooks ni repository `.npmrc`.
+3. Ejecutar opt-in real con Node24.18/npm11.16 en fixtures pass/fail y fake suite; revalidar manifest/HEAD y aislamiento de npm config antes del spawn.
+4. Solicitar autorización específica para publicar la rama/abrir PR y obtener CI remota; no reportar verdes locales como CI remota.
+5. C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado
 

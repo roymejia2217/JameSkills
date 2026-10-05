@@ -934,7 +934,10 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - Evidencia T020.c.b.b.b.c.a.src: revisados Microsoft Learn “Use the Microsoft C++ Build Tools from the command line” y “CL environment variables”; registradas rutas/versiones y campos CL/_CL_ como inyección de argumentos. Slice documental independiente.
 - [x] **T020.c.b.b.b.c.b — Entorno de fixture MSVC y pass/fail real** (3 archivos, commit `b0a0404`): `crates/jameskills-infra/tests/test_suite_checks.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Desde `VsDevCmd` detectado, transferir solo claves aprobadas al driver y demostrar fixture Cargo pass y fail con `SystemProcessPort`.
 - RED/GREEN T020.c.b.b.b.c.b: con PATH de `VsDevCmd` el driver inicial devolvía exit 101 porque su allowlist de test omitía `LIB`/`INCLUDE`/`LIBPATH`; tras pasar solo nombres aprobados al `ApprovedEnv`, `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` pasa 1/1 usando `SystemProcessPort` y demuestra los fixtures pass+fail. `cargo test -p jameskills-infra --locked` suite completa, Clippy infra `-D warnings`, fmt y diff-check pasan. No es CI remota.
-- [ ] **T020.c.c — Driver Node/npm de suites registradas** (subdividida en slices <=5 archivos): solo script id explícito mapeado a script detectado; Node + npm CLI oficial fingerprinted sin ejecutar `.cmd`; trust/argv/cwd/timeout bounded; no inferir test coverage del script.
+- [ ] **T020.c.c — Driver Node/npm de suites registradas** (slices semánticos <=5 archivos): solo suite fija `lint`/`test`/`build` mapeada a clave detectada; Node + npm CLI oficial por Node directo (nunca `.cmd`); aprobación enlazada a repo; argv/cwd/env/output/timeout bounded; suite declarada no prueba cobertura.
+- [x] **T020.c.c.a — Contrato y fuentes npm** (4 archivos): `docs/CONTRACTS.md`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Fijar npm CLI 11.16.0 y motores Node oficiales; documentar shell interno npm, `--ignore-scripts` para omitir pre/post, `.npmrc`/credenciales y alcance de fingerprint.
+- Evidencia T020.c.c.a: consultados fuente/tag npm CLI `v11.16.0`, `package.json`/engine/entrypoint/run.js, npm CLI v11 docs de run/config/.npmrc/folders y Node v24 docs. Contrato deja explícito que npm usa shell y que trust consentida no es sandbox; no infiere cobertura a partir de exit 0.
+- [ ] **T020.c.c.b — Ejecutar suite Node aprobada mediante npm CLI** (4 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/test_suite_checks.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Revalidar root/HEAD/manifests; ejecutar solo suite fija bajo `ExplicitMutation`, npm cli JS fingerprinted y Node aprobado, temp config privado; `.npmrc` repo => Blocked; no ejecutar lifecycle pre/post ni `.cmd`.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
@@ -950,7 +953,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 **Verificación:** cargo test -p jameskills-infra --locked commit_test_checks; ejecutar check sobre repo fixture con test registrado que pasa y otro que falla.
 
-**Evidencia al ejecutar:** T020.a/T020.b1–b2 y T020.c.a/T020.c.b (incluida integración Cargo real pass/fail) están en slices separados. T020.c.c (driver Node) y evidencia de LocalHook siguen pendientes; T020 parent permanece abierto hasta cubrir esas acceptance items.
+**Evidencia al ejecutar:** T020.a/T020.b1–b2 y T020.c.a/T020.c.b (incluida integración Cargo real pass/fail) están en slices separados. T020.c.c.a tiene contrato/fuentes; T020.c.c.b (driver Node) y evidencia de LocalHook siguen pendientes. T020 parent permanece abierto hasta cubrir esas acceptance items.
 
 <a id="t021"></a>
 

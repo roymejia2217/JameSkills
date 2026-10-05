@@ -255,6 +255,31 @@ Exit 0/1 significa Pass/Fail como LocalCheck; otro código o CLI no registrado
 queda Blocked. Message, stdout y stderr no se copian a evidencia. El fingerprint
 del entrypoint no equivale a una auditoría completa del árbol de dependencias Node.
 
+El runner Node previsto mapea `NodeLint | NodeTest | NodeBuild` a las claves root
+`lint`, `test` y `build` detectadas como datos; nunca recibe un nombre de script
+ni argumentos libres del caller. Debe ejecutar npm CLI `11.16.0` cargando su
+`npm-cli.js` mediante el Node nativo aprobado, no `npm.cmd`; Node debe satisfacer
+el engine declarado por esa versión de npm (`^20.17.0 || >=22.9.0`), dentro del
+rango de Node admitido por el profile. Runtime y entrypoint npm deben fingerprintarse
+y volverse a validar antes del spawn; esta huella no verifica todos los módulos
+relativos del paquete npm.
+
+La invocación definida para el driver fijo `npm run-script <suite>` con `--prefix` al root aprobado,
+`--workspaces=false`, `--ignore-scripts`, un `--script-shell` del sistema fijado
+por plataforma, y `--userconfig`/`--globalconfig` dirigidos a archivos privados
+vacíos fuera del repo. npm documenta que `--ignore-scripts` suprime los hooks
+`pre<event>`/`post<event>` pero ejecuta el script solicitado; npm ejecuta ese
+texto mediante `/bin/sh` en POSIX o `cmd.exe` en Windows. Por tanto la aprobación
+explícita es consentimiento para ejecutar código del repositorio bajo su shell
+de plataforma, no una sandbox ni un argv extraído de `package.json`. La implementación
+no pasará texto de scripts como argumento ni iniciará el shim `.cmd`. Si existe
+`.npmrc` en el root, la ejecución deberá quedar Blocked; el runner no debe
+incorporar credenciales de config npm del proyecto/usuario, ni importar los valores de `scripts` a logs o
+evidencia. Root, HEAD, manifests, declaración y selección se revalidan antes de
+`ExplicitMutation`; cancelación, npm no disponible, script ausente y exit no
+cero mantienen estados separados. Un exit 0 certifica exit del script solicitado,
+no cobertura ni que el script haya probado un objetivo específico.
+
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.

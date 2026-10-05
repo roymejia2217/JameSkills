@@ -188,6 +188,32 @@ Commitlint v21.2.2 [`package.json`](https://github.com/conventional-changelog/co
 
 The Commitlint v21.2.2 [`load-config.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/load/src/utils/load-config.ts) uses `explorer.load(explicitPath)` when `--config` is supplied, rather than cosmiconfig search from cwd. Its [`get-edit-commit.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/read/src/get-edit-commit.ts) resolves the Git top-level from the CLI cwd before reading `--edit`. Therefore the Node driver keeps the OS process cwd private, passes the approved repository root as Commitlint `--cwd`, and supplies an absolute app-owned JSON config path; it does not execute repository Commitlint config files.
 
+T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
+the Windows host together with Node `24.18.0`. The tagged
+[`package.json`](https://github.com/npm/cli/blob/v11.16.0/package.json) declares
+Node engines `^20.17.0 || >=22.9.0`; the profile already discovers npm 9–11 and
+Node 18–24, while the suite driver pins the exact npm CLI release and enforces
+that engine separately. npm's tagged [`run` command](https://github.com/npm/cli/blob/v11.16.0/lib/commands/run.js)
+checks the requested script key and executes only it when `ignore-scripts` is
+true, suppressing matching pre/post hooks. The tagged
+[`npm-cli.js`](https://github.com/npm/cli/blob/v11.16.0/bin/npm-cli.js) loads
+relative implementation modules, so fingerprinting that entrypoint does not
+attest the whole installed npm tree.
+
+The npm CLI v11 [`npm run` docs](https://docs.npmjs.com/cli/v11/commands/npm-run)
+and v11.16.0 source agree that `run-script` invokes the selected script through
+the platform shell (`/bin/sh` or `cmd.exe`) and supports `script-shell`; this is
+explicitly treated as execution of repository code after trust confirmation,
+not as shell-free execution or a sandbox. The same docs specify that
+`--ignore-scripts` still executes the specifically requested script but not its
+pre/post scripts. npm's [config](https://docs.npmjs.com/cli/v11/using-npm/config)
+and [`.npmrc`](https://docs.npmjs.com/cli/v11/configuring-npm/npmrc) docs list
+project, user, global and builtin config sources; [folders](https://docs.npmjs.com/cli/v11/configuring-npm/folders)
+documents global npm installation layouts. The T020.c.c contract requires the
+driver to redirect user/global config to private empty files and block when a project-root `.npmrc` exists,
+because credentials or config-defined shell behavior must not silently reach a
+suite. A package tree/lockfile does not pin the globally installed npm CLI.
+
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
 `--version`. Para los subcomandos Cargo, sus README oficiales documentan su
