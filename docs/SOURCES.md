@@ -150,6 +150,7 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GitHub rulesets: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets
 - REST rulesets: https://docs.github.com/en/rest/repos/rules
 - Git hooks: https://git-scm.com/docs/githooks
+- Git remotes: https://git-scm.com/docs/git-remote
 - Git ignore probe: https://git-scm.com/docs/git-check-ignore
 - Commitlint: https://commitlint.js.org/reference/cli.html
 - Gitleaks: https://github.com/gitleaks/gitleaks
@@ -203,6 +204,8 @@ For cross-platform CI patterns, the live [`microsoft/vscode` workflow directory]
 T021 CI-contract parser references: GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) specifies event triggers, job IDs, permissions and workflow fields; its [matrix guide](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) defines job matrix expansion. GitHub notes that a workflow skipped by filters can leave a required check pending. The [protected branch status-check rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) describe host-side merge enforcement; local YAML inspection cannot establish that rule or a check run for the current SHA.
 
 The T021 local workflow parser will use the already locked [`serde-saphyr` 1.3.0](https://docs.rs/serde-saphyr/1.3.0/serde_saphyr/) directly in infra with an explicit event/depth/node/scalar budget, duplicate-key errors, zero aliases/anchors, rejected custom tags/merge keys, and disabled snippets. YAML data remains inert; parser output is inspected as data and never executes workflow steps or Actions.
+
+T021 host discrimination uses Git's [`remote -v` documentation](https://git-scm.com/docs/git-remote), which reports remote names and configured fetch/push URLs. This is local configuration only (no network request); URLs may contain credentials and must stay in bounded process memory, never evidence/log output. A GitHub Actions YAML file without an observed supported GitHub remote remains Unknown, not RequiredCi.
 
 T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
 the Windows host together with Node `24.18.0`. The tagged
