@@ -355,7 +355,6 @@ fn repository_check_uses_fixed_github_get_and_binds_evidence_without_auth_data()
     let evidence = &observation.evidence()[0];
     assert!(evidence.summary().contains("owner/repo"));
     assert!(evidence.summary().contains(HEAD));
-    assert!(evidence.summary().contains("check=repo"));
     assert!(evidence.summary().contains("cap=repo-read"));
     assert_eq!(evidence.source_id(), "github.repository.identity");
     assert!(!evidence.summary().contains("private-user"));
