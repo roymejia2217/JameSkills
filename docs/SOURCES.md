@@ -295,8 +295,10 @@ T024 release evidence (GitHub REST docs current on 2026-10-05):
   [`package.json` version field](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#version)
   declares a Node project's package version. T024 uses bounded, no-follow local
   manifests as project-version evidence, never `SkillManifest.semantic_version`.
-  If both Rust and Node versions are present they must agree; absent, invalid,
-  or ambiguous version sources remain Unknown.
+  If both Rust and Node version fields are present they must agree; a valid
+  manifest without a version field is not itself a version source. If neither
+  source declares a version, or a declared value is malformed/ambiguous, the
+  result remains Unknown.
 
 T023 protection/evidence API contract (GitHub REST docs version current on
 2026-10-05):
