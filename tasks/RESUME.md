@@ -21,7 +21,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - T021.a completada en `4d4d1ae`: parser bounded/inert, 21 pruebas focused + suite infra en Windows y Clippy `-D warnings`. CI run `37317369713` para SHA `4d4d1ae` pasó pruebas Linux, Clippy, fmt, builds Linux/Windows, README Policy, Commitlint y Required CI; PR Governance run `37317365655` pasó.
 - El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023.
 - T021.b (4 archivos) RED/GREEN: la prueba de paridad falló con `examples/repository-foundation/guidance/repository.toml` desactualizada; ambas copias ahora separan configuración del workflow, permisos/actions y evidencia host/SHA en pasos manual/recheck. `cargo test -p jameskills-core --locked --test bundle_manifest` pasa 23/23.
-- Próximo: verificar bundle completo/fmt/Commitlint y gates del pre-push; commit/push autorizado, comprobar CI; mantener RequiredCi Unknown hasta que los proveedores T022/T023 observen host y SHA actual.
+- Próximo: verificar bundle/fmt/Commitlint y pre-push; commit/push autorizado y CI. Siguiente sub-slice T021.a2 debe observar `git remote -v` con Git aprobado y mantener workflow GitHub como Unknown si remotes no identifican `github.com`; no inferir regla activa ni CI del SHA actual.
 
 ## Estado real
 
