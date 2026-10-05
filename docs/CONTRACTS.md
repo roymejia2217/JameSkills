@@ -192,6 +192,19 @@ evidencia de suite exitosa. El servicio/runner concreto debe revalidar
 root/head/manifiestos justo antes del spawn; policy inspection nunca invoca el
 runner.
 
+El provider Cargo obtiene la declaración mediante `cargo metadata --no-deps
+--format-version 1 --locked --offline`; solo considera `packages` cuyos IDs están
+en `workspace_members`, y declara suite si alguno tiene `targets[].test = true`.
+Esto constata targets seleccionables por Cargo, no que las pruebas pasen ni una
+cobertura determinada. Tras aprobación explícita el argv fijo ejecuta
+`cargo test --workspace --locked --manifest-path <root>/Cargo.toml`, es decir,
+los targets de test de los miembros del workspace. La inspección usa
+`ReadOnlyCheck`; la ejecución aprobada usa `ExplicitMutation(OperationId)`, con
+timeout/salida limitados y revalidación del root, HEAD y fingerprint de los
+manifiestos antes del spawn. Cargo exit 0 se registra como Passed; exit no cero
+como Failed (puede representar fallo de compilación o de prueba); spawn/tool no
+disponible o cancelación no se convierte en Pass.
+
 `PolicyCheckProvider::observe(&Requirement)` es async e inyectado a
 `PolicyService::new(provider, clock)`. `PolicyService::check(CheckRequest)` es async y evalúa
 todos los requisitos, conserva autoridad observada aparte de la exigida y devuelve

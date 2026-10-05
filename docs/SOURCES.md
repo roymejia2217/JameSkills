@@ -100,6 +100,8 @@ Revisión 2026-10-04: la página actual de installation ofrece v0.7.0 y cita Rus
 
 Cargo 1.95: [`cargo test --locked`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-test.html) asegura que no cambie la resolución existente del lockfile; [`cargo clippy`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-clippy.html) es un subcomando externo distribuido como componente del toolchain. CI y los comandos locales usan Rust/Cargo fijados en 1.95.0; el modo `--locked` no sustituye la ejecución de tests, lint ni build.
 
+Runner de suites T020.c: Cargo 1.95 [`cargo metadata`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-metadata.html) recomienda `--format-version 1`, define `workspace_members` y `packages[].targets[].test`, y `--no-deps` omite dependencias. El runner usa metadata `--no-deps --format-version 1 --locked --offline` como inspección declarativa y no invoca `cargo test` durante esa inspección. La ejecución aprobada usa [`cargo test`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-test.html) con `--workspace --locked`: Cargo documenta que selecciona miembros del workspace y que `--locked` rechaza cambios a `Cargo.lock`; exit 0 es éxito de Cargo y exit 101 es fallo de Cargo. Un exit no nulo por sí solo no prueba que una prueba individual fallara ni distingue fallo de compilación de fallo del harness.
+
 Licencias: software y ejemplos Kit Apache-2.0; prosa/ilustraciones originales de docs bajo CC BY4.0 según sitio. Este dossier resume requisitos, no copia ilustraciones. Conservar atribuciones de Lucide/Isocons y dependencias en THIRD-PARTY-NOTICES.
 
 ## Formato y agentes

@@ -43,18 +43,24 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 ## Estado de ejecución reconstruido
 
 - T020.b2 y T020.c.a están comprometidas; T020.c.b.a y T020.c.b.b.a tienen sus commits separados.
-- T020.c.b.b.b.a acaba de completarse localmente en cinco archivos: servicio/port, provider Cargo, prueba de frescura de HEAD y actualización de este checkpoint/checklist. El commit de implementación se creará tras el repaso final del diff.
-- GREEN local actual: `cargo test -p jameskills-infra --locked --test test_suite_checks` 4/4 (un opt-in ignored); `cargo test -p jameskills-infra --locked` suite completa; `cargo test -p jameskills-core --locked`; `cargo clippy -p jameskills-infra -p jameskills-core --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; `scripts/test-commitlint.sh` con Git Bash; `npm exec --no -- commitlint --from main --to HEAD --verbose` pasan. `cargo fmt --all` corrigió el formato observado durante el repaso.
+- T020.c.b.b.b.a terminó en cinco archivos y commit separado `4ffa1e6 feat(policy-engine): run approved Cargo test suites`; el hook local rechazó el primer intento porque una línea del body superó 100 columnas y el commit corregido pasó.
+- GREEN local del slice: `cargo test -p jameskills-infra --locked --test test_suite_checks` 4/4 (un opt-in ignored); `cargo test -p jameskills-infra --locked` suite completa; `cargo test -p jameskills-core --locked`; `cargo clippy -p jameskills-infra -p jameskills-core --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; `scripts/test-commitlint.sh` con Git Bash; `npm exec --no -- commitlint --from main --to HEAD --verbose` pasan. `cargo fmt --all` corrigió el formato observado durante el repaso.
 - Prueba de integración real opt-in ejecutada explícitamente: `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` falla porque el fixture de pass obtiene Cargo exit 101 compilando en este host Windows MSVC. No cuenta como pass real. El test fake sí confirma que inspección usa ReadOnlyCheck y que un HEAD alterado después de metadata detiene el spawn mutante.
 - CI remota: `gh pr status` reporta que no hay PR asociada a `feat/t020-commit-test-checks`; ningún run puede atribuirse a este cambio. No confundir los GREEN locales con CI remota.
 - Revisión de fuentes: Cargo 1.95 metadata v1 tiene `workspace_members`, `packages[].targets[].test`; `cargo test --workspace --locked` ejecuta targets del workspace con el lock sin resolver versiones distintas. La fuente oficial GPUI Kit installation actual lista Kit 0.7.0/Rust 1.92+; el tag v0.7.0 confirma GPUI snapshot exacto 0.3.7. El pin y baseline local continúan justificados por compilación/requisitos del grafo, no por extrapolación de docs GPUI.
 
+## Slice actual T020.c.b.b.b.b — fuentes Cargo
+
+- Se leyeron fuentes oficiales versionadas Cargo 1.95: `cargo-metadata` y `cargo-test`. Metadata usa formato 1, incluye `workspace_members`/`packages[].targets[].test`, y `--no-deps` omite dependencias. `cargo test --workspace` abarca miembros del workspace; `--locked` impide modificar la resolución del lock.
+- El `cargo metadata --no-deps --format-version 1 --locked --offline` local fue parseado y mostró targets `test=true` de los cuatro miembros reales; inspección documental/metadatos no ejecuta las suites.
+- Contrato y fuentes quedan actualizados en `docs/CONTRACTS.md`/`docs/SOURCES.md`; slice documental máximo 4 archivos, incluyendo checklist y este checkpoint. Verificar enlaces, redacción y checks antes de commit propio.
+
 ## Próxima acción exacta
 
-1. Crear el commit convencional del slice T020.c.b.b.b.a (cinco archivos; GREEN local documentado) después de revisar el diff/status final.
-2. Mantener explícito que la integración Cargo real no pasó: exit 101, y `where.exe link.exe` no encontró linker en el PATH de este shell. No degradar el test ni registrarlo Pass.
-3. Mantener T020.c.b.b abierta hasta pass/fail real Cargo; continuar T020.c.b.b.b.b en su slice documental separado (Cargo metadata/test en `docs/SOURCES.md` + `docs/CONTRACTS.md` y checkpoint/checklist).
-4. No declarar CI remota: no hay PR asociada. C006/C005 y T019 mantienen sus bloqueos independientes.
+1. Cerrar T020.c.b.b.b.b con revisión factual de contratos/fuentes, `cargo fmt --all -- --check`, `git diff --check` y mensaje Commitlint local; después, dejar T020.c.c (runner Node) como siguiente slice productivo elegible.
+2. Mantener T020.c.b.b abierta hasta integración Cargo real pass/fail: el opt-in ejecutado obtuvo exit 101 y `where.exe link.exe` no encontró linker en el PATH de este shell. No degradar el test ni registrarlo Pass.
+3. CI remota aún no existe para la rama: `gh pr status` no encuentra PR y `gh run list --branch feat/t020-commit-test-checks` no mostró runs. Solicitar autorización antes de publicar la rama/abrir PR para disparar gates remotos.
+4. C006/C005 y T019 mantienen sus bloqueos independientes.
 
 ## T020.b2.a completado
 
