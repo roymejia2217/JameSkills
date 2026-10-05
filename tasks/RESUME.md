@@ -49,18 +49,21 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - CI remota: `gh pr status` reporta que no hay PR asociada a `feat/t020-commit-test-checks`; ningún run puede atribuirse a este cambio. No confundir los GREEN locales con CI remota.
 - Revisión de fuentes: Cargo 1.95 metadata v1 tiene `workspace_members`, `packages[].targets[].test`; `cargo test --workspace --locked` ejecuta targets del workspace con el lock sin resolver versiones distintas. La fuente oficial GPUI Kit installation actual lista Kit 0.7.0/Rust 1.92+; el tag v0.7.0 confirma GPUI snapshot exacto 0.3.7. El pin y baseline local continúan justificados por compilación/requisitos del grafo, no por extrapolación de docs GPUI.
 
-## Slice actual T020.c.b.b.b.b — fuentes Cargo
+## Estado verificado T020.c.b.b.b.a–b
 
-- Se leyeron fuentes oficiales versionadas Cargo 1.95: `cargo-metadata` y `cargo-test`. Metadata usa formato 1, incluye `workspace_members`/`packages[].targets[].test`, y `--no-deps` omite dependencias. `cargo test --workspace` abarca miembros del workspace; `--locked` impide modificar la resolución del lock.
-- El `cargo metadata --no-deps --format-version 1 --locked --offline` local fue parseado y mostró targets `test=true` de los cuatro miembros reales; inspección documental/metadatos no ejecuta las suites.
-- Contrato y fuentes quedan actualizados en `docs/CONTRACTS.md`/`docs/SOURCES.md`; slice documental máximo 4 archivos, incluyendo checklist y este checkpoint. Verificar enlaces, redacción y checks antes de commit propio.
+- Runner + servicio comprometidos en `4ffa1e6 feat(policy-engine): run approved Cargo test suites` (5 archivos); fuentes/contrato Cargo comprometidos separadamente en `94d9c59 docs(policy-engine): cite Cargo suite metadata contract` (4 archivos).
+- Cargo 1.95 metadata format 1 y test docs revisados desde URLs versionadas. La metadata local `--no-deps --format-version 1 --locked --offline` mostró miembros/targets `test=true` para los cuatro packages reales; no ejecutó las suites.
+- GREEN local acumulado tras el runner: test suite checks 4/4 fake, suite infra y core completas, Clippy infra/core `-D warnings`, fmt, diff-check, self-test de commitlint y rango `main..HEAD` Commitlint verde.
+- Opt-in real Cargo se ejecutó explícitamente pero falló: el fixture que debía pasar terminó con `exit 101`. `where.exe link.exe` no encuentra linker en el PATH del shell. `vswhere` sí encontró Visual Studio 2022 Build Tools y `VsDevCmd.bat`; aún no se probó usando ese entorno. No atribuir el 101 definitivamente a un error de dominio ni declarar integración real aprobada.
+- T020.c.b.b queda abierta: falta ejecución Cargo real que demuestre el driver con fixtures pass/fail. T020.c.c no se declara elegible hasta resolver/verificar este gate de subtareas secuenciales.
+- CI remota: branch sin tracking remoto, sin PR asociada y `gh run list --branch feat/t020-commit-test-checks` vacío. No hay verificación CI para estos commits.
 
 ## Próxima acción exacta
 
-1. Cerrar T020.c.b.b.b.b con revisión factual de contratos/fuentes, `cargo fmt --all -- --check`, `git diff --check` y mensaje Commitlint local; después, dejar T020.c.c (runner Node) como siguiente slice productivo elegible.
-2. Mantener T020.c.b.b abierta hasta integración Cargo real pass/fail: el opt-in ejecutado obtuvo exit 101 y `where.exe link.exe` no encontró linker en el PATH de este shell. No degradar el test ni registrarlo Pass.
-3. CI remota aún no existe para la rama: `gh pr status` no encuentra PR y `gh run list --branch feat/t020-commit-test-checks` no mostró runs. Solicitar autorización antes de publicar la rama/abrir PR para disparar gates remotos.
-4. C006/C005 y T019 mantienen sus bloqueos independientes.
+1. Verificar el fixture real dentro de un `VsDevCmd` oficial ya instalado sin cambiar la máquina; documentar solo resultados observados. Revisar además variables MSVC que el ProcessPort permite, sin pasar entorno arbitrario.
+2. Si el entorno approved-env es insuficiente, crear un slice <=5 archivos para ampliar su allowlist de forma mínima y probada; no relajar a herencia libre. Repetir el opt-in Cargo pass/fail; mantener T020.c.b.b abierto hasta tener evidencia real verde.
+3. CI remota aún no existe para la rama. Hace falta autorización expresa para publicar la rama/abrir PR; no confundir los commits locales validados por Commitlint con CI remota.
+4. Cuando b.b.b cierre, continuar el siguiente slice productivo T020.c.c (driver Node) según el DAG; C006/C005 y T019 conservan sus bloqueos independientes.
 
 ## T020.b2.a completado
 
