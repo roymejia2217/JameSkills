@@ -1087,7 +1087,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 **Verificación:** cargo test -p jameskills-infra --locked host_protection_checks con fixtures classic branch protection+rulesets vía gh api; integración read-only opt-in fecha/SHA/permisos saneados.
 
-**Evidencia al ejecutar:** slices T023.src/a/b/c documentados arriba. Gates acumulados/workspace pasan localmente en Windows MSVC; commit de implementación pendiente. No atribuir CI remoto posterior a `c976f02` hasta existir un run asociado al SHA final.
+**Evidencia al ejecutar:** slices T023.src/a/b/c documentados arriba. Gates acumulados/workspace pasan localmente en Windows MSVC; implementación `0989248`, cleanup de aserción heredada `d49940c`. No atribuir CI remoto posterior a `c976f02` hasta existir un run asociado al SHA final.
 
 <a id="t024"></a>
 

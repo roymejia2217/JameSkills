@@ -1,19 +1,23 @@
 # Reanudación JameSkills
 
-Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T020.a `1cd44fc`, T020.b1 `d304f64`).
+Fecha UTC: 2026-10-05
+Rama / HEAD: `feat/t020-commit-test-checks` / `0989248`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
-PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
+PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
-## Checkpoint T020–T022 cerrado; T023 siguiente
+## Checkpoint T020–T023 cerrado; T024 elegible
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD `db5df25`, 4 commits por delante de `origin/feat/t020-commit-test-checks`; PR draft #22 aún apunta a `c976f02`.
-- CI run `37328599512` para SHA `c976f02` pasó fmt, Clippy, tests Linux, build Linux, build Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37328595359` también pasó. Pre-push completo pasó en VS Developer environment con linker MSVC explícito.
+- Estado comprobado: T023 implementada y en commit `0989248`; además test cleanup `d49940c`. La rama está 7 commits por delante de `origin/feat/t020-commit-test-checks`.
+- T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: branch rules efectivas + classic protection, bypass tri-state, PR/check sources y `RequiredCi` solo con regla host activa y check/status exitoso del SHA local exacto. Se liga `integration_id`/`app_id` cuando aplica; respuesta incompleta/permisos ambiguos no promueven Pass.
+- T023 RED/GREEN: prueba ausente del dispatch en `ci_evidence_requires_active_host_rule_and_successful_check_for_exact_head_sha`; fixtures verifican regla/HEAD exactos, stale SHA, app incorrecta, pending, legacy statuses y falta de regla. `host_protection_checks`: 11 passed, 1 opt-in ignored.
+- Verificación acumulada T023 en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; todos pasaron. Opt-in real GitHub CI read-only pasó 1/1 y prueba evidencia ligada al SHA observado local; no declara CI aprobado si el host no lo acredita.
+- `T023` está cerrada localmente; no hay CI remota para `0989248`. El test cleanup separado `d49940c` eliminó una aserción obsoleta de T022 sobre `check=repo`; suite workspace verde.
+- Próxima tarea elegible: T024 (`T018`, `T022` satisfechas; orden DAG tras T023). Antes de cambiar el schema, confirmar cómo obtener la versión de release esperada: `Check::ReleaseContract` actual solo declara flags de changelog/checksum/firma, sin campo de versión/tag ni lista de artefactos. Mantener skill version y repo release separadas; subdividir si se exceden cinco archivos.
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
-- T021.src, `.dep`, `.a`, `.b` y `.a2.src` completadas. CI contract usa YAML bounded/inerte, required job IDs, triggers push/PR, action refs pin, permissions y predicados conservadores; local result solo `LocalCheck`. `CiEvidence` remains Unknown sin provider actual.
+- T021.src, `.dep`, `.a`, `.b` y `.a2.src` completadas. CI contract usa YAML bounded/inerte, required job IDs, triggers push/PR, action refs pin, permissions y predicados conservadores; su resultado local solo es `LocalCheck`. T023 implementa por separado `CiEvidence`/`RequiredCi` de host+SHA exacto.
 - T021.a2 RED/GREEN: test host mismatch fallaba si se asumía GitHub por la mera presencia de workflow; ahora exige Git native/fingerprinted, versión registrada y todos los URLs configurados de `git remote -v` en github.com. GitLab/GHES/no remote/mixed => Unknown. No hace request de red ni prueba existencia del repositorio, branch rule o CI SHA; URLs no entran en logs/evidence.
 - Verificación local T021.a2: infra suite completa, 23 ci_definition_checks + un ignored test, Clippy infra `-D warnings`, fmt y diff-check pasan. Opt-in `real_git_remote_and_checked_in_workflow_produce_localcheck_only` ejecutado con Git 2.55 en el repo real y pasó 1/1.
-- T022 implementación, aceptación y verificación local completas en `8d14689`; `CiEvidence`/RequiredCi siguen Unknown hasta T023. El último run remoto reportado sigue siendo para el SHA previo `c976f02` y no se atribuye a `8d14689`.
+- T022 implementación, aceptación y verificación local completas en `8d14689`; al cerrar T022, `CiEvidence`/RequiredCi seguían Unknown hasta completar T023. El último run remoto reportado sigue siendo para el SHA previo `c976f02` y no se atribuye a los commits locales posteriores.
 - T022.src completada documentalmente en `8d14689`: manuales oficiales de gh auth/api, fuente upstream tag `v2.102.0`, REST `GET /repos/{owner}/{repo}`, autenticación y rate limits registrados en `docs/SOURCES.md`. JSON auth status puede salir 0 incluso fallando; se omite `--show-token`; no se registran identidades, errores crudos ni scopes; host/GET/path quedan fijos. REST 404 puede ocultar recurso privado; 403/429 se clasifican conservadoramente.
 - T022.a completada: `CheckEvidence` ahora permite resumen dinámico bounded; `evidence_tests` 2/2. La RED previa no se capturó y no se inventa retrospectivamente.
 - Driver/provider de T022 en `8d14689`: comprueba versión real `gh 2.102.0`; auth JSON sin `--show-token`; REST GET con host/argv/path fijos y salida bounded. `RepositoryPolicyCheckProvider` obtiene remote consistente y HEAD de Git aprobado antes de llamar a gh. Evidencia limita afirmación a repo/SHA/check/source + `repo-read`; 404 Unknown, auth/permission/rate Blocked y nunca eleva a RequiredCi. Fakes verifican auth fallida y remotes mixtos sin API.
@@ -22,7 +26,7 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Gates finales: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Opt-in real GitHub read-only pasó 1/1 en este repo; comprobó Git remote/HEAD, gh auth y GET repo. No almacena token ni muestra identidad.
 - T023.src committed as `bd78191 docs(policy-engine): cite GitHub protection API contracts`: fuentes oficiales establecen reglas efectivas active-only, bypass metadata posiblemente oculta, classic 404 ambiguo y checks exact-SHA con límites de 100/paginación.
 - T023.a/b committed as `db5df25 feat(policy-engine): inspect active GitHub branch rules`: provider dispatches `github-branch-policy`, fixed GET effective rules + classic protection, compares PR/check contexts y registra bypass tri-state sin actor details. `host_protection_checks` pasa 4/4; parser unit bypass tri-state 1/1; Clippy infra `-D warnings`, fmt/diff-check pass. `require_no_bypass=true` permanece Unknown cuando bypass actors no son visibles, Fail cuando hay bypass, Pass HostRule solo con visibilidad completa y lista vacía.
-- T023.c siguiente: recoger contexts fuente/app y check-run+commit-status exactos del HEAD; no reutilizar un SHA anterior ni elevar `ci-contract` a RequiredCi.
+- T024 requiere investigación de fuentes oficiales para releases/tags/assets y sus datos de versión/digest/firma; hacer RED significativo antes de implementación, sin requests de escritura ni publicación.
 
 ## Estado real
 
@@ -82,10 +86,10 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Repetir tests/fmt/Clippy infra local, `scripts/check-workspace.sh` en Developer environment, diff-check y Commitlint; crear un commit de corrección específico.
-2. Push de la corrección al PR #22 autorizado y verificar el nuevo run CI una vez; no marcar Clippy como verde hasta verlo.
-3. Después continuar T020.b3 para la evidencia LocalHook, manteniendo T020/T021 abiertas hasta pasar acceptance.
-4. C006/C005 y T019 conservan sus bloqueos independientes.
+1. Leer T024 y especificación/contracts de policy antes de editar; verificar en el código cómo `ReleaseContract` llega hoy al provider y qué versionado declarativo existe.
+2. Consultar fuentes GitHub REST oficiales para release-by-tag, tags/ref objects y digest assets; distinguir 404, permisos y prerelease, y no tratar existencia de tag como release publicada.
+3. Escribir primero fixtures RED en `release_checks`; fijar semántica app-owned para versión/tag/changelog/checksums/firma y subdividir T024 explícitamente si el wiring requiere más de cinco archivos.
+4. Implementar solo GET/read-only con los límites actuales de gh; no crear tags, releases ni publicar artifacts.
 
 ## T020.b2.a completado
 
