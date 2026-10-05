@@ -221,6 +221,11 @@ fn conventional_commit_check_uses_private_message_file_and_builtin_rules() {
         b"#!/bin/sh\nprintf 'hook must not execute' > hook-marker\n",
     )
     .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let git = root.tool("git");
     let commitlint = root.tool("commitlint");
     let message =
