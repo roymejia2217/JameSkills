@@ -4,13 +4,18 @@ use crate::platform::{
 };
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
-    application::policy::PolicyCheckProvider,
+    application::policy::{
+        PolicyCheckProvider, TestSuiteRunApproval, TestSuiteRunnerPort, TestSuiteSnapshot,
+    },
     domain::{
         BundleEntry, Check, ContentHash, EntryKind, PortablePath, Requirement, ToolId,
         ValidatedInventory,
         guidance::{ToolAvailability, ToolVersionStatus},
         hash_bundle,
-        policy::{CheckEvidence, CheckObservation, CheckStatus, Enforcement},
+        policy::{
+            CheckEvidence, CheckObservation, CheckStatus, Enforcement, RepositoryHead,
+            TestSuiteDeclaration, TestSuiteExecution, TestSuiteKind, TestSuiteRunResult,
+        },
         validate_bundle_inventory,
     },
     ports::ClockPort,
@@ -23,6 +28,7 @@ use jameskills_core::{
         ExecutableFingerprint, ProcessPermission, ProcessPort, ProcessSpec,
     },
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -37,6 +43,7 @@ const MAX_README_BYTES: u64 = 1024 * 1024;
 const MAX_GITIGNORE_PROBES: usize = 32;
 const MAX_GITLEAKS_REPORT_BYTES: usize = 64 * 1024;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
 const GITLEAKS_CONFIG_PLACEHOLDER: &str = "{APP_GITLEAKS_CONFIG}";
 const GITLEAKS_DEFAULT_CONFIG: &str = "[extend]\nuseDefault = true\n";
 static NEXT_GITLEAKS_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
@@ -1201,6 +1208,7 @@ pub struct RepositoryPolicyCheckProvider {
     root: PathBuf,
     git: Option<ApprovedRepositoryTool>,
     gitleaks: Option<ApprovedRepositoryTool>,
+    cargo: Option<ApprovedRepositoryTool>,
     commitlint: Option<ApprovedCommitlint>,
     environment: ApprovedEnv,
     process: Arc<dyn ProcessPort>,
@@ -1222,6 +1230,7 @@ impl RepositoryPolicyCheckProvider {
             root: root.path().to_path_buf(),
             git,
             gitleaks,
+            cargo: None,
             commitlint: None,
             environment,
             process,
@@ -1233,6 +1242,361 @@ impl RepositoryPolicyCheckProvider {
     pub fn with_commitlint(mut self, commitlint: ApprovedCommitlint) -> Self {
         self.commitlint = Some(commitlint);
         self
+    }
+
+    pub fn with_cargo(mut self, cargo: ApprovedRepositoryTool) -> Self {
+        self.cargo = Some(cargo);
+        self
+    }
+
+    async fn inspect_test_suite(
+        &self,
+        suite: TestSuiteKind,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteSnapshot> {
+        if cancellation.is_cancelled() {
+            return Err(AppError::Cancelled);
+        }
+        let root_path = std::fs::canonicalize(&self.root).map_err(|_| AppError::NotFound)?;
+        let root =
+            ApprovedRoot::from_absolute_path(root_path.clone()).map_err(AppError::Validation)?;
+        let manifest_fingerprint = test_suite_manifest_fingerprint(&root_path)?;
+        let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+        let platform = PlatformFacts::detect().platform;
+        let git = self.git.as_ref().ok_or_else(|| AppError::ExternalTool {
+            tool_id: "git".to_owned(),
+            exit_code: None,
+        })?;
+        let git_profile = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Git)
+            .ok_or_else(|| {
+                AppError::Validation(vec![Diagnostic::error(
+                    "tool.profile.missing",
+                    "Git profile is not registered.",
+                )])
+            })?;
+        let Some(git_candidate) = candidate_for_approved_tool(git_profile, git, platform) else {
+            return Err(AppError::ExternalTool {
+                tool_id: "git".to_owned(),
+                exit_code: None,
+            });
+        };
+        if git_candidate.kind() != ToolCandidateKind::NativeExecutable {
+            return Err(AppError::PermissionDenied {
+                operation: "test_suite.git.shim.blocked".to_owned(),
+            });
+        }
+        let git_version = probe_registered_tool_version(
+            git_profile,
+            &git_candidate,
+            Some(git.fingerprint),
+            &root,
+            &self.environment,
+            self.process.as_ref(),
+            &self.clock.now_utc(),
+        )
+        .await?;
+        if git_version.availability() != ToolAvailability::Candidate
+            || git_version.version_status() != ToolVersionStatus::Compatible
+            || git_version.version().is_none()
+        {
+            return Err(AppError::ExternalTool {
+                tool_id: "git".to_owned(),
+                exit_code: None,
+            });
+        }
+        let head_spec = registered_process_spec(
+            git,
+            ToolId::Git,
+            ["rev-parse", "--verify", "HEAD"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+            &root,
+            &self.environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(5),
+            256,
+        )?;
+        let head_output = self.process.run(head_spec).await?;
+        let head_bytes = head_output.stdout();
+        let head_text = std::str::from_utf8(head_bytes).map_err(|_| AppError::UntrustedInput {
+            code: "test_suite.head.invalid".to_owned(),
+        })?;
+        let head_text = head_text.trim_end_matches(['\r', '\n']);
+        let expected_head =
+            if head_output.exit_code() == Some(0) && !head_text.contains(['\r', '\n']) {
+                RepositoryHead::parse(head_text).map_err(AppError::Validation)?
+            } else {
+                return Err(AppError::ExternalTool {
+                    tool_id: "git".to_owned(),
+                    exit_code: head_output.exit_code(),
+                });
+            };
+        let declaration = match suite {
+            TestSuiteKind::CargoTest => {
+                self.inspect_cargo_test_targets(&profiles, &root, &cancellation)
+                    .await?
+            }
+            TestSuiteKind::NodeLint | TestSuiteKind::NodeTest | TestSuiteKind::NodeBuild => {
+                let facts = crate::platform::inspect_project_manifests(&root)?;
+                if matches!(facts.stack(), crate::platform::ProjectStack::Unknown) {
+                    TestSuiteDeclaration::Unknown
+                } else {
+                    let script = match suite {
+                        TestSuiteKind::NodeLint => "lint",
+                        TestSuiteKind::NodeTest => "test",
+                        TestSuiteKind::NodeBuild => "build",
+                        TestSuiteKind::CargoTest => unreachable!(),
+                    };
+                    if facts.node_script_names().iter().any(|name| name == script) {
+                        TestSuiteDeclaration::Declared
+                    } else {
+                        TestSuiteDeclaration::Missing
+                    }
+                }
+            }
+        };
+        Ok(TestSuiteSnapshot::new(
+            root,
+            suite,
+            expected_head,
+            manifest_fingerprint,
+            declaration,
+        ))
+    }
+
+    async fn inspect_cargo_test_targets(
+        &self,
+        profiles: &[ToolProfile],
+        root: &ApprovedRoot,
+        cancellation: &CancellationToken,
+    ) -> AppResult<TestSuiteDeclaration> {
+        let Some(cargo) = self.cargo.as_ref() else {
+            return Ok(TestSuiteDeclaration::Unknown);
+        };
+        let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Cargo)
+        else {
+            return Ok(TestSuiteDeclaration::Unknown);
+        };
+        let Some(candidate) =
+            candidate_for_approved_tool(profile, cargo, PlatformFacts::detect().platform)
+        else {
+            return Ok(TestSuiteDeclaration::Unknown);
+        };
+        if candidate.kind() != ToolCandidateKind::NativeExecutable {
+            return Ok(TestSuiteDeclaration::Unknown);
+        }
+        let version = probe_registered_tool_version(
+            profile,
+            &candidate,
+            Some(cargo.fingerprint),
+            root,
+            &self.environment,
+            self.process.as_ref(),
+            &self.clock.now_utc(),
+        )
+        .await?;
+        if version.availability() != ToolAvailability::Candidate
+            || version.version_status() != ToolVersionStatus::Compatible
+            || version.version().is_none()
+        {
+            return Ok(TestSuiteDeclaration::Unknown);
+        }
+        if matches!(
+            read_repository_document(
+                root.path(),
+                &PortablePath::new("Cargo.toml".to_owned()).map_err(|_| {
+                    AppError::Validation(vec![Diagnostic::error(
+                        "test_suite.manifest.path.invalid",
+                        "The app-owned Cargo manifest path is invalid.",
+                    )])
+                })?
+            ),
+            ReadmeFile::Missing
+        ) {
+            return Ok(TestSuiteDeclaration::Missing);
+        }
+        let manifest_path = node_path_argument(&root.path().join("Cargo.toml"));
+        let metadata_spec = registered_process_spec(
+            cargo,
+            ToolId::Cargo,
+            [
+                "metadata",
+                "--no-deps",
+                "--format-version",
+                "1",
+                "--locked",
+                "--offline",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .chain([OsString::from("--manifest-path"), manifest_path])
+            .collect(),
+            root,
+            &self.environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(15),
+            MAX_CARGO_METADATA_BYTES,
+        )?;
+        let output = match self.process.run(metadata_spec).await {
+            Ok(output) => output,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return Ok(TestSuiteDeclaration::Unknown);
+            }
+            Err(error) => return Err(error),
+        };
+        if output.exit_code() != Some(0) {
+            return Ok(TestSuiteDeclaration::Unknown);
+        }
+        Ok(match cargo_metadata_declares_test_target(output.stdout()) {
+            Some(true) => TestSuiteDeclaration::Declared,
+            Some(false) => TestSuiteDeclaration::Missing,
+            None => TestSuiteDeclaration::Unknown,
+        })
+    }
+
+    async fn run_cargo_test(
+        &self,
+        approval: TestSuiteRunApproval,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteRunResult> {
+        let snapshot = approval.snapshot();
+        let Some(cargo) = self.cargo.as_ref() else {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+        let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == ToolId::Cargo)
+        else {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        let Some(candidate) =
+            candidate_for_approved_tool(profile, cargo, PlatformFacts::detect().platform)
+        else {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        if candidate.kind() != ToolCandidateKind::NativeExecutable {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        }
+        if !matches!(
+            test_suite_manifest_fingerprint(snapshot.root().path()),
+            Ok(fingerprint) if &fingerprint == snapshot.manifest_fingerprint()
+        ) {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        }
+        let manifest_path = node_path_argument(&snapshot.root().path().join("Cargo.toml"));
+        let Some(git) = self.git.as_ref() else {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        let head_spec = registered_process_spec(
+            git,
+            ToolId::Git,
+            ["rev-parse", "--verify", "HEAD"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+            snapshot.root(),
+            &self.environment,
+            ProcessPermission::ReadOnlyCheck,
+            cancellation.clone(),
+            Duration::from_secs(5),
+            256,
+        )?;
+        let current_head = match self.process.run(head_spec).await {
+            Ok(output) if output.exit_code() == Some(0) => std::str::from_utf8(output.stdout())
+                .ok()
+                .map(|head| head.trim_end_matches(['\r', '\n']).to_owned()),
+            Ok(_) => None,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => None,
+            Err(error) => return Err(error),
+        };
+        if !matches!(current_head.as_deref(), Some(head) if head == snapshot.expected_head().as_str())
+        {
+            return suite_result(
+                snapshot.suite(),
+                snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        }
+        let spec = registered_process_spec(
+            cargo,
+            ToolId::Cargo,
+            ["test", "--workspace", "--locked"]
+                .into_iter()
+                .map(OsString::from)
+                .chain([OsString::from("--manifest-path"), manifest_path])
+                .collect(),
+            snapshot.root(),
+            &self.environment,
+            ProcessPermission::ExplicitMutation(approval.operation_id()),
+            cancellation,
+            Duration::from_secs(120),
+            64 * 1024,
+        )?;
+        let output = match self.process.run(spec).await {
+            Ok(output) => output,
+            Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+            Err(AppError::ExternalTool { .. } | AppError::PermissionDenied { .. }) => {
+                return suite_result(
+                    snapshot.suite(),
+                    snapshot.declaration(),
+                    TestSuiteExecution::Blocked,
+                    None,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+        let (execution, exit_code) = match output.exit_code() {
+            Some(0) => (TestSuiteExecution::Passed, Some(0)),
+            Some(code) => (TestSuiteExecution::Failed, Some(code)),
+            None => (TestSuiteExecution::Blocked, None),
+        };
+        suite_result(
+            snapshot.suite(),
+            snapshot.declaration(),
+            execution,
+            exit_code,
+        )
     }
 }
 
@@ -1335,6 +1699,126 @@ impl PolicyCheckProvider for RepositoryPolicyCheckProvider {
     }
 }
 
+#[async_trait::async_trait]
+impl TestSuiteRunnerPort for RepositoryPolicyCheckProvider {
+    async fn inspect(
+        &self,
+        suite: TestSuiteKind,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteSnapshot> {
+        self.inspect_test_suite(suite, cancellation).await
+    }
+
+    async fn run(
+        &self,
+        approval: TestSuiteRunApproval,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteRunResult> {
+        let approved_snapshot = approval.snapshot();
+        let Some(current_root) = std::fs::canonicalize(&self.root).ok() else {
+            return suite_result(
+                approved_snapshot.suite(),
+                approved_snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        let Some(approved_root) = std::fs::canonicalize(approved_snapshot.root().path()).ok()
+        else {
+            return suite_result(
+                approved_snapshot.suite(),
+                approved_snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        };
+        if current_root != approved_root {
+            return suite_result(
+                approved_snapshot.suite(),
+                approved_snapshot.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        }
+        let current = self
+            .inspect_test_suite(approved_snapshot.suite(), cancellation.clone())
+            .await?;
+        if current.expected_head() != approved_snapshot.expected_head()
+            || current.manifest_fingerprint() != approved_snapshot.manifest_fingerprint()
+            || current.declaration() != approved_snapshot.declaration()
+        {
+            return suite_result(
+                current.suite(),
+                current.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            );
+        }
+        match current.declaration() {
+            TestSuiteDeclaration::Missing => suite_result(
+                current.suite(),
+                current.declaration(),
+                TestSuiteExecution::NotRun,
+                None,
+            ),
+            TestSuiteDeclaration::Unknown => suite_result(
+                current.suite(),
+                current.declaration(),
+                TestSuiteExecution::Blocked,
+                None,
+            ),
+            TestSuiteDeclaration::Declared => match current.suite() {
+                TestSuiteKind::CargoTest => self.run_cargo_test(approval, cancellation).await,
+                TestSuiteKind::NodeLint | TestSuiteKind::NodeTest | TestSuiteKind::NodeBuild => {
+                    suite_result(
+                        current.suite(),
+                        current.declaration(),
+                        TestSuiteExecution::Blocked,
+                        None,
+                    )
+                }
+            },
+        }
+    }
+}
+
+fn suite_result(
+    suite: TestSuiteKind,
+    declaration: TestSuiteDeclaration,
+    execution: TestSuiteExecution,
+    exit_code: Option<i32>,
+) -> AppResult<TestSuiteRunResult> {
+    TestSuiteRunResult::new(suite, declaration, execution, exit_code).map_err(AppError::Validation)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn registered_process_spec(
+    tool: &ApprovedRepositoryTool,
+    tool_id: ToolId,
+    args: Vec<OsString>,
+    cwd: &ApprovedRoot,
+    environment: &ApprovedEnv,
+    permission: ProcessPermission,
+    cancellation: CancellationToken,
+    timeout: Duration,
+    output_limit_bytes: usize,
+) -> AppResult<ProcessSpec> {
+    Ok(ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(tool.executable.path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        tool_id,
+        args,
+        ApprovedRoot::from_absolute_path(cwd.path().to_path_buf()).map_err(AppError::Validation)?,
+        ApprovedEnv::new(environment.entries().clone()).map_err(AppError::Validation)?,
+        timeout,
+        output_limit_bytes,
+        permission,
+        cancellation,
+    )
+    .map_err(AppError::Validation)?
+    .with_approved_executable_fingerprint(tool.fingerprint))
+}
+
 enum ReadmeFile {
     Missing,
     Blocked,
@@ -1387,6 +1871,65 @@ fn read_repository_document(root: &Path, path: &PortablePath) -> ReadmeFile {
         return ReadmeFile::Blocked;
     }
     ReadmeFile::Bytes(bytes)
+}
+
+fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {
+    let mut hasher = Sha256::new();
+    for name in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "package.json",
+        "package-lock.json",
+    ] {
+        hasher.update((name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        let portable = PortablePath::new(name.to_owned()).map_err(|_| {
+            AppError::Validation(vec![Diagnostic::error(
+                "test_suite.manifest.path.invalid",
+                "The app-owned suite manifest path is invalid.",
+            )])
+        })?;
+        match read_repository_document(root, &portable) {
+            ReadmeFile::Missing => hasher.update([0]),
+            ReadmeFile::Blocked => {
+                return Err(AppError::UntrustedInput {
+                    code: "test_suite.manifest.unreadable".to_owned(),
+                });
+            }
+            ReadmeFile::Bytes(bytes) => {
+                hasher.update([1]);
+                hasher.update((bytes.len() as u64).to_le_bytes());
+                hasher.update(bytes);
+            }
+        }
+    }
+    Ok(ContentHash::from_digest(hasher.finalize().into()))
+}
+
+fn cargo_metadata_declares_test_target(output: &[u8]) -> Option<bool> {
+    if output.is_empty() || output.len() > MAX_CARGO_METADATA_BYTES || output.contains(&0) {
+        return None;
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(output).ok()?;
+    let workspace_members = metadata.get("workspace_members")?.as_array()?;
+    let packages = metadata.get("packages")?.as_array()?;
+    let mut found_target = false;
+    let mut declared_test = false;
+    for package in packages {
+        let id = package.get("id")?.as_str()?;
+        if !workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(id))
+        {
+            continue;
+        }
+        for target in package.get("targets")?.as_array()? {
+            found_target = true;
+            let is_test = target.get("test")?.as_bool()?;
+            declared_test |= is_test;
+        }
+    }
+    found_target.then_some(declared_test)
 }
 
 fn synthetic_ignore_path(pattern: &str) -> Option<(&'static str, &'static str)> {

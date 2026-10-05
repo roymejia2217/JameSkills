@@ -2,9 +2,13 @@ use crate::{
     AppError, AppResult, ContentHash, Diagnostic, OperationId,
     domain::policy::{
         ApplicabilityFact, CheckEvidence, CheckObservation, CheckReport, CheckStatus, Policy,
-        RepositoryHead, Requirement, TestSuiteKind, evaluate_predicate, not_applicable_result,
+        RepositoryHead, Requirement, TestSuiteDeclaration, TestSuiteKind, TestSuiteRunResult,
+        evaluate_predicate, not_applicable_result,
     },
-    ports::{ClockPort, process::ApprovedRoot},
+    ports::{
+        ClockPort,
+        process::{ApprovedRoot, CancellationToken},
+    },
 };
 use async_trait::async_trait;
 use std::{
@@ -52,34 +56,30 @@ pub struct CheckRequest {
     context: CheckContext,
 }
 
-/// One-time, non-deserializable approval created only after the user trusts
-/// the selected repository and confirms this suite action.
-pub struct TestSuiteRunApproval {
-    operation_id: OperationId,
+/// Read-only preview of the selected suite and repository snapshot.
+pub struct TestSuiteSnapshot {
     root: ApprovedRoot,
     suite: TestSuiteKind,
     expected_head: RepositoryHead,
     manifest_fingerprint: ContentHash,
+    declaration: TestSuiteDeclaration,
 }
 
-impl TestSuiteRunApproval {
-    pub fn after_explicit_trust_confirmation(
+impl TestSuiteSnapshot {
+    pub fn new(
         root: ApprovedRoot,
         suite: TestSuiteKind,
         expected_head: RepositoryHead,
         manifest_fingerprint: ContentHash,
+        declaration: TestSuiteDeclaration,
     ) -> Self {
         Self {
-            operation_id: OperationId::new(),
             root,
             suite,
             expected_head,
             manifest_fingerprint,
+            declaration,
         }
-    }
-
-    pub fn operation_id(&self) -> OperationId {
-        self.operation_id
     }
 
     pub fn root(&self) -> &ApprovedRoot {
@@ -97,6 +97,34 @@ impl TestSuiteRunApproval {
     pub fn manifest_fingerprint(&self) -> &ContentHash {
         &self.manifest_fingerprint
     }
+
+    pub fn declaration(&self) -> TestSuiteDeclaration {
+        self.declaration
+    }
+}
+
+/// One-time, non-deserializable approval created only after the user trusts
+/// the selected repository and confirms this suite action.
+pub struct TestSuiteRunApproval {
+    operation_id: OperationId,
+    snapshot: TestSuiteSnapshot,
+}
+
+impl TestSuiteRunApproval {
+    pub fn after_explicit_trust_confirmation(snapshot: TestSuiteSnapshot) -> Self {
+        Self {
+            operation_id: OperationId::new(),
+            snapshot,
+        }
+    }
+
+    pub fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
+
+    pub fn snapshot(&self) -> &TestSuiteSnapshot {
+        &self.snapshot
+    }
 }
 
 impl CheckRequest {
@@ -110,6 +138,48 @@ impl CheckRequest {
 #[async_trait]
 pub trait PolicyCheckProvider: Send + Sync {
     async fn observe(&self, requirement: &Requirement) -> AppResult<CheckObservation>;
+}
+
+#[async_trait]
+pub trait TestSuiteRunnerPort: Send + Sync {
+    async fn inspect(
+        &self,
+        suite: TestSuiteKind,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteSnapshot>;
+    async fn run(
+        &self,
+        approval: TestSuiteRunApproval,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteRunResult>;
+}
+
+pub struct TestSuiteService {
+    runner: Arc<dyn TestSuiteRunnerPort>,
+}
+
+impl TestSuiteService {
+    pub fn new(runner: Arc<dyn TestSuiteRunnerPort>) -> Self {
+        Self { runner }
+    }
+
+    /// Read-only suite preview; it must not build or execute project code.
+    pub async fn inspect(
+        &self,
+        suite: TestSuiteKind,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteSnapshot> {
+        self.runner.inspect(suite, cancellation).await
+    }
+
+    /// Run is separate from preview and requires the user-confirmed approval.
+    pub async fn run(
+        &self,
+        approval: TestSuiteRunApproval,
+        cancellation: CancellationToken,
+    ) -> AppResult<TestSuiteRunResult> {
+        self.runner.run(approval, cancellation).await
+    }
 }
 
 pub struct PolicyService {
@@ -181,27 +251,110 @@ impl PolicyService {
 
 #[cfg(test)]
 mod test_suite_tests {
-    use super::TestSuiteRunApproval;
+    use super::{TestSuiteRunApproval, TestSuiteRunnerPort, TestSuiteService, TestSuiteSnapshot};
     use crate::{
-        ContentHash,
-        domain::policy::{RepositoryHead, TestSuiteKind},
-        ports::process::ApprovedRoot,
+        AppError, AppResult, ContentHash, OperationId,
+        domain::policy::{
+            RepositoryHead, TestSuiteDeclaration, TestSuiteExecution, TestSuiteKind,
+            TestSuiteRunResult,
+        },
+        ports::process::{ApprovedRoot, CancellationToken},
+    };
+    use async_trait::async_trait;
+    use std::{
+        future::Future,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        task::{Context, Poll, Wake, Waker},
     };
 
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        let mut future = Box::pin(future);
+        loop {
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(output) => return output,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeTestSuiteRunner {
+        inspected: Mutex<Option<TestSuiteKind>>,
+        ran: Mutex<Option<OperationId>>,
+        root: PathBuf,
+    }
+
+    #[async_trait]
+    impl TestSuiteRunnerPort for FakeTestSuiteRunner {
+        async fn inspect(
+            &self,
+            suite: TestSuiteKind,
+            _cancellation: CancellationToken,
+        ) -> AppResult<TestSuiteSnapshot> {
+            *self.inspected.lock().unwrap() = Some(suite);
+            Ok(TestSuiteSnapshot::new(
+                ApprovedRoot::from_absolute_path(self.root.clone())
+                    .map_err(AppError::Validation)?,
+                suite,
+                RepositoryHead::parse(&"a".repeat(40)).map_err(AppError::Validation)?,
+                ContentHash::parse_hex(&"b".repeat(64)).unwrap(),
+                TestSuiteDeclaration::Declared,
+            ))
+        }
+
+        async fn run(
+            &self,
+            approval: TestSuiteRunApproval,
+            _cancellation: CancellationToken,
+        ) -> AppResult<TestSuiteRunResult> {
+            *self.ran.lock().unwrap() = Some(approval.operation_id());
+            TestSuiteRunResult::new(
+                approval.snapshot().suite(),
+                TestSuiteDeclaration::Declared,
+                TestSuiteExecution::Passed,
+                Some(0),
+            )
+            .map_err(AppError::Validation)
+        }
+    }
+
     #[test]
-    fn explicit_suite_approval_binds_the_repo_head_manifest_and_suite() {
+    fn test_suite_inspection_is_read_only_until_explicit_run_approval() {
         let root_path = std::env::current_dir().unwrap();
-        let approval = TestSuiteRunApproval::after_explicit_trust_confirmation(
-            ApprovedRoot::from_absolute_path(root_path.clone()).unwrap(),
-            TestSuiteKind::CargoTest,
-            RepositoryHead::parse(&"a".repeat(40)).unwrap(),
-            ContentHash::parse_hex(&"b".repeat(64)).unwrap(),
-        );
-        assert!(!approval.operation_id().as_uuid().is_nil());
-        assert!(matches!(approval.suite(), TestSuiteKind::CargoTest));
-        assert_eq!(approval.expected_head().as_str(), "a".repeat(40));
-        assert_eq!(approval.manifest_fingerprint().as_str(), "b".repeat(64));
-        assert_eq!(approval.root().path(), root_path);
+        let runner = Arc::new(FakeTestSuiteRunner {
+            root: root_path.clone(),
+            ..FakeTestSuiteRunner::default()
+        });
+        let service = TestSuiteService::new(runner.clone());
+        let snapshot =
+            block_on(service.inspect(TestSuiteKind::CargoTest, CancellationToken::new())).unwrap();
+
+        assert!(matches!(snapshot.suite(), TestSuiteKind::CargoTest));
+        assert_eq!(snapshot.expected_head().as_str(), "a".repeat(40));
+        assert_eq!(snapshot.manifest_fingerprint().as_str(), "b".repeat(64));
+        assert_eq!(snapshot.root().path(), root_path);
+        assert!(matches!(
+            *runner.inspected.lock().unwrap(),
+            Some(TestSuiteKind::CargoTest)
+        ));
+        assert!(runner.ran.lock().unwrap().is_none());
+
+        let approval = TestSuiteRunApproval::after_explicit_trust_confirmation(snapshot);
+        let operation_id = approval.operation_id();
+        assert!(!operation_id.as_uuid().is_nil());
+        let result = block_on(service.run(approval, CancellationToken::new())).unwrap();
+
+        assert!(matches!(result.execution(), TestSuiteExecution::Passed));
+        assert_eq!(*runner.ran.lock().unwrap(), Some(operation_id));
     }
 
     #[test]

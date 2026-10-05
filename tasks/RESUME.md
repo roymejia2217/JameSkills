@@ -40,38 +40,21 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 - Cargo 1.95 define `--locked` como rechazo de cambios a la resolución; sigue siendo necesario ejecutar fmt, Clippy, tests y builds explícitamente.
 - Detalle y fuentes actualizados en `docs/SOURCES.md` y `docs/PLATFORM-EVIDENCE.md`.
 
-## Slice actual T020.b1 (T020.a comprometido)
+## Estado de ejecución reconstruido
 
-- Se verificó la documentación oficial actual del CLI y la fuente/tag `@commitlint/cli` v21.2.2.
-- La fuente 21.2.2 implementa `--default-config` y `--edit <file>`; el CLI anterior 20.2.0 no implementa `--default-config`. La página viva ahora reporta v21.2.3, que no se acepta sin revisión/fixture propia.
-- RED: `cargo test -p jameskills-infra --locked --test tool_detection commitlint_profile_supports_the_reviewed_default_config_cli` falló porque `profiles/tools.toml` solo permitía `>=19,<21`.
-- GREEN: el test focal pasa 1/1 después de fijar `=21.2.2`; rechaza 20.2.0 y 21.2.3.
-- RED T020.b1: E0599 por `check_conventional_commit` ausente. GREEN `cargo test -p jameskills-infra --locked --test commit_test_checks` 3/3; fake comprueba argv, archivo/config privados y limpieza, exit 0/1, salida no filtrada, version pin y PATH hacia Git aprobado.
-- HumanCrop/JamePrompt usan Husky `npm exec ... commitlint --edit "$1"`; JameFirewall lo usa en CI por rango; ImageMD valida metadata/subjects como datos en Python. El método reutiliza Commitlint oficial 21.2.2 (`--default-config --edit`) en vez de un parser sustituto.
-- `--edit` ejecuta internamente `git config core.commentChar`; el driver limita PATH para esa llamada al Git aprobado primero y revalida su fingerprint antes del spawn. Un JSON vacío explícito más `--default-config` evita cargar config JS de repositorio/ancestros.
-- El test es fake de ProcessPort, no ejecución real de Commitlint. En Windows el CLI npm estándar aparece como `.cmd` shim y sigue Blocked; T020.b2 debe resolver el entrypoint Node de forma aprobada y cablear el provider. No declarar Pass real todavía.
-
-## Patrones de repos relacionados revisados
-
-- HumanCrop y JamePrompt usan Husky `commit-msg` con `npm exec --no -- commitlint --config commitlint.config.cjs --edit "$1"`; ambos extienden `@commitlint/config-conventional`. HumanCrop fija CLI/config 21.2.3; JamePrompt fija 21.2.2 y tiene pruebas de mensajes aceptados/rechazados.
-- JameFirewall fija CLI/config 21.2.2, corre `npm exec --no -- commitlint --config ... --from <base> --to <head>` en CI y mantiene self-test del contrato; su gobernanza de título usa `action-semantic-pull-request`.
-- ImageMD no usa Commitlint: `ci/governance.py` valida títulos y subjects de commits como datos obtenidos por API, sin ejecutar su contenido.
-- T020 usa el CLI oficial 21.2.2, no un parser sustituto. `--edit` oficial invoca internamente `git config core.commentChar`; el driver actual solo admite Git/Commitlint nativos aprobados, coloca Git primero en PATH para ese comando fijo y usa cwd/config privados.
-
-## Verificaciones locales acumuladas
-
-- `cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked`: pasó.
-- `cargo test --workspace --features jameskills-desktop/test-support --locked`: pasó en Windows, incluidos 14 desktop unit tests y 2 lifecycle tests.
-- `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`: pasó.
-- `cargo fmt --all -- --check`, `git diff --check`: pasaron.
-- `cargo build -p jameskills-desktop --target x86_64-pc-windows-msvc --locked`: pasó.
-- `scripts/test-commitlint.sh` por Git Bash y `npm exec --no -- commitlint --from main --to HEAD --verbose`: pasaron para commits probados.
-- CI remoto y build Linux: no ejecutados. El workflow local refleja sus gates en `.github/workflows/ci.yml`; CI real requiere PR.
+- T020.b2 y T020.c.a están comprometidas; T020.c.b.a y T020.c.b.b.a tienen sus commits separados.
+- T020.c.b.b.b.a acaba de completarse localmente en cinco archivos: servicio/port, provider Cargo, prueba de frescura de HEAD y actualización de este checkpoint/checklist. El commit de implementación se creará tras el repaso final del diff.
+- GREEN local actual: `cargo test -p jameskills-infra --locked --test test_suite_checks` 4/4 (un opt-in ignored); `cargo test -p jameskills-infra --locked` suite completa; `cargo test -p jameskills-core --locked`; `cargo clippy -p jameskills-infra -p jameskills-core --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; `scripts/test-commitlint.sh` con Git Bash; `npm exec --no -- commitlint --from main --to HEAD --verbose` pasan. `cargo fmt --all` corrigió el formato observado durante el repaso.
+- Prueba de integración real opt-in ejecutada explícitamente: `cargo test -p jameskills-infra --locked --test test_suite_checks real_cargo_test_driver_passes_and_fails_from_approved_fixtures -- --ignored --exact` falla porque el fixture de pass obtiene Cargo exit 101 compilando en este host Windows MSVC. No cuenta como pass real. El test fake sí confirma que inspección usa ReadOnlyCheck y que un HEAD alterado después de metadata detiene el spawn mutante.
+- CI remota: `gh pr status` reporta que no hay PR asociada a `feat/t020-commit-test-checks`; ningún run puede atribuirse a este cambio. No confundir los GREEN locales con CI remota.
+- Revisión de fuentes: Cargo 1.95 metadata v1 tiene `workspace_members`, `packages[].targets[].test`; `cargo test --workspace --locked` ejecuta targets del workspace con el lock sin resolver versiones distintas. La fuente oficial GPUI Kit installation actual lista Kit 0.7.0/Rust 1.92+; el tag v0.7.0 confirma GPUI snapshot exacto 0.3.7. El pin y baseline local continúan justificados por compilación/requisitos del grafo, no por extrapolación de docs GPUI.
 
 ## Próxima acción exacta
 
-1. Implementar T020.c.b.b.b con Cargo metadata/test driver, revalidación de snapshot y fixture pass/fail; mantener `observe` sin side effects.
-3. Si se obtiene Gitleaks 8.30.1 verificado, cerrar el bloqueo T019; mantener C006/C005 abierto hasta evidencia nativa, sin inferir Pass Linux/GPU.
+1. Crear el commit convencional del slice T020.c.b.b.b.a (cinco archivos; GREEN local documentado) después de revisar el diff/status final.
+2. Mantener explícito que la integración Cargo real no pasó: exit 101, y `where.exe link.exe` no encontró linker en el PATH de este shell. No degradar el test ni registrarlo Pass.
+3. Mantener T020.c.b.b abierta hasta pass/fail real Cargo; continuar T020.c.b.b.b.b en su slice documental separado (Cargo metadata/test en `docs/SOURCES.md` + `docs/CONTRACTS.md` y checkpoint/checklist).
+4. No declarar CI remota: no hay PR asociada. C006/C005 y T019 mantienen sus bloqueos independientes.
 
 ## T020.b2.a completado
 
