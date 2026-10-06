@@ -152,6 +152,7 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - Git hooks: https://git-scm.com/docs/githooks
 - Git remotes: https://git-scm.com/docs/git-remote
 - Git ignore probe: https://git-scm.com/docs/git-check-ignore
+- Git repository-root probe: https://git-scm.com/docs/git-rev-parse
 - Commitlint: https://commitlint.js.org/reference/cli.html
 - Gitleaks: https://github.com/gitleaks/gitleaks
 - cargo-deny: https://embarkstudios.github.io/cargo-deny/
