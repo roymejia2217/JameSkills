@@ -1179,9 +1179,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T026 — Ejecutar acciones registradas y doctor
 
-- [ ] **T026 completada y verificada**
+- [x] **T026 completada y verificada localmente**
 
-**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** en curso (T026.src y T026.a completas; T026.b en progreso).
+**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** completada localmente en `3fac137` (Windows MSVC); sin push.
 
 **Implementación y funciones:** GuidanceService::advance + recheck, doctor_command; ManualInstruction/OpenOfficialUrl/CopyApprovedCommand/SelectLocalPath/AnswerChoice/Recheck. Mutaciones reales pasan por PolicyService ApprovedRepoChange, no Guidance action libre. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1193,18 +1193,18 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - [x] **T026.a — Reportar candidates y guías en doctor** (4 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/doctor_command.rs`; `tasks/todo.md`. Datos bounded, paths/env omitidos, tool version sin probe no se marca Verified.
 - RED T026.a: `cargo test -p jameskills-cli --locked --test doctor_command` falló 2/2 por ausencia del array `data.tools` para Missing y Candidate; no fue error de compilación. GREEN: la misma suite pasó 3/3; cubre PATH vacío y guía oficial registrada, Candidate nativo no ejecutado/no verificado y renderer text.
 - Verificación T026.a Windows MSVC: `cargo test -p jameskills-cli --locked` 19/19; `cargo clippy -p jameskills-cli --all-targets --locked -- -D warnings`; fmt/diff-check pasan. `cargo run -p jameskills-cli --locked -- doctor --json` muestra Missing/Candidate/Blocked, null version si no hay probe y URLs registradas; no incluye executable paths.
-- [ ] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
+- [x] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
 - RED T026.b: `cargo test -p jameskills-infra --locked --test guidance_actions renderer_resolves_only_registered_sources_and_exact_command_pairs` falló 0/1 por ausencia del renderer de `git-install` (no fue error de compilación). GREEN focal: `guidance_actions` 2/2 y `guidance_service` 7/7. La prueba core usa CopyApprovedCommand con check Unknown y confirma que acknowledge no lo convierte en Pass.
 - El renderer de `OpenOfficialUrl` usa cinco IDs/URLs app-owned; el único CopyApprovedCommand renderizado es `(Git, RepositoryRoot)` a texto copiable; combinación sin renderer queda `Unsupported`. No hay `ProcessPort` en la interfaz y el texto no se ejecuta.
 
 **Aceptación:**
-- [ ] La guía no ejecuta shell ni registra herramientas arbitrarias; copiar comando no cambia estado. Las acciones de repositorio tienen preview/digest y API aprobada.
-- [ ] Elevación no se obtiene automáticamente; guiar y revalidar tras acción del usuario.
-- [ ] Doctor usa las mismas capacidades/resultados que GUI y errores tienen exit codes reales.
+- [x] La guía no ejecuta shell ni registra herramientas arbitrarias; copiar comando no cambia estado. Las mutaciones de repositorio permanecen sin acción renderizada en T026; T027 introduce su API separada de preview/digest y aprobación.
+- [x] Elevación no se obtiene automáticamente: UserAnswer no cambia CheckResult, y cambios de fingerprint invalidan respuestas antes de recheck.
+- [x] Doctor usa `ToolDetection` y capabilities del domain compartidos; Missing/Blocked/Candidate no se elevan a Supported. JSON/text tiene exit codes estables. La vista GPUI aún no se conecta al servicio; su wiring es trabajo posterior, no se afirma realizado aquí.
 
-**Verificación:** cargo test -p jameskills-infra --locked guidance_actions; cargo test -p jameskills-cli --locked doctor_command; cargo run -p jameskills-cli --locked -- doctor --json.
+**Verificación T026:** `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, `cargo fmt --all -- --check` y `git diff --check` pasan en Windows MSVC. `cargo test -p jameskills-cli --locked` pasó 19/19; `guidance_actions` 2/2, `guidance_service` 7/7. `cargo run -p jameskills-cli --locked -- doctor --json` observó Missing/Candidate/Blocked, dejó versions sin probe en null y omitió executable paths. CI remota no cubre estos commits locales.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Commits T026:** `5a378e4` source boundaries; `bde09a2` doctor inventory; `0c86855` cita Git rev-parse; `3fac137` renderers app-owned. Las dos primeras tentativas de commit fallaron por hooks (body ausente/línea >100), se reintentaron con nuevos commits válidos; no hubo commit amend.
 
 <a id="t027"></a>
 
