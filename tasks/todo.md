@@ -1181,7 +1181,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T026 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** en curso (T026.src completa; T026.a siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** en curso (T026.src y T026.a completas; T026.b siguiente).
 
 **Implementación y funciones:** GuidanceService::advance + recheck, doctor_command; ManualInstruction/OpenOfficialUrl/CopyApprovedCommand/SelectLocalPath/AnswerChoice/Recheck. Mutaciones reales pasan por PolicyService ApprovedRepoChange, no Guidance action libre. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1190,8 +1190,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 **Descomposición test-first:**
 - [x] **T026.src — Fijar boundary de doctor y acciones guiadas** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`.
 - Evidencia T026.src: `GuidanceAction` ya es enum app-owned; Service `advance/recheck` no tiene ProcessPort y nunca interpreta GuidanceAction como shell. `SystemProcessPort` ya exige executable fingerprint/argv/permission. Doctor obtendrá candidates solo desde profiles + PATH; sin approved fingerprints no sondea ni ejecuta candidatos. Missing/Blocked enlaza solo install guide del registry; no instala ni revela paths.
-- [ ] **T026.a — Reportar candidates y guías en doctor** (4 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/doctor_command.rs`; `tasks/todo.md`. Datos bounded, paths/env omitidos, tool version sin probe no se marca Verified.
-- RED T026.a pendiente: PATH vacío controlado debe mostrar herramientas Missing + URLs registry sin lanzar herramientas ni crear/instalar archivos.
+- [x] **T026.a — Reportar candidates y guías en doctor** (4 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/doctor_command.rs`; `tasks/todo.md`. Datos bounded, paths/env omitidos, tool version sin probe no se marca Verified.
+- RED T026.a: `cargo test -p jameskills-cli --locked --test doctor_command` falló 2/2 por ausencia del array `data.tools` para Missing y Candidate; no fue error de compilación. GREEN: la misma suite pasó 3/3; cubre PATH vacío y guía oficial registrada, Candidate nativo no ejecutado/no verificado y renderer text.
+- Verificación T026.a Windows MSVC: `cargo test -p jameskills-cli --locked` 19/19; `cargo clippy -p jameskills-cli --all-targets --locked -- -D warnings`; fmt/diff-check pasan. `cargo run -p jameskills-cli --locked -- doctor --json` muestra Missing/Candidate/Blocked, null version si no hay probe y URLs registradas; no incluye executable paths.
 - [ ] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_actions.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
 - RED T026.b pendiente: step con CopyApprovedCommand no altera CheckStatus ni invoca ProcessPort; operación sin renderer queda Unsupported; cambio de facts invalida previa seleccionada antes de recheck.
 
