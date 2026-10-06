@@ -1136,7 +1136,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T025 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b.src en curso).
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b completa; T025.c siguiente).
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1151,7 +1151,10 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - Gates T025.a: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
 - [x] **T025.b.src — Contratar facts, estados y recheck** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. GuidanceFacts llevan valores tipados + CheckEvidence/fingerprint; el planner consume CheckReports, no claims.
 - Evidencia T025.b.src: el planner deriva estado solo de applicability facts con evidence fresca, DAG de steps y CheckReport; UserAnswer no tiene autoridad para completar un step. Recheck usa GuidanceFactsProvider + PolicyService, reemplaza report y borra choices si cambia environment fingerprint. Sesiones process-local no se presentan como durables.
-- [ ] **T025.b — Planificar próximo step desde facts/evidence** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Orden topológico; rama Unknown no se selecciona; step solo completa con fresh Pass de todos sus verifiers.
+- [x] **T025.b — Planificar próximo step desde facts/evidence** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/RESUME.md`; `tasks/todo.md`. Orden topológico; rama Unknown no se selecciona; step solo completa con fresh Pass de todos sus verifiers.
+- RED T025.b: `cargo test -p jameskills-core --locked --test guidance_planner` con planner conservador falló porque un verifier Pass seguía AwaitingEvidence; Unknown applicability branch y estados de paso no se calculaban.
+- GREEN T025.b: `cargo test -p jameskills-core --locked --test guidance_planner` pasa 7/7. Cubre fresh Pass, fail/expired verifier, acknowledgement que no pasa, answer choice validado, fact mismatch/expiration, dependency blocked vs rama independiente y plan completion.
+- Gates T025.b: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
 - [ ] **T025.c — Crear servicio de sesiones y recheck real** (4 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
 - [ ] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
 
