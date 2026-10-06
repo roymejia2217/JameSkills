@@ -3,9 +3,10 @@ use crate::platform::{
     PlatformFacts, ToolCandidate, ToolCandidateKind, ToolProfile, find_tool_candidates,
     load_tool_profiles, parse_tool_version_output, probe_registered_tool_version,
 };
+use async_trait::async_trait;
 use cap_std::{ambient_authority, fs::Dir as RootedDir};
 use jameskills_core::{
-    AppError, AppResult, Diagnostic,
+    AppError, AppResult, Diagnostic, OperationId,
     application::{
         RepoPolicyRequest,
         policy::{
@@ -13,8 +14,8 @@ use jameskills_core::{
         },
     },
     domain::{
-        BundleEntry, Check, ContentHash, EntryKind, PortablePath, RepoChangePlan, RepoTemplateId,
-        Requirement, ToolId, ValidatedInventory,
+        ApprovedRepoChange, BundleEntry, Check, ContentHash, EntryKind, PortablePath,
+        RepoChangePlan, RepoTemplateId, Requirement, ToolId, ValidatedInventory,
         guidance::{ToolAvailability, ToolVersionStatus},
         hash_bundle,
         policy::{
@@ -23,7 +24,6 @@ use jameskills_core::{
         },
         validate_bundle_inventory,
     },
-    ports::ClockPort,
     ports::filesystem::{
         BundleFiles, FileSystemPort, bundle_entry_from_path, extract_archive_files,
         validate_archive_entries,
@@ -31,6 +31,10 @@ use jameskills_core::{
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, ApprovedScript, CancellationToken,
         ExecutableFingerprint, ProcessPermission, ProcessPort, ProcessSpec,
+    },
+    ports::{
+        ApprovedRepoGit, ClockPort, OperationJournalPort, RepoChangeJournal,
+        RepoChangeJournalState, RepoChangePort,
     },
 };
 use sha2::{Digest, Sha256};
@@ -3186,6 +3190,411 @@ pub async fn plan_repo_template_with_approved_git(
         return Err(AppError::Conflict { current: vec![] });
     }
     Ok(plan)
+}
+
+pub struct LocalRepoChangePort {
+    process: Arc<dyn ProcessPort>,
+    journals: Arc<dyn OperationJournalPort>,
+    clock: Arc<dyn ClockPort>,
+}
+
+impl LocalRepoChangePort {
+    pub fn new(
+        process: Arc<dyn ProcessPort>,
+        journals: Arc<dyn OperationJournalPort>,
+        clock: Arc<dyn ClockPort>,
+    ) -> Self {
+        Self {
+            process,
+            journals,
+            clock,
+        }
+    }
+}
+
+#[async_trait]
+impl RepoChangePort for LocalRepoChangePort {
+    async fn preview(
+        &self,
+        root: &ApprovedRoot,
+        root_fingerprint: &ContentHash,
+        expected_head: &RepositoryHead,
+        template_id: RepoTemplateId,
+        git: &ApprovedRepoGit,
+        cancellation: CancellationToken,
+    ) -> AppResult<RepoChangePlan> {
+        let request = RepoPolicyRequest::new(
+            ApprovedRoot::from_absolute_path(root.path().to_path_buf())
+                .map_err(AppError::Validation)?,
+            root_fingerprint.clone(),
+            expected_head.clone(),
+            template_id,
+            copy_approved_repo_git(git)?,
+        );
+        plan_repo_template_with_approved_git(
+            &request,
+            self.process.as_ref(),
+            &self.clock.now_utc(),
+            cancellation,
+        )
+        .await
+    }
+
+    async fn apply(
+        &self,
+        root: &ApprovedRoot,
+        approval: ApprovedRepoChange,
+        git: &ApprovedRepoGit,
+        cancellation: CancellationToken,
+    ) -> AppResult<()> {
+        if cancellation.is_cancelled() {
+            return Err(AppError::Cancelled);
+        }
+        let plan = approval.plan();
+        if plan.previous_hash().is_some() {
+            return Err(AppError::CapabilityUnavailable {
+                id: "repo.change.replace.unsupported".to_owned(),
+                guidance_id: "repo-change-manual-review".to_owned(),
+            });
+        }
+        let fresh_request = RepoPolicyRequest::new(
+            ApprovedRoot::from_absolute_path(root.path().to_path_buf())
+                .map_err(AppError::Validation)?,
+            plan.root_fingerprint().clone(),
+            plan.expected_head().clone(),
+            plan.template_id(),
+            copy_approved_repo_git(git)?,
+        );
+        let fresh_plan = plan_repo_template_with_approved_git(
+            &fresh_request,
+            self.process.as_ref(),
+            &self.clock.now_utc(),
+            cancellation.clone(),
+        )
+        .await?;
+        if fresh_plan.confirmation_digest() != plan.confirmation_digest()
+            || fresh_plan.proposed_hash() != plan.proposed_hash()
+        {
+            return Err(AppError::Conflict { current: vec![] });
+        }
+        let (canonical_root, root_directory) = open_repository_root(root)?;
+        if &repository_root_fingerprint(root)? != plan.root_fingerprint() {
+            return Err(AppError::Conflict { current: vec![] });
+        }
+        let parent =
+            open_rooted_repo_change_parent(&root_directory, &canonical_root, plan.target())?
+                .ok_or_else(|| AppError::CapabilityUnavailable {
+                    id: "repo.change.target.parent.missing".to_owned(),
+                    guidance_id: "repo-change-create-workflow-directory".to_owned(),
+                })?;
+        let target_name = portable_file_name(plan.target())?;
+        let journal_root = ApprovedRoot::from_absolute_path(canonical_root.clone())
+            .map_err(AppError::Validation)?;
+        let journal = RepoChangeJournal::planned(journal_root, plan, &self.clock.now_utc())
+            .map_err(AppError::Validation)?;
+        let operation_id = journal.operation_id();
+        let staging_name = portable_file_name(journal.staging_target())?;
+        let staging_target = journal.staging_target().clone();
+        match read_rooted_repo_change_document(&root_directory, &canonical_root, plan.target()) {
+            ReadmeFile::Missing => {}
+            ReadmeFile::Bytes(_) => return Err(AppError::Conflict { current: vec![] }),
+            ReadmeFile::Blocked => {
+                return Err(AppError::PermissionDenied {
+                    operation: "repo.change.target.blocked".to_owned(),
+                });
+            }
+        }
+        match parent.symlink_metadata(staging_name) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => return Err(AppError::Conflict { current: vec![] }),
+            Err(_) => {
+                return Err(AppError::PermissionDenied {
+                    operation: "repo.change.stage.blocked".to_owned(),
+                });
+            }
+        }
+        let template = registered_repo_template(plan.template_id());
+        if ContentHash::from_digest(Sha256::digest(template).into()) != *plan.proposed_hash() {
+            return Err(AppError::Conflict { current: vec![] });
+        }
+        self.journals.record_operation(&journal)?;
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::Planned,
+            RepoChangeJournalState::Approved,
+        )?;
+        if cancellation.is_cancelled() {
+            self.advance_journal(
+                operation_id,
+                RepoChangeJournalState::Approved,
+                RepoChangeJournalState::Failed,
+            )?;
+            return Err(AppError::Cancelled);
+        }
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::Approved,
+            RepoChangeJournalState::Staged,
+        )?;
+        write_rooted_repo_change_stage(&parent, staging_name, template)?;
+        if cancellation.is_cancelled() {
+            self.rollback_before_commit(
+                &journal,
+                RepoChangeJournalState::Staged,
+                &root_directory,
+                &canonical_root,
+                &parent,
+            )?;
+            return Err(AppError::Cancelled);
+        }
+
+        let revalidated = plan_repo_template_with_approved_git(
+            &fresh_request,
+            self.process.as_ref(),
+            &self.clock.now_utc(),
+            cancellation.clone(),
+        )
+        .await;
+        let revalidated = match revalidated {
+            Ok(revalidated)
+                if revalidated.confirmation_digest() == plan.confirmation_digest()
+                    && revalidated.proposed_hash() == plan.proposed_hash() =>
+            {
+                revalidated
+            }
+            Ok(_) => {
+                self.rollback_before_commit(
+                    &journal,
+                    RepoChangeJournalState::Staged,
+                    &root_directory,
+                    &canonical_root,
+                    &parent,
+                )?;
+                return Err(AppError::Conflict { current: vec![] });
+            }
+            Err(error) => {
+                self.rollback_before_commit(
+                    &journal,
+                    RepoChangeJournalState::Staged,
+                    &root_directory,
+                    &canonical_root,
+                    &parent,
+                )?;
+                return Err(error);
+            }
+        };
+        let _ = revalidated;
+        if cancellation.is_cancelled() {
+            self.rollback_before_commit(
+                &journal,
+                RepoChangeJournalState::Staged,
+                &root_directory,
+                &canonical_root,
+                &parent,
+            )?;
+            return Err(AppError::Cancelled);
+        }
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::Staged,
+            RepoChangeJournalState::CommitPending,
+        )?;
+        if let Err(error) = parent.hard_link(staging_name, &parent, target_name) {
+            self.rollback_before_commit(
+                &journal,
+                RepoChangeJournalState::CommitPending,
+                &root_directory,
+                &canonical_root,
+                &parent,
+            )?;
+            return if error.kind() == std::io::ErrorKind::AlreadyExists {
+                Err(AppError::Conflict { current: vec![] })
+            } else {
+                Err(AppError::PermissionDenied {
+                    operation: "repo.change.commit.blocked".to_owned(),
+                })
+            };
+        }
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::CommitPending,
+            RepoChangeJournalState::NewMoved,
+        )?;
+        match read_rooted_repo_change_document(&root_directory, &canonical_root, plan.target()) {
+            ReadmeFile::Bytes(bytes)
+                if ContentHash::from_digest(Sha256::digest(&bytes).into())
+                    == *plan.proposed_hash() => {}
+            _ => {
+                self.advance_journal(
+                    operation_id,
+                    RepoChangeJournalState::NewMoved,
+                    RepoChangeJournalState::RollbackPending,
+                )?;
+                return Err(AppError::Conflict { current: vec![] });
+            }
+        }
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::NewMoved,
+            RepoChangeJournalState::Verified,
+        )?;
+        remove_rooted_repo_change_stage(
+            &root_directory,
+            &canonical_root,
+            &parent,
+            staging_name,
+            &staging_target,
+            plan.proposed_hash(),
+        )?;
+        match read_rooted_repo_change_document(&root_directory, &canonical_root, plan.target()) {
+            ReadmeFile::Bytes(bytes)
+                if ContentHash::from_digest(Sha256::digest(&bytes).into())
+                    == *plan.proposed_hash() => {}
+            ReadmeFile::Blocked => {
+                self.advance_journal(
+                    operation_id,
+                    RepoChangeJournalState::Verified,
+                    RepoChangeJournalState::RollbackPending,
+                )?;
+                return Err(AppError::PermissionDenied {
+                    operation: "repo.change.target.blocked".to_owned(),
+                });
+            }
+            ReadmeFile::Missing | ReadmeFile::Bytes(_) => {
+                self.advance_journal(
+                    operation_id,
+                    RepoChangeJournalState::Verified,
+                    RepoChangeJournalState::RollbackPending,
+                )?;
+                return Err(AppError::Conflict { current: vec![] });
+            }
+        }
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::Verified,
+            RepoChangeJournalState::Committed,
+        )
+    }
+}
+
+impl LocalRepoChangePort {
+    fn advance_journal(
+        &self,
+        operation_id: OperationId,
+        expected: RepoChangeJournalState,
+        next: RepoChangeJournalState,
+    ) -> AppResult<()> {
+        self.journals
+            .transition_operation(operation_id, expected, next, &self.clock.now_utc())
+    }
+
+    fn rollback_before_commit(
+        &self,
+        journal: &RepoChangeJournal,
+        state: RepoChangeJournalState,
+        root: &RootedDir,
+        canonical_root: &Path,
+        parent: &RootedDir,
+    ) -> AppResult<()> {
+        let operation_id = journal.operation_id();
+        let staging_name = portable_file_name(journal.staging_target())?;
+        self.advance_journal(operation_id, state, RepoChangeJournalState::RollbackPending)?;
+        remove_rooted_repo_change_stage(
+            root,
+            canonical_root,
+            parent,
+            staging_name,
+            journal.staging_target(),
+            journal.proposed_hash(),
+        )?;
+        self.advance_journal(
+            operation_id,
+            RepoChangeJournalState::RollbackPending,
+            RepoChangeJournalState::Recovered,
+        )
+    }
+}
+
+fn copy_approved_repo_git(git: &ApprovedRepoGit) -> AppResult<ApprovedRepoGit> {
+    let fingerprint = git.fingerprint();
+    ApprovedRepoGit::after_explicit_fingerprint_confirmation(
+        ApprovedExecutable::from_absolute_path(git.executable().path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        fingerprint,
+        &fingerprint,
+        ApprovedEnv::new(git.environment().entries().clone()).map_err(AppError::Validation)?,
+    )
+    .map_err(AppError::Validation)
+}
+
+fn portable_file_name(path: &PortablePath) -> AppResult<&str> {
+    path.as_str()
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            AppError::Validation(vec![Diagnostic::error(
+                "repo.change.path.invalid",
+                "Registered repository change path is invalid.",
+            )])
+        })
+}
+
+fn registered_repo_template(template_id: RepoTemplateId) -> &'static [u8] {
+    match template_id {
+        RepoTemplateId::RustCi => RUST_CI_TEMPLATE.as_bytes(),
+    }
+}
+
+fn write_rooted_repo_change_stage(
+    parent: &RootedDir,
+    stage_name: &str,
+    bytes: &[u8],
+) -> AppResult<()> {
+    let mut options = cap_std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = parent.open_with(stage_name, &options).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            AppError::Conflict { current: vec![] }
+        } else {
+            AppError::PermissionDenied {
+                operation: "repo.change.stage.create".to_owned(),
+            }
+        }
+    })?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|_| AppError::Storage {
+            code: "repo.change.stage.write.failed".to_owned(),
+        })
+}
+
+fn remove_rooted_repo_change_stage(
+    root: &RootedDir,
+    canonical_root: &Path,
+    parent: &RootedDir,
+    stage_name: &str,
+    staging_target: &PortablePath,
+    proposed_hash: &ContentHash,
+) -> AppResult<()> {
+    match read_rooted_repo_change_document(root, canonical_root, staging_target) {
+        ReadmeFile::Missing => Ok(()),
+        ReadmeFile::Bytes(bytes)
+            if ContentHash::from_digest(Sha256::digest(&bytes).into()) == *proposed_hash =>
+        {
+            parent
+                .remove_file(stage_name)
+                .map_err(|_| AppError::PermissionDenied {
+                    operation: "repo.change.stage.remove".to_owned(),
+                })
+        }
+        ReadmeFile::Bytes(_) | ReadmeFile::Blocked => Err(AppError::Conflict { current: vec![] }),
+    }
 }
 
 fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {

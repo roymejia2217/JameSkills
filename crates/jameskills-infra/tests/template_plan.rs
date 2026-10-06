@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use jameskills_core::{
     AppError, AppResult, ContentHash,
-    application::RepoPolicyRequest,
+    application::{RepoPolicyRequest, RepositoryChangeService},
     domain::{RepoTemplateId, policy::RepositoryHead},
     ports::{
-        ApprovedRepoGit,
+        ApprovedRepoGit, ClockPort, OperationJournalPort, RepoChangeJournalState,
         process::{
             ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken,
             ExecutableFingerprint, ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec,
@@ -12,15 +12,19 @@ use jameskills_core::{
     },
 };
 use jameskills_infra::{
-    fs::{plan_repo_template, plan_repo_template_with_approved_git, repository_root_fingerprint},
+    fs::{
+        LocalRepoChangePort, plan_repo_template, plan_repo_template_with_approved_git,
+        repository_root_fingerprint,
+    },
     process::fingerprint_executable,
+    sqlite::SqliteStore,
 };
 use std::{
     collections::VecDeque,
     future::Future,
     path::{Path, PathBuf},
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     task::{Context, Poll, Wake, Waker},
@@ -84,12 +88,22 @@ fn repo_policy_request(repository: &TempRepository, git: ApprovedRepoGit) -> Rep
 
 struct FakeProcessPort {
     approved_fingerprint: ExecutableFingerprint,
-    responses: Mutex<VecDeque<ProcessOutput>>,
+    responses: Mutex<VecDeque<Result<ProcessOutput, AppError>>>,
     invocations: Mutex<Vec<(Vec<String>, ProcessPermission)>>,
 }
 
 impl FakeProcessPort {
     fn new(approved_fingerprint: ExecutableFingerprint, responses: Vec<ProcessOutput>) -> Self {
+        Self::new_with_results(
+            approved_fingerprint,
+            responses.into_iter().map(Ok).collect(),
+        )
+    }
+
+    fn new_with_results(
+        approved_fingerprint: ExecutableFingerprint,
+        responses: Vec<Result<ProcessOutput, AppError>>,
+    ) -> Self {
         Self {
             approved_fingerprint,
             responses: Mutex::new(responses.into()),
@@ -123,12 +137,50 @@ impl ProcessPort for FakeProcessPort {
             .ok_or_else(|| AppError::ExternalTool {
                 tool_id: "git".to_owned(),
                 exit_code: None,
-            })
+            })?
     }
 }
 
 fn git_output(text: &str) -> ProcessOutput {
     ProcessOutput::new(Some(0), text.as_bytes().to_vec(), Vec::new())
+}
+
+fn git_preview_outputs(head: char, cycles: usize) -> Vec<ProcessOutput> {
+    let head_output = format!("{}\n", head.to_string().repeat(40));
+    let mut outputs = Vec::new();
+    for _ in 0..cycles {
+        outputs.push(git_output("git version 2.50.1\n"));
+        outputs.push(git_output(&head_output));
+        outputs.push(git_output(&head_output));
+    }
+    outputs
+}
+
+fn change_service(
+    repository: &TempRepository,
+    fingerprint: ExecutableFingerprint,
+    responses: Vec<ProcessOutput>,
+) -> (RepositoryChangeService, Arc<SqliteStore>) {
+    let process = Arc::new(FakeProcessPort::new(fingerprint, responses));
+    let store = Arc::new(SqliteStore::open(&repository.path().join("jameskills.sqlite3")).unwrap());
+    let port = Arc::new(LocalRepoChangePort::new(
+        process,
+        store.clone(),
+        Arc::new(TestClock),
+    ));
+    (RepositoryChangeService::new(port), store)
+}
+
+struct TestClock;
+
+impl ClockPort for TestClock {
+    fn now_utc(&self) -> String {
+        "2026-10-05T12:00:00Z".to_owned()
+    }
+
+    fn monotonic_ms(&self) -> u64 {
+        1
+    }
 }
 
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -320,6 +372,238 @@ fn changed_git_executable_fingerprint_blocks_before_any_probe_or_write() {
     ));
     assert!(process.invocations.lock().unwrap().is_empty());
     assert!(!repository.path().join(".github").exists());
+}
+
+#[test]
+fn approved_apply_creates_only_the_registered_template_and_commits_its_journal() {
+    let repository = TempRepository::new();
+    let workflow_directory = repository.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflow_directory).unwrap();
+    let (git, fingerprint) = approved_git(&repository);
+    let (service, store) = change_service(&repository, fingerprint, git_preview_outputs('a', 4));
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let confirmed_digest = preview.confirmation_digest().clone();
+
+    let receipt = block_on(service.apply_repo_changes(
+        repo_policy_request(&repository, approved_git(&repository).0),
+        preview,
+        &confirmed_digest,
+        CancellationToken::new(),
+    ))
+    .unwrap();
+
+    let target = repository.path().join(RepoTemplateId::RustCi.target());
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        include_str!("../../../examples/repository-foundation/templates/ci-rust.yml")
+    );
+    assert!(
+        !workflow_directory
+            .join(format!(".jameskills-{}.stage", operation_id.as_uuid()))
+            .exists()
+    );
+    assert_eq!(receipt.operation_id(), operation_id);
+    assert_eq!(
+        store.load_operation(operation_id).unwrap().unwrap().state(),
+        RepoChangeJournalState::Committed
+    );
+    assert!(store.pending_operations().unwrap().is_empty());
+}
+
+#[test]
+fn cancellation_during_revalidation_removes_only_the_verified_stage() {
+    let repository = TempRepository::new();
+    let workflow_directory = repository.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflow_directory).unwrap();
+    let (git, fingerprint) = approved_git(&repository);
+    let mut responses = git_preview_outputs('a', 2)
+        .into_iter()
+        .map(Ok)
+        .collect::<Vec<_>>();
+    responses.push(Ok(git_output("git version 2.50.1\n")));
+    responses.push(Ok(git_output(&format!("{}\n", "a".repeat(40)))));
+    responses.push(Err(AppError::Cancelled));
+    let process = Arc::new(FakeProcessPort::new_with_results(fingerprint, responses));
+    let store = Arc::new(SqliteStore::open(&repository.path().join("jameskills.sqlite3")).unwrap());
+    let port = Arc::new(LocalRepoChangePort::new(
+        process,
+        store.clone(),
+        Arc::new(TestClock),
+    ));
+    let service = RepositoryChangeService::new(port);
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+    let stage = workflow_directory.join(format!(".jameskills-{}.stage", operation_id.as_uuid()));
+    let target = repository.path().join(RepoTemplateId::RustCi.target());
+
+    assert!(matches!(
+        block_on(service.apply_repo_changes(
+            repo_policy_request(&repository, approved_git(&repository).0),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        )),
+        Err(AppError::Cancelled)
+    ));
+    assert!(!stage.exists());
+    assert!(!target.exists());
+    assert_eq!(
+        store.load_operation(operation_id).unwrap().unwrap().state(),
+        RepoChangeJournalState::Recovered
+    );
+    assert!(store.pending_operations().unwrap().is_empty());
+}
+
+#[test]
+fn destination_changed_after_preview_is_preserved_and_apply_is_rejected() {
+    let repository = TempRepository::new();
+    let workflow_directory = repository.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflow_directory).unwrap();
+    let (git, fingerprint) = approved_git(&repository);
+    let (service, store) = change_service(
+        &repository,
+        fingerprint,
+        vec![
+            git_output("git version 2.50.1\n"),
+            git_output(&format!("{}\n", "a".repeat(40))),
+            git_output(&format!("{}\n", "a".repeat(40))),
+            git_output("git version 2.50.1\n"),
+            git_output(&format!("{}\n", "a".repeat(40))),
+        ],
+    );
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+    let target = repository.path().join(RepoTemplateId::RustCi.target());
+    let user_bytes = b"concurrent user workflow\n";
+    std::fs::write(&target, user_bytes).unwrap();
+
+    assert!(matches!(
+        block_on(service.apply_repo_changes(
+            repo_policy_request(&repository, approved_git(&repository).0),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        )),
+        Err(AppError::Conflict { .. })
+    ));
+    assert_eq!(std::fs::read(&target).unwrap(), user_bytes);
+    assert!(store.load_operation(operation_id).unwrap().is_none());
+}
+
+#[test]
+fn stale_head_after_preview_blocks_apply_without_creating_the_target() {
+    let repository = TempRepository::new();
+    std::fs::create_dir_all(repository.path().join(".github/workflows")).unwrap();
+    let (git, fingerprint) = approved_git(&repository);
+    let (service, store) = change_service(
+        &repository,
+        fingerprint,
+        vec![
+            git_output("git version 2.50.1\n"),
+            git_output(&format!("{}\n", "a".repeat(40))),
+            git_output(&format!("{}\n", "a".repeat(40))),
+            git_output("git version 2.50.1\n"),
+            git_output(&format!("{}\n", "b".repeat(40))),
+        ],
+    );
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+    let target = repository.path().join(RepoTemplateId::RustCi.target());
+
+    assert!(matches!(
+        block_on(service.apply_repo_changes(
+            repo_policy_request(&repository, approved_git(&repository).0),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        )),
+        Err(AppError::Conflict { .. })
+    ));
+    assert!(!target.exists());
+    assert!(store.load_operation(operation_id).unwrap().is_none());
+}
+
+#[test]
+fn preexisting_stage_name_is_not_overwritten_or_journaled() {
+    let repository = TempRepository::new();
+    let workflow_directory = repository.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflow_directory).unwrap();
+    let (git, fingerprint) = approved_git(&repository);
+    let (service, store) = change_service(&repository, fingerprint, git_preview_outputs('a', 2));
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+    let stage = workflow_directory.join(format!(".jameskills-{}.stage", operation_id.as_uuid()));
+    let user_stage_bytes = b"unowned stage path\n";
+    std::fs::write(&stage, user_stage_bytes).unwrap();
+
+    assert!(matches!(
+        block_on(service.apply_repo_changes(
+            repo_policy_request(&repository, approved_git(&repository).0),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        )),
+        Err(AppError::Conflict { .. })
+    ));
+    assert_eq!(std::fs::read(stage).unwrap(), user_stage_bytes);
+    assert!(store.load_operation(operation_id).unwrap().is_none());
+    assert!(
+        !repository
+            .path()
+            .join(RepoTemplateId::RustCi.target())
+            .exists()
+    );
+}
+
+#[test]
+fn missing_parent_directory_blocks_apply_without_creating_scaffolding() {
+    let repository = TempRepository::new();
+    let (git, fingerprint) = approved_git(&repository);
+    let (service, store) = change_service(&repository, fingerprint, git_preview_outputs('a', 2));
+    let preview = block_on(service.plan_repo_changes(
+        &repo_policy_request(&repository, git),
+        CancellationToken::new(),
+    ))
+    .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+
+    assert!(matches!(
+        block_on(service.apply_repo_changes(
+            repo_policy_request(&repository, approved_git(&repository).0),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        )),
+        Err(AppError::CapabilityUnavailable { .. })
+    ));
+    assert!(!repository.path().join(".github").exists());
+    assert!(store.load_operation(operation_id).unwrap().is_none());
 }
 
 #[cfg(unix)]

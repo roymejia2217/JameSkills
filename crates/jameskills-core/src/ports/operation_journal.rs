@@ -10,6 +10,7 @@ pub enum RepoChangeJournalState {
     Planned,
     Approved,
     Staged,
+    CommitPending,
     NewMoved,
     Verified,
     Committed,
@@ -24,6 +25,7 @@ impl RepoChangeJournalState {
             Self::Planned => "planned",
             Self::Approved => "approved",
             Self::Staged => "staged",
+            Self::CommitPending => "commit-pending",
             Self::NewMoved => "new-moved",
             Self::Verified => "verified",
             Self::Committed => "committed",
@@ -38,7 +40,8 @@ impl RepoChangeJournalState {
             (self, next),
             (Self::Planned, Self::Approved | Self::Failed)
                 | (Self::Approved, Self::Staged | Self::Failed)
-                | (Self::Staged, Self::NewMoved | Self::RollbackPending)
+                | (Self::Staged, Self::CommitPending | Self::RollbackPending)
+                | (Self::CommitPending, Self::NewMoved | Self::RollbackPending)
                 | (Self::NewMoved, Self::Verified | Self::RollbackPending)
                 | (Self::Verified, Self::Committed | Self::RollbackPending)
                 | (Self::RollbackPending, Self::Recovered)
@@ -54,6 +57,7 @@ impl RepoChangeJournalState {
             "planned" => Some(Self::Planned),
             "approved" => Some(Self::Approved),
             "staged" => Some(Self::Staged),
+            "commit-pending" => Some(Self::CommitPending),
             "new-moved" => Some(Self::NewMoved),
             "verified" => Some(Self::Verified),
             "committed" => Some(Self::Committed),

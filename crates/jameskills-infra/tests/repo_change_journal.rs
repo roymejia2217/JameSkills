@@ -132,8 +132,16 @@ fn invalid_transition_is_rejected_and_valid_journal_survives_reopen() {
         .transition_operation(
             operation_id,
             RepoChangeJournalState::Staged,
-            RepoChangeJournalState::NewMoved,
+            RepoChangeJournalState::CommitPending,
             "2026-10-05T12:04:00Z",
+        )
+        .unwrap();
+    reopened
+        .transition_operation(
+            operation_id,
+            RepoChangeJournalState::CommitPending,
+            RepoChangeJournalState::NewMoved,
+            "2026-10-05T12:04:30Z",
         )
         .unwrap();
     reopened
