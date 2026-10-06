@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `3fac137`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `fac5e84`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
-## Checkpoint T020–T026 y C008 cerrado; T027 siguiente
+## Checkpoint T020–T026 cerrado; T027 en curso
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `3fac137`, 25 commits por delante de `origin/feat/t020-commit-test-checks`; estado de T026 en actualización documental local. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `fac5e84`, 26 commits por delante de `origin/feat/t020-commit-test-checks`; T027 source contract changes en working tree. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -23,7 +23,8 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T026.a `bde09a2` reporta todos los tools Missing/Candidate/Blocked en CLI text/JSON. 3 focused doctor tests, CLI package 19 tests; PATH vacío no revela paths ni instala; candidatos no se sondean. Manual `cargo run -p jameskills-cli --locked -- doctor --json` muestra `version: null` sin probe.
 - T026.b source `0c86855` cita Git rev-parse; implementación `3fac137` mapea cinco OfficialGuidanceSource y renderiza únicamente `(Git, RepositoryRoot)` como texto copiable; renderer ausente=Unsupported. Core conserva check Unknown tras acknowledge del copy action. RED infra renderer falló por la falta del map Git source; GREEN infra 2/2 y GuidanceService 7/7.
 - T026 gates en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check pasan. T026 se verifica localmente; GPUI todavía no está conectada a GuidanceService y repo mutations siguen fuera de scope, con API preview/digest prevista en T027. No atribuir CI remota a commits locales.
-- Próxima tarea elegible T027 (`T014`, T025, T026 completadas): template/hook planning con preview y digest, apply validado/transaccional, journal y rollback; ningún contenido/template se ejecuta.
+- T027.src fija en working tree los límites de RepositoryChangeService, plan/apply, digest, journal durable y conflictos; code state comprobado: no existe RepoChangeService ni RepoChangePort, PolicyService solo hace check, FileSystemPort es read-only. SQLite migration 002 ya crea `operations`, pero StoragePort no la expone. Sample `ci-rust.yml` contiene placeholders intencionales y no es workflow listo para aplicar.
+- Próximo slice T027.a: DTOs cerrados y digest puro de preview, tests de límites; mantener incrementos de <=5 archivos. Nada del bundle se ejecuta ni habilita tools.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -99,10 +100,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Verificar DAG, `docs/CONTRACTS.md`, `docs/SPEC-policy-engine.md`, `docs/SECURITY.md` y `T027` completo en `tasks/todo.md` antes de editar.
-2. Capturar RED de comportamiento para modificación de template ajeno/dirty o cambio de digest entre preview/apply; no aceptar error de compilación como RED.
-3. Implementar T027 en incrementos de máximo cinco archivos, con cambios de repo solo por API aprobada, diff/preview, expected-head/hash y journal recuperable.
-4. Probar cancel/crash/rollback en repositorios temporales, ejecutar suites core/infra/CLI, Clippy, fmt/diff-check y actualizar evidencia/checkpoint.
+1. Iniciar T027.a con test RED significativo para DTO/digest bounded, sin tratar error de compilación como RED.
+2. Implementar tipos con `RepoTemplateId` cerrado, PortablePath, expected-head, prior/proposed hashes y digest estable; el approval no deserializa.
+3. Continuar en capas separadas de servicio, planner read-only, journal SQLite existente, apply/recovery y wiring; máximo cinco archivos por incremento.
+4. Probar dirty/unowned target, expected-head/hash stale, cancellation/crash recovery preservando ediciones, y luego suites core/infra/CLI, Clippy, fmt/diff-check.
 
 ## T020.b2.a completado
 

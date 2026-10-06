@@ -1212,18 +1212,21 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T027 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src documentando límites; T027.a siguiente).
 
-**Implementación y funciones:** PolicyService::plan_repo_changes, apply_repo_changes; helpers plan_template_changes y plan_local_hook para templates propios/managed sections, journal y diff. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** servicio de repositorio dedicado para plan/apply; helpers para templates propios/managed sections, journal y diff. No añadir writes a `GuidanceService` ni al check-only `PolicyService`. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** template_plan archivo ajeno/dirty/version changed impide apply; hook existente se conserva; remover JameSkills no elimina hooks ajenos.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/guidance.rs`
-- `crates/jameskills-infra/src/fs.rs`
-- `crates/jameskills-infra/tests/template_plan.rs`
-- `examples/repository-foundation/templates/ci-rust.yml`
-- `examples/repository-foundation/guidance/repository.toml`
+**Descomposición test-first** (cada incremento máximo cinco archivos; son subunidades de tarea, no gates de aprobación):
+- [x] **T027.src — Fijar servicio, aprobación y recuperación** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Separar RepositoryChangeService del GuidanceService/PolicyService de checks; firma de preview/apply y manejo de conflictos.
+- Evidencia T027.src: `FileSystemPort` actual solo lee; `PolicyService` solo checkea; `StoragePort` carece de API de journals aunque SQLite ya tiene tabla `operations`. T027 se separa en DTOs, aplicación/port, preview, journal y apply/recovery; reusa migration `002_operations.sql` sin duplicar esquema. El sample CI es template de plan incompleto y no se presenta como workflow listo.
+- [ ] **T027.a — DTOs y digest de preview** (3 archivos): `crates/jameskills-core/src/domain/repo_change.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/repo_change_plan.rs`. IDs template cerrados, root/head/path/hash/digest vinculados; structs no deserializables para approval.
+- [ ] **T027.b — API de servicio y puerto** (5 archivos): `crates/jameskills-core/src/application/repo_change.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/src/ports/repo_change.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/repo_change_service.rs`.
+- [ ] **T027.c — Planner de filesystem read-only** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `examples/repository-foundation/templates/ci-rust.yml`. Registry de target fijo; archivos no-owned/conflict no se reemplazan.
+- [ ] **T027.d1 — Persistir operation journals** (4 archivos; reutilizar `operations` migration existente): `crates/jameskills-core/src/ports/operation_journal.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/sqlite.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`.
+- [ ] **T027.d2 — Apply/recover transaccional y wiring** (4 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`.
+- [ ] **T027.e — Actualizar guía de ejemplo sin habilitar acciones** (2 archivos): `examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/guidance_service.rs`.
 
 **Aceptación:**
 - [ ] Preview muestra contenido/paths y cambios aplican transaccionalmente tras validación.
