@@ -3,13 +3,18 @@ use crate::{
     platform::{PlatformFacts, UserDirectories},
 };
 use chrono::{SecondsFormat, Utc};
+use jameskills_core::application::GuidanceFactsProvider;
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
-    application::{LibraryService, PolicyService, policy::PolicyCheckProvider},
-    domain::{Requirement, policy::CheckObservation},
+    application::{GuidanceService, LibraryService, PolicyService, policy::PolicyCheckProvider},
+    domain::{
+        GuidanceFactObservation, GuidanceFacts, Requirement,
+        policy::{ApplicabilityFact, CheckEvidence, CheckObservation},
+    },
     ports::ClockPort,
 };
-use std::{sync::Arc, time::Instant};
+use sha2::{Digest, Sha256};
+use std::{fmt::Write as _, sync::Arc, time::Instant};
 
 /// Process-local monotonic reference and UTC wall clock.
 pub struct SystemClock {
@@ -48,6 +53,7 @@ pub struct RuntimeServices {
     clock: Arc<SystemClock>,
     library: Arc<LibraryService>,
     policy: Arc<PolicyService>,
+    guidance: Arc<GuidanceService>,
 }
 
 impl RuntimeServices {
@@ -70,6 +76,10 @@ impl RuntimeServices {
     pub fn policy(&self) -> &PolicyService {
         self.policy.as_ref()
     }
+
+    pub fn guidance(&self) -> &GuidanceService {
+        self.guidance.as_ref()
+    }
 }
 
 struct UnavailablePolicyCheckProvider;
@@ -81,21 +91,86 @@ impl PolicyCheckProvider for UnavailablePolicyCheckProvider {
     }
 }
 
+struct SystemGuidanceFactsProvider {
+    facts: PlatformFacts,
+    clock: Arc<SystemClock>,
+}
+
+#[async_trait::async_trait]
+impl GuidanceFactsProvider for SystemGuidanceFactsProvider {
+    async fn observe_facts(&self) -> AppResult<GuidanceFacts> {
+        let operating_system = match self.facts.platform {
+            crate::platform::HostPlatform::Linux => "linux",
+            crate::platform::HostPlatform::Windows => "windows",
+            crate::platform::HostPlatform::Other => "other",
+        };
+        let architecture = ApplicabilityFact::Architecture
+            .accepts_value(&self.facts.architecture)
+            .then_some(self.facts.architecture.as_str());
+        let fingerprint_source = format!(
+            "guidance-platform-v1;os={operating_system};arch={}",
+            architecture.unwrap_or("unknown"),
+        );
+        let digest = Sha256::digest(fingerprint_source.as_bytes());
+        let mut environment_fingerprint = String::with_capacity(71);
+        environment_fingerprint.push_str("sha256:");
+        for byte in digest {
+            let _ = write!(environment_fingerprint, "{byte:02x}");
+        }
+        let observed_at = self.clock.now_utc();
+        let expires_at = Some(self.clock.monotonic_ms().saturating_add(30_000));
+        let mut observations = Vec::with_capacity(2);
+        for (fact, value) in [
+            (ApplicabilityFact::Os, Some(operating_system)),
+            (ApplicabilityFact::Architecture, architecture),
+        ] {
+            if let Some(value) = value {
+                let evidence = CheckEvidence::new(
+                    "guidance.platform.facts",
+                    &observed_at,
+                    None,
+                    &environment_fingerprint,
+                    "Observed host platform facts.",
+                    expires_at,
+                )
+                .map_err(AppError::Validation)?;
+                observations.push(
+                    GuidanceFactObservation::new(fact, value, evidence)
+                        .map_err(AppError::Validation)?,
+                );
+            }
+        }
+        GuidanceFacts::new(&environment_fingerprint, observations).map_err(AppError::Validation)
+    }
+}
+
 /// Build the available runtime adapters after validating caller-supplied paths.
 /// This function does not create directories or initialize unimplemented services.
 pub fn build_services(directories: UserDirectories) -> AppResult<RuntimeServices> {
     validate_directories(&directories)?;
+    let facts = PlatformFacts::detect();
     let clock = Arc::new(SystemClock::new());
     let policy_clock: Arc<dyn ClockPort> = clock.clone();
+    let policy = Arc::new(PolicyService::new(
+        Arc::new(UnavailablePolicyCheckProvider),
+        policy_clock,
+    ));
+    let guidance_facts = Arc::new(SystemGuidanceFactsProvider {
+        facts: facts.clone(),
+        clock: clock.clone(),
+    });
+    let guidance = Arc::new(GuidanceService::new(
+        policy.clone(),
+        guidance_facts,
+        clock.clone(),
+    ));
     Ok(RuntimeServices {
-        facts: PlatformFacts::detect(),
+        facts,
         directories,
-        clock,
+        clock: clock.clone(),
         library: Arc::new(LibraryService::new(Arc::new(LocalFileSystem))),
-        policy: Arc::new(PolicyService::new(
-            Arc::new(UnavailablePolicyCheckProvider),
-            policy_clock,
-        )),
+        policy,
+        guidance,
     })
 }
 

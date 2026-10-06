@@ -1134,9 +1134,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T025 — Generar guía dinámica desde hechos y checks
 
-- [ ] **T025 completada y verificada**
+- [x] **T025 completada y verificada localmente**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b2 completa; T025.c en curso).
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1157,25 +1157,23 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - Gates T025.b: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
 - [x] **T025.b2 — Mantener independientes los fingerprints de facts y checks** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. La fingerprint de GuidanceFacts no sustituye la del provider en cada CheckEvidence; cada una se invalida por su propio origen/expiry.
 - RED T025.b2: `check_evidence_fingerprint_is_not_compared_to_platform_fact_fingerprint` falló Pass esperado/ AwaitingEvidence observado al exigir por error igualdad entre fingerprints de facts y CheckReport.
-- GREEN T025.b2: la prueba de fingerprints distintos pasa 1/1; checks siguen exigiendo evidence fresca, y la suite se repetirá en los gates acumulados finales.
-- [ ] **T025.c — Crear servicio de sesiones y recheck real** (5 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
+- GREEN T025.b2: la prueba de fingerprints distintos pasa 1/1; freshness se evalúa por cada CheckEvidence, con fingerprint independiente por fuente.
+- [x] **T025.c — Crear servicio de sesiones y recheck real** (5 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
 - RED T025.c: `cargo test -p jameskills-core --locked --test guidance_service` falló conductualmente con start Unknown en vez de exponer el step verificado y advance NotFound para una sesión recién creada.
 - GREEN T025.c: `guidance_service` pasa 6/6. Start incluye plan real y CheckReport; acknowledgement no concede status; recheck actualiza Unknown a Pass con report nuevo; fallo de recheck descarta Pass anterior; fingerprint distinto limpia choices; límite 64 y close libera capacidad.
 - Gates T025.c: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt/diff-check pasan. Live sessions son process-local; no se afirma persistencia SQLite.
-- [ ] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
-- RED T025.d: `guidance_runtime` expuso por compile-time que `RuntimeServices` aún no publicaba el acceso a GuidanceService; se corrige como wiring gap, no se cuenta como RED de dominio.
-- GREEN T025.d: `cargo test -p jameskills-infra --locked --test guidance_runtime` pasa 1/1; facts OS con CheckEvidence fresco seleccionan rama no aplicable, mientras el `UnavailablePolicyCheckProvider` deja el verifier aplicable como Unknown/AwaitingEvidence.
+- [x] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
 
 **Semántica obligatoria:** facts desconocidos nunca seleccionan rama; “lo completé” solo registra una respuesta y no produce Pass; step solo Completed con fresh Pass para todos los `verification_requirement_ids`. Cambio de fingerprint/revision invalida respuestas/evidence dependientes. Acción copiar/abrir es inerte; credenciales y texto libre secreto no entran a la sesión.
 
 **Aceptación:**
-- [ ] Cada paso tiene condición de éxito comprobable, tool/link aprobado y explicación del requisito.
-- [ ] Plan no prescribe comandos de otro OS/provider ni asegura privilegios inexistentes.
-- [ ] Recheck invalida evidence antigua y actualiza pendientes/completos mediante resultado real.
+- [x] Cada paso tiene condición de éxito comprobable, tool/link aprobado y explicación del requisito.
+- [x] Plan no prescribe comandos de otro OS/provider ni asegura privilegios inexistentes.
+- [x] Recheck invalida evidence antigua y actualiza pendientes/completos mediante resultado real.
 
 **Verificación:** cargo test -p jameskills-core --locked guidance_planner; snapshots de planes con fixtures de entornos diferentes y ciclo rechazado.
 
-**Evidencia al ejecutar:** pendiente. Registrar RED/GREEN por T025.src/a/b/c, workspace gates, OS, commits y cualquier capacidad Unsupported/Unknown pendiente de providers reales.
+**Evidencia al ejecutar:** T025.a/b/b2/c/d verificados localmente. Pasó `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check en Windows MSVC. guidance_schema 5/5, guidance_planner 10/10, guidance_service 6/6, guidance_runtime 1/1. El runtime tiene hechos OS/arch con evidence fresca; el provider de policy todavía unavailable mantiene checks Unknown en vez de emitir Pass. Sesiones process-local, no durable SQLite. CI remota conocida solo corresponde a `c976f02`.
 
 <a id="t026"></a>
 
