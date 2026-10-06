@@ -588,6 +588,17 @@ sin seguir links/reparse points. Stage y target son siblings; el commit usa un
 create-only hard link (nunca `rename` que reemplace destino). Si el filesystem no
 soporta hard links, el apply queda Blocked sin fallback de overwrite.
 
+Journal states siguen `Planned -> Approved -> Staged -> CommitPending ->
+NewMoved -> Verified -> Committed`; `Failed` solo es terminal antes del stage,
+y cualquier fallo posterior entra a `RollbackPending` hasta `Recovered` o queda
+como conflicto pendiente. `CommitPending` se persiste antes del hard link para
+que restart distinga un intento sin mutación de un posible link ya creado.
+Recovery solo elimina un staging sibling cuando su SHA-256 es el propuesto; si
+target/stage coinciden en file identity + hash puede completar el commit. Un
+target editado, dueño ambiguo o metadata no accesible permanece intacto y produce
+Conflict visible; recovery nunca elimina el target. Si el OS no permite probar
+file identity entre los dos handles, el resultado permanece Conflict/Pending.
+
 No olvidar expected_heads/revision en Publish, ApplyInstall, RepoChange, ResolveConflict y Restore. Mutable operations tienen OperationId y journal.
 
 ## Reducer y ejemplos de TDD
