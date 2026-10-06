@@ -23,8 +23,6 @@ const FOUNDATION_README_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/README.md");
 const FOUNDATION_GITIGNORE_TEMPLATE: &str =
     include_str!("../../../docs/examples/repository-foundation/templates/gitignore.txt");
-const FOUNDATION_CI_TEMPLATE: &str =
-    include_str!("../../../docs/examples/repository-foundation/templates/ci-rust.yml");
 
 fn official_bundle_files() -> BTreeMap<PortablePath, Vec<u8>> {
     [
@@ -324,17 +322,21 @@ fn runtime_skill_links_to_the_user_safe_gitignore_template() {
 }
 
 #[test]
-fn runtime_ci_template_is_fail_closed_and_svg_asset_has_no_active_content() {
+fn runtime_ci_template_is_pinned_read_only_and_svg_asset_has_no_active_content() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/repository-foundation");
     let ci_template = std::fs::read_to_string(root.join("templates/ci-rust.yml"))
         .expect("canonical CI template must exist");
-    assert_eq!(
-        ci_template.replace("\r\n", "\n"),
-        FOUNDATION_CI_TEMPLATE.replace("\r\n", "\n")
+    assert!(ci_template.contains("on:\n  push:\n  pull_request:"));
+    assert!(ci_template.contains("permissions:\n  contents: read"));
+    assert!(ci_template.contains("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"));
+    assert!(
+        ci_template
+            .contains("dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # v1.98.1")
     );
-    assert!(ci_template.contains("run: exit 1"));
-    assert!(ci_template.contains("No publicable"));
+    assert!(ci_template.contains("toolchain: 1.95.0"));
+    assert!(!ci_template.contains("TEMPLATE DE PLAN"));
+    assert!(!ci_template.contains("run: exit 1"));
 
     let svg = std::fs::read_to_string(root.join("assets/optional-brand.svg"))
         .expect("canonical SVG asset must exist");
