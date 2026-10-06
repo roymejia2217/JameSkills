@@ -15,16 +15,23 @@ pub struct ApprovedRepoGit {
 }
 
 impl ApprovedRepoGit {
-    pub fn new(
+    pub fn after_explicit_fingerprint_confirmation(
         executable: ApprovedExecutable,
         fingerprint: ExecutableFingerprint,
+        confirmed_fingerprint: &ExecutableFingerprint,
         environment: ApprovedEnv,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Vec<crate::Diagnostic>> {
+        if &fingerprint != confirmed_fingerprint {
+            return Err(vec![crate::Diagnostic::error(
+                "repo.change.git.confirmation.mismatch",
+                "Git executable confirmation does not match its approved fingerprint.",
+            )]);
+        }
+        Ok(Self {
             executable,
             fingerprint,
             environment,
-        }
+        })
     }
 
     pub fn executable(&self) -> &ApprovedExecutable {

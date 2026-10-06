@@ -41,11 +41,14 @@ fn hash(byte: char) -> ContentHash {
 }
 
 fn request(root_fingerprint: char) -> RepoPolicyRequest {
-    let git = ApprovedRepoGit::new(
+    let fingerprint = ExecutableFingerprint::from_sha256([0x5a; 32]);
+    let git = ApprovedRepoGit::after_explicit_fingerprint_confirmation(
         ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap(),
-        ExecutableFingerprint::from_sha256([0x5a; 32]),
+        fingerprint,
+        &fingerprint,
         ApprovedEnv::new(BTreeMap::new()).unwrap(),
-    );
+    )
+    .unwrap();
     RepoPolicyRequest::new(
         ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap(),
         hash(root_fingerprint),
@@ -53,6 +56,25 @@ fn request(root_fingerprint: char) -> RepoPolicyRequest {
         RepoTemplateId::RustCi,
         git,
     )
+}
+
+#[test]
+fn approved_git_requires_confirmation_of_the_same_executable_fingerprint() {
+    let fingerprint = ExecutableFingerprint::from_sha256([0x5a; 32]);
+    let wrong_confirmation = ExecutableFingerprint::from_sha256([0x6b; 32]);
+    let executable =
+        ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap();
+    let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
+
+    assert!(
+        ApprovedRepoGit::after_explicit_fingerprint_confirmation(
+            executable,
+            fingerprint,
+            &wrong_confirmation,
+            environment,
+        )
+        .is_err()
+    );
 }
 
 #[derive(Default)]
