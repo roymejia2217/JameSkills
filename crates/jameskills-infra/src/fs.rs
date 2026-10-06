@@ -5,8 +5,11 @@ use crate::platform::{
 };
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
-    application::policy::{
-        PolicyCheckProvider, TestSuiteRunApproval, TestSuiteRunnerPort, TestSuiteSnapshot,
+    application::{
+        RepoPolicyRequest,
+        policy::{
+            PolicyCheckProvider, TestSuiteRunApproval, TestSuiteRunnerPort, TestSuiteSnapshot,
+        },
     },
     domain::{
         BundleEntry, Check, ContentHash, EntryKind, PortablePath, RepoChangePlan, RepoTemplateId,
@@ -2927,6 +2930,106 @@ pub fn plan_repo_template(
     .map_err(AppError::Validation)
 }
 
+/// Runs only the registered read-only Git version and HEAD probes before
+/// returning the filesystem preview.
+pub async fn plan_repo_template_with_approved_git(
+    request: &RepoPolicyRequest,
+    process: &dyn ProcessPort,
+    observed_at: &str,
+    cancellation: CancellationToken,
+) -> AppResult<RepoChangePlan> {
+    let root = request.root();
+    let root_fingerprint = request.root_fingerprint();
+    let expected_head = request.expected_head();
+    let template_id = request.template_id();
+    let git = request.git();
+    let canonical_root = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+    if !canonical_root.is_dir() {
+        return Err(AppError::NotFound);
+    }
+    if &repository_root_fingerprint(root)? != root_fingerprint {
+        return Err(AppError::Conflict { current: vec![] });
+    }
+    let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.tool_id() == ToolId::Git)
+        .ok_or_else(|| AppError::CapabilityUnavailable {
+            id: "repo.change.git.profile.unavailable".to_owned(),
+            guidance_id: "repo-change-git-install".to_owned(),
+        })?;
+    let approved_tool = ApprovedRepositoryTool::new(
+        ApprovedExecutable::from_absolute_path(git.executable().path().to_path_buf())
+            .map_err(AppError::Validation)?,
+        git.fingerprint(),
+    );
+    let platform = PlatformFacts::detect().platform;
+    let candidate =
+        candidate_for_approved_tool(profile, &approved_tool, platform).ok_or_else(|| {
+            AppError::PermissionDenied {
+                operation: "repo.change.git.candidate.blocked".to_owned(),
+            }
+        })?;
+    if candidate.kind() != ToolCandidateKind::NativeExecutable {
+        return Err(AppError::PermissionDenied {
+            operation: "repo.change.git.shim.blocked".to_owned(),
+        });
+    }
+    let canonical_root =
+        ApprovedRoot::from_absolute_path(canonical_root).map_err(AppError::Validation)?;
+    let version = probe_registered_tool_version(
+        profile,
+        &candidate,
+        Some(git.fingerprint()),
+        &canonical_root,
+        git.environment(),
+        process,
+        observed_at,
+    )
+    .await?;
+    if version.availability() != ToolAvailability::Candidate
+        || version.version_status() != ToolVersionStatus::Compatible
+        || version.version().is_none()
+    {
+        return Err(AppError::CapabilityUnavailable {
+            id: "repo.change.git.version.unavailable".to_owned(),
+            guidance_id: "repo-change-git-version".to_owned(),
+        });
+    }
+    let actual_head = observe_repository_head_with_cancellation(
+        canonical_root.path(),
+        &approved_tool,
+        git.environment(),
+        process,
+        cancellation.clone(),
+    )
+    .await?
+    .ok_or_else(|| AppError::CapabilityUnavailable {
+        id: "repo.change.git.head.unavailable".to_owned(),
+        guidance_id: "repo-change-git-head".to_owned(),
+    })?;
+    if &actual_head != expected_head {
+        return Err(AppError::Conflict { current: vec![] });
+    }
+    let plan = plan_repo_template(root, root_fingerprint, expected_head, template_id)?;
+    let final_head = observe_repository_head_with_cancellation(
+        canonical_root.path(),
+        &approved_tool,
+        git.environment(),
+        process,
+        cancellation,
+    )
+    .await?
+    .ok_or_else(|| AppError::CapabilityUnavailable {
+        id: "repo.change.git.head.unavailable".to_owned(),
+        guidance_id: "repo-change-git-head".to_owned(),
+    })?;
+    if &final_head != expected_head {
+        return Err(AppError::Conflict { current: vec![] });
+    }
+    Ok(plan)
+}
+
 fn inspect_repo_change_target_parents(root: &Path, target: &PortablePath) -> AppResult<()> {
     let components = target.as_str().split('/').collect::<Vec<_>>();
     let mut candidate = root.to_path_buf();
@@ -3158,6 +3261,23 @@ async fn observe_repository_head(
     environment: &ApprovedEnv,
     process: &dyn ProcessPort,
 ) -> AppResult<Option<RepositoryHead>> {
+    observe_repository_head_with_cancellation(
+        repository_root,
+        git,
+        environment,
+        process,
+        CancellationToken::new(),
+    )
+    .await
+}
+
+async fn observe_repository_head_with_cancellation(
+    repository_root: &Path,
+    git: &ApprovedRepositoryTool,
+    environment: &ApprovedEnv,
+    process: &dyn ProcessPort,
+    cancellation: CancellationToken,
+) -> AppResult<Option<RepositoryHead>> {
     let cwd = ApprovedRoot::from_absolute_path(repository_root.to_path_buf())
         .map_err(AppError::Validation)?;
     let spec = registered_process_spec(
@@ -3170,7 +3290,7 @@ async fn observe_repository_head(
         &cwd,
         environment,
         ProcessPermission::ReadOnlyCheck,
-        CancellationToken::new(),
+        cancellation,
         Duration::from_secs(5),
         128,
     )?;

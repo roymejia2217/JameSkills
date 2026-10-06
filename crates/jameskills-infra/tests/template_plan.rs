@@ -1,12 +1,29 @@
+use async_trait::async_trait;
 use jameskills_core::{
-    AppError, ContentHash,
+    AppError, AppResult, ContentHash,
+    application::RepoPolicyRequest,
     domain::{RepoTemplateId, policy::RepositoryHead},
-    ports::process::ApprovedRoot,
+    ports::{
+        ApprovedRepoGit,
+        process::{
+            ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken,
+            ExecutableFingerprint, ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec,
+        },
+    },
 };
-use jameskills_infra::fs::{plan_repo_template, repository_root_fingerprint};
+use jameskills_infra::{
+    fs::{plan_repo_template, plan_repo_template_with_approved_git, repository_root_fingerprint},
+    process::fingerprint_executable,
+};
 use std::{
+    collections::VecDeque,
+    future::Future,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    task::{Context, Poll, Wake, Waker},
 };
 
 static NEXT_REPOSITORY: AtomicU64 = AtomicU64::new(0);
@@ -41,6 +58,93 @@ impl Drop for TempRepository {
 
 fn head() -> RepositoryHead {
     RepositoryHead::parse(&"a".repeat(40)).unwrap()
+}
+
+fn approved_git(repository: &TempRepository) -> (ApprovedRepoGit, ExecutableFingerprint) {
+    let bin = repository.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let executable = bin.join(if cfg!(windows) { "git.exe" } else { "git" });
+    std::fs::write(&executable, b"fake native Git for fixed-argv tests").unwrap();
+    let fingerprint = fingerprint_executable(&executable).unwrap();
+    let approved = ApprovedRepoGit::after_explicit_fingerprint_confirmation(
+        ApprovedExecutable::from_absolute_path(std::fs::canonicalize(executable).unwrap()).unwrap(),
+        fingerprint,
+        &fingerprint,
+        ApprovedEnv::new(Default::default()).unwrap(),
+    )
+    .unwrap();
+    (approved, fingerprint)
+}
+
+fn repo_policy_request(repository: &TempRepository, git: ApprovedRepoGit) -> RepoPolicyRequest {
+    let root = repository.approved_root();
+    let root_fingerprint = repository_root_fingerprint(&root).unwrap();
+    RepoPolicyRequest::new(root, root_fingerprint, head(), RepoTemplateId::RustCi, git)
+}
+
+struct FakeProcessPort {
+    approved_fingerprint: ExecutableFingerprint,
+    responses: Mutex<VecDeque<ProcessOutput>>,
+    invocations: Mutex<Vec<(Vec<String>, ProcessPermission)>>,
+}
+
+impl FakeProcessPort {
+    fn new(approved_fingerprint: ExecutableFingerprint, responses: Vec<ProcessOutput>) -> Self {
+        Self {
+            approved_fingerprint,
+            responses: Mutex::new(responses.into()),
+            invocations: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl ProcessPort for FakeProcessPort {
+    async fn run(&self, spec: ProcessSpec) -> AppResult<ProcessOutput> {
+        if spec.tool_id() != jameskills_core::domain::ToolId::Git
+            || spec.permission() != ProcessPermission::ReadOnlyCheck
+            || spec.approved_executable_fingerprint() != Some(&self.approved_fingerprint)
+        {
+            return Err(AppError::PermissionDenied {
+                operation: "test.git.approval.mismatch".to_owned(),
+            });
+        }
+        self.invocations.lock().unwrap().push((
+            spec.args()
+                .iter()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect(),
+            spec.permission(),
+        ));
+        self.responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| AppError::ExternalTool {
+                tool_id: "git".to_owned(),
+                exit_code: None,
+            })
+    }
+}
+
+fn git_output(text: &str) -> ProcessOutput {
+    ProcessOutput::new(Some(0), text.as_bytes().to_vec(), Vec::new())
+}
+
+fn block_on<F: Future>(future: F) -> F::Output {
+    struct Noop;
+    impl Wake for Noop {
+        fn wake(self: std::sync::Arc<Self>) {}
+    }
+    let waker = Waker::from(std::sync::Arc::new(Noop));
+    let mut context = Context::from_waker(&waker);
+    let mut future = Box::pin(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => std::thread::yield_now(),
+        }
+    }
 }
 
 #[test]
@@ -101,6 +205,120 @@ fn root_fingerprint_mismatch_is_rejected_before_preview() {
         plan_repo_template(&root, &wrong_fingerprint, &head(), RepoTemplateId::RustCi),
         Err(AppError::Conflict { .. })
     ));
+    assert!(!repository.path().join(".github").exists());
+}
+
+#[test]
+fn stale_git_head_blocks_preview_after_fixed_read_only_argv() {
+    let repository = TempRepository::new();
+    let (git, fingerprint) = approved_git(&repository);
+    let request = repo_policy_request(&repository, git);
+    let process = FakeProcessPort::new(
+        fingerprint,
+        vec![
+            git_output("git version 2.50.1\n"),
+            git_output(&format!("{}\n", "b".repeat(40))),
+        ],
+    );
+
+    assert!(matches!(
+        block_on(plan_repo_template_with_approved_git(
+            &request,
+            &process,
+            "2026-10-05T12:00:00Z",
+            CancellationToken::new(),
+        )),
+        Err(AppError::Conflict { .. })
+    ));
+    let invocations = process.invocations.lock().unwrap();
+    assert_eq!(invocations.len(), 2);
+    assert_eq!(invocations[0].0, ["--version"]);
+    assert!(matches!(invocations[0].1, ProcessPermission::ReadOnlyCheck));
+    assert_eq!(invocations[1].0, ["rev-parse", "HEAD"]);
+    assert!(matches!(invocations[1].1, ProcessPermission::ReadOnlyCheck));
+    assert!(!repository.path().join(".github").exists());
+}
+
+#[test]
+fn compatible_git_and_matching_head_produce_preview_with_read_only_probes() {
+    let repository = TempRepository::new();
+    let (git, fingerprint) = approved_git(&repository);
+    let request = repo_policy_request(&repository, git);
+    let expected_head = format!("{}\n", "a".repeat(40));
+    let process = FakeProcessPort::new(
+        fingerprint,
+        vec![
+            git_output("git version 2.50.1\n"),
+            git_output(&expected_head),
+            git_output(&expected_head),
+        ],
+    );
+
+    let preview = block_on(plan_repo_template_with_approved_git(
+        &request,
+        &process,
+        "2026-10-05T12:00:00Z",
+        CancellationToken::new(),
+    ))
+    .unwrap();
+
+    assert!(preview.diff().contains("+name: JameSkills Rust CI"));
+    assert_eq!(process.invocations.lock().unwrap().len(), 3);
+    assert!(!repository.path().join(".github").exists());
+}
+
+#[test]
+fn incompatible_git_version_stops_before_head_probe_or_filesystem_change() {
+    let repository = TempRepository::new();
+    let (git, fingerprint) = approved_git(&repository);
+    let request = repo_policy_request(&repository, git);
+    let process = FakeProcessPort::new(fingerprint, vec![git_output("git version 1.9.0\n")]);
+
+    assert!(matches!(
+        block_on(plan_repo_template_with_approved_git(
+            &request,
+            &process,
+            "2026-10-05T12:00:00Z",
+            CancellationToken::new(),
+        )),
+        Err(AppError::CapabilityUnavailable { .. })
+    ));
+    assert_eq!(process.invocations.lock().unwrap().len(), 1);
+    assert!(!repository.path().join(".github").exists());
+}
+
+#[test]
+fn changed_git_executable_fingerprint_blocks_before_any_probe_or_write() {
+    let repository = TempRepository::new();
+    let (_approved_git, actual_fingerprint) = approved_git(&repository);
+    let executable_path =
+        repository
+            .path()
+            .join("bin")
+            .join(if cfg!(windows) { "git.exe" } else { "git" });
+    let wrong_fingerprint = ExecutableFingerprint::from_sha256([0xee; 32]);
+    let wrong_git = ApprovedRepoGit::after_explicit_fingerprint_confirmation(
+        ApprovedExecutable::from_absolute_path(std::fs::canonicalize(executable_path).unwrap())
+            .unwrap(),
+        wrong_fingerprint,
+        &wrong_fingerprint,
+        ApprovedEnv::new(Default::default()).unwrap(),
+    )
+    .unwrap();
+    let request = repo_policy_request(&repository, wrong_git);
+    let process =
+        FakeProcessPort::new(actual_fingerprint, vec![git_output("git version 2.50.1\n")]);
+
+    assert!(matches!(
+        block_on(plan_repo_template_with_approved_git(
+            &request,
+            &process,
+            "2026-10-05T12:00:00Z",
+            CancellationToken::new(),
+        )),
+        Err(AppError::CapabilityUnavailable { .. })
+    ));
+    assert!(process.invocations.lock().unwrap().is_empty());
     assert!(!repository.path().join(".github").exists());
 }
 
