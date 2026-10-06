@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `1b2e6e3`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `e5089fe`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T026 cerrado; T027 en curso
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `1b2e6e3`, 32 commits por delante de `origin/feat/t020-commit-test-checks`; T027 source, domain preview, service API y read-only planner completados localmente. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `e5089fe`, 35 commits por delante de `origin/feat/t020-commit-test-checks`; T027.src/a/b/c/d1 completados localmente. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -27,7 +27,9 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T027.a `3527835`: agrega `RepoTemplateId::RustCi`, target fijo `.github/workflows/jameskills-ci.yml`, `RepoChangePlan`, `ApprovedRepoChange` no deserializables y digest SHA-256 estable ligado a template/root/HEAD/target/prior/proposed/diff. No guarda bytes de template en el DTO; diff está bounded y rechaza controles de terminal. `repo_change_plan` 3/3; Clippy core `-D warnings` y fmt/diff-check pasan. RED comprobó que el digest inicial omitía root.
 - T027.b `72c8e31`: `RepositoryChangeService` + `RepoChangePort` separados del PolicyService de checks y GuidanceService. Plan hace preview-only; apply exige root/head/template y digest exactos antes del write port; receipt incluye operation ID, target y hashes. RED confirmó que root mismatch llegaba a apply; `repo_change_service` 3/3, core suite completa, Clippy core `-D warnings` y fmt/diff-check pasan.
 - T027.c `1b2e6e3`: root fingerprint canónico, planner de template create-only para `.github/workflows/jameskills-ci.yml`, diff bounded, paths padre no-follow/reparse check, conflicto si target existe y ninguna escritura/creación de directorios. `template_plan` 3/3; suite infra completa y Clippy infra `-D warnings` pasan. Workflow de ejemplo usa SHA de acciones del CI del proyecto y toolchain1.95.0; es data, no se ejecutó. Symlink-parent test `cfg(unix)` no corrió en Windows; reparse-check Windows compiló, runtime junction queda pendiente.
-- Próximo slice T027.d1: exponer y probar journals de SQLite usando tabla `operations` ya existente, sin migration duplicada. T027.d2 debe integrar ProcessPort/head revalidation, create-only atomic apply, recovery y wiring; no saltarse cambios concurrentes ni escribir templates sin aprobación.
+- `75d1faa` actualiza el runtime-fixture assertion del CI de ejemplo: exige triggers, contents:read, refs SHA, toolchain1.95.0 y ningún placeholder/`exit 1`; el test de bundle pasó.
+- T027.d1 `e5089fe`: `OperationJournalPort` y SQLite usan tabla `operations` (schema v3, sin migración); payload JSON estricto 16KiB con paths locales/hashes, nunca contenido. Estado CAS transaccional y límites 256 pending. RED duplicate-ID detectó `INSERT OR REPLACE`; GREEN journal 5/5, core+infra suites completas y Clippy `-D warnings` pasan.
+- Próximo slice T027.d2: implementar RepoChangePort real con ProcessPort/fingerprint Git y expected-HEAD revalidation, stage/apply create-only bajo journal, rollback/recovery y composition wiring. T027.e actualizará la guidance fixture después de tener apply seguro; no saltarse edits concurrentes ni ejecutar templates.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -103,10 +105,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Implementar T027.d1 en máximo cuatro archivos: primero RED que demuestre registro durable/idempotencia/estado de journal con payload bounded y saneado.
-2. Exponer transacciones de journal por `OperationId` y probar reopen, rollback y futuras DB read-only sin divulgar paths/content.
-3. Luego resolver el diseño de ejecución aprobada Git/head revalidation en T027.d2; staging same-filesystem, archivo create-only, expected hash/root/head, cancel/crash recovery y user edits preservados.
-4. Correr suite infra/core/CLI, Clippy, fmt/diff-check; registrar diferencias Windows/Linux y continuar sin afirmar runtime junction no probado.
+1. Iniciar T027.d2 con RED sobre expected HEAD/destination hash changed entre preview y apply; aún no hay implementación `RepoChangePort` infra.
+2. Implementar `RepoChangePort` con identidad Git aprobada/fingerprint y revalidación; no invocar comandos shell ni aplicar contenido imported.
+3. Hacer apply create-only transaccional con same-filesystem staging, journal antes/después de rename y recovery failpoints; no borrar/overwrite si owner hash cambió.
+4. Conectar composition y probar crash/cancel/reopen + suites core/infra/CLI, Clippy, fmt/diff-check. Runtime Windows junction sigue bloqueando afirmar cobertura completa.
 
 ## T020.b2.a completado
 

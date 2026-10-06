@@ -1212,7 +1212,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T027 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src y T027.a–T027.c completas; T027.d1 siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src y T027.a–T027.d1 completas; T027.d2 siguiente).
 
 **Implementación y funciones:** servicio de repositorio dedicado para plan/apply; helpers para templates propios/managed sections, journal y diff. No añadir writes a `GuidanceService` ni al check-only `PolicyService`. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1228,7 +1228,8 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - [x] **T027.c — Planner de filesystem read-only** (4 archivos con este checklist): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `examples/repository-foundation/templates/ci-rust.yml`; `tasks/todo.md`. Registry de target fijo; archivos no-owned/conflict no se reemplazan.
 - RED T027.c: `cargo test -p jameskills-infra --locked --test template_plan missing_target_preview_is_bounded_and_does_not_create_files_or_directories` falló conductualmente cuando el planner devolvía NotFound para el target ausente; compilación correcta. GREEN: `template_plan` 3/3, `cargo test -p jameskills-infra --locked` pasa, Clippy infra `-D warnings`, fmt/diff-check pasan en Windows MSVC. Conflicto unowned conserva bytes; preview crea cero directorios/archivos y rechaza fingerprint mismatch.
 - El template ahora trae ambos triggers, `contents: read`, acciones fijadas a SHA tomadas del CI del proyecto y toolchain Rust1.95.0. No contiene placeholders ni `exit 1`; se presenta como datos inertes. Prueba symlinked parent está `cfg(unix)` y no se ejecutó en el host Windows; Windows reparse check compila, falta evidencia runtime Windows junction.
-- [ ] **T027.d1 — Persistir operation journals** (4 archivos; reutilizar `operations` migration existente): `crates/jameskills-core/src/ports/operation_journal.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/sqlite.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`.
+- [x] **T027.d1 — Persistir operation journals** (4 archivos; reutilizar `operations` migration existente): `crates/jameskills-core/src/ports/operation_journal.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/sqlite.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`.
+- RED T027.d1: `cargo test -p jameskills-infra --locked --test repo_change_journal duplicate_operation_id_is_conflict_and_does_not_replace_the_original_journal` falló porque el `INSERT OR REPLACE` reemplazaba el registro existente. GREEN: `repo_change_journal` 5/5; core+infra suites completas y Clippy `-D warnings` pasan. Reusa schema v3 `operations` sin migration extra; prueba reopen, CAS transitions, replay conflict, corrupt-field rejection, pending recovery y ausencia del contenido template.
 - [ ] **T027.d2 — Apply/recover transaccional y wiring** (4 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`.
 - [ ] **T027.e — Actualizar guía de ejemplo sin habilitar acciones** (2 archivos): `examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/guidance_service.rs`.
 
