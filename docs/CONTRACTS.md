@@ -175,6 +175,12 @@ y `GuidanceStep` son DTOs inmutables construidos por el parser: IDs únicos,
 `CopyApprovedCommand` con tool/operation registrados, `SelectLocalPath` con
 purpose acotado, `AnswerChoice` con opciones acotadas o `Recheck`. Ninguna
 acción ejecuta procesos, abre URLs arbitrarias ni contiene secretos.
+Una capa de presentación resuelve `OpenOfficialUrl.source` por registry app-owned
+y `CopyApprovedCommand` solo por un renderer exacto registrado de tool/operation;
+si falta renderer la acción es Unsupported. El texto copiable son datos para el
+usuario y no se pasa a ProcessPort ni modifica CheckResult. `SelectLocalPath`
+solicita un picker, `AnswerChoice` solo conserva un choice registrado y
+`Recheck` vuelve a consultar los providers; ninguna respuesta autoriza writes.
 
 `GuidanceFacts` contiene observaciones por `ApplicabilityFact`, cada una con
 valor del registry y `CheckEvidence`; la colección está ligada a un environment
@@ -584,6 +590,14 @@ Binario jameskills-cli, nombre mostrado jameskills. JSON wrapper {schema_version
 - backup export --output <path.jskills-backup>; backup restore --input <path> --preview
 - backup restore --input <path> --apply --confirm-digest <sha256>
 - sync status --json; sync run --json
+
+`doctor --json` incluye facts de plataforma y detección bounded de profiles de
+`profiles/tools.toml`. Solo inspecciona candidatos nativos/shims/Missing con
+`find_tool_candidates`; no ejecuta candidatos, instala tools ni revela paths.
+Native candidate sin fingerprint sigue Candidate/NeedsVerification y no tiene
+versión observada. Missing/Blocked puede incluir el install-guide ID/URL del
+registry para acción manual; guía no equivale a instalación ni a capability
+verificada. Respuesta mantiene el envelope/exit-code documentado.
 
 Plan JSON no constituye autorización ni prueba de integridad por sí mismo: validar paths/hash/version/fingerprint y nunca ejecutar fields arbitrarios. Passphrase por TTY oculto; CI cloud deshabilitado por defecto. No --password ni env con contraseña. JSON stdout redacted, diagnósticos stderr. CLI test dispatcher inyecta fake services y filesystem temporal.
 
