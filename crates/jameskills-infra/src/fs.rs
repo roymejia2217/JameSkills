@@ -9,8 +9,8 @@ use jameskills_core::{
         PolicyCheckProvider, TestSuiteRunApproval, TestSuiteRunnerPort, TestSuiteSnapshot,
     },
     domain::{
-        BundleEntry, Check, ContentHash, EntryKind, PortablePath, Requirement, ToolId,
-        ValidatedInventory,
+        BundleEntry, Check, ContentHash, EntryKind, PortablePath, RepoChangePlan, RepoTemplateId,
+        Requirement, ToolId, ValidatedInventory,
         guidance::{ToolAvailability, ToolVersionStatus},
         hash_bundle,
         policy::{
@@ -69,6 +69,10 @@ const MAX_CARGO_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_RELEASE_VERSION_BYTES: usize = 64;
 const MAX_NPM_VERSION_BYTES: usize = 1024;
 const MAX_NPM_OUTPUT_BYTES: usize = 64 * 1024;
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+const RUST_CI_TEMPLATE: &str =
+    include_str!("../../../examples/repository-foundation/templates/ci-rust.yml");
 const REVIEWED_NPM_VERSION: &str = "11.16.0";
 const GITLEAKS_CONFIG_PLACEHOLDER: &str = "{APP_GITLEAKS_CONFIG}";
 const GITLEAKS_DEFAULT_CONFIG: &str = "[extend]\nuseDefault = true\n";
@@ -2831,6 +2835,140 @@ fn read_repository_document(root: &Path, path: &PortablePath) -> ReadmeFile {
         return ReadmeFile::Blocked;
     }
     ReadmeFile::Bytes(bytes)
+}
+
+/// Fingerprints the canonical selected repository root without exposing its path.
+pub fn repository_root_fingerprint(root: &ApprovedRoot) -> AppResult<ContentHash> {
+    let canonical = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+    if !canonical.is_dir() {
+        return Err(AppError::NotFound);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"jameskills-repository-root-v1\0");
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = canonical.as_os_str().as_bytes();
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let units = canonical.as_os_str().encode_wide().collect::<Vec<_>>();
+        hasher.update((units.len() as u64).to_be_bytes());
+        for unit in units {
+            hasher.update(unit.to_be_bytes());
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let bytes = canonical.to_string_lossy();
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes.as_bytes());
+    }
+    Ok(ContentHash::from_digest(hasher.finalize().into()))
+}
+
+/// Read-only planner for the app-owned Rust CI template. It never creates
+/// parent directories or writes the target; apply performs full revalidation.
+pub fn plan_repo_template(
+    root: &ApprovedRoot,
+    root_fingerprint: &ContentHash,
+    expected_head: &RepositoryHead,
+    template_id: RepoTemplateId,
+) -> AppResult<RepoChangePlan> {
+    let canonical_root = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+    if !canonical_root.is_dir() {
+        return Err(AppError::NotFound);
+    }
+    if &repository_root_fingerprint(root)? != root_fingerprint {
+        return Err(AppError::Conflict { current: vec![] });
+    }
+    if RUST_CI_TEMPLATE.len() > MAX_README_BYTES as usize
+        || RUST_CI_TEMPLATE.contains("TEMPLATE DE PLAN")
+        || RUST_CI_TEMPLATE.contains("run: exit 1")
+    {
+        return Err(AppError::CapabilityUnavailable {
+            id: "repo.change.template.incomplete".to_owned(),
+            guidance_id: "repo-change-template-review".to_owned(),
+        });
+    }
+    let target = PortablePath::new(template_id.target().to_owned()).map_err(|_| {
+        AppError::Validation(vec![Diagnostic::error(
+            "repo.change.target.invalid",
+            "Registered repository template target is invalid.",
+        )])
+    })?;
+    inspect_repo_change_target_parents(&canonical_root, &target)?;
+    match read_repository_document(&canonical_root, &target) {
+        ReadmeFile::Missing => {}
+        ReadmeFile::Bytes(_) => return Err(AppError::Conflict { current: vec![] }),
+        ReadmeFile::Blocked => {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.blocked".to_owned(),
+            });
+        }
+    }
+    let mut diff = format!("--- /dev/null\n+++ b/{}\n", target.as_str());
+    for line in RUST_CI_TEMPLATE.lines() {
+        diff.push('+');
+        diff.push_str(line);
+        diff.push('\n');
+    }
+    RepoChangePlan::new(
+        template_id,
+        root_fingerprint.clone(),
+        expected_head.clone(),
+        None,
+        RUST_CI_TEMPLATE.as_bytes(),
+        diff,
+    )
+    .map_err(AppError::Validation)
+}
+
+fn inspect_repo_change_target_parents(root: &Path, target: &PortablePath) -> AppResult<()> {
+    let components = target.as_str().split('/').collect::<Vec<_>>();
+    let mut candidate = root.to_path_buf();
+    for component in components.iter().take(components.len().saturating_sub(1)) {
+        candidate.push(component);
+        let metadata = match std::fs::symlink_metadata(&candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => {
+                return Err(AppError::PermissionDenied {
+                    operation: "repo.change.target.blocked".to_owned(),
+                });
+            }
+        };
+        let file_type = metadata.file_type();
+        if !file_type.is_dir() || file_type.is_symlink() || is_reparse_point(&metadata) {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.blocked".to_owned(),
+            });
+        }
+        let canonical =
+            std::fs::canonicalize(&candidate).map_err(|_| AppError::PermissionDenied {
+                operation: "repo.change.target.blocked".to_owned(),
+            })?;
+        if canonical != candidate || !canonical.starts_with(root) {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.blocked".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
+    false
 }
 
 fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {
