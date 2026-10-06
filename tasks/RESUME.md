@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `74b0161`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `e718377`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T026 cerrado; T027 en curso
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `74b0161`, 44 commits por delante de `origin/feat/t020-commit-test-checks`; T027.d2c1 root-capability preview completado localmente. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `e718377`, 47 commits por delante de `origin/feat/t020-commit-test-checks`; T027.d2c2 create-only apply completado localmente. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -34,6 +34,9 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T027.d2b `d767f3c`: helper infra verifica Git profile/version y HEAD antes/después del preview con `--version` y `rev-parse HEAD` bajo ReadOnlyCheck/fingerprint. `template_plan` 7/7 y core+infra suites completas; Clippy core/infra pasa. ProcessPort fake verifica argv/permisos; todavía no es una implementación de `RepoChangePort` ni prueba un spawn real.
 - T027.d2c.src `74f6097` cita cap-std `4.0.3` y fija root-scoped filesystem capability handles, nofollow/reparse checks, create-only hardlink, same-filesystem staging y recovery sin borrar edits ajenos.
 - T027.d2c1 `74b0161`: cap-std pinned en Cargo.toml/lock; planner usa `Dir::open_ambient_dir` y lectura relativa. `cargo check -p infra --locked`, suite infra 7 passed + 1 ignored, Clippy infra `-D warnings`. Windows junction case ignored por host ERROR_PRIVILEGE_NOT_HELD; Unix symlink test aún no observado.
+- T027.d2c2 `5f94c21`: LocalRepoChangePort verifica preview/Git/HEAD/digest, registra Planned/Approved/Staged/CommitPending/NewMoved/Verified/Committed, hard-link create-only y elimina solo stage con hash exacto. Parent `.github/workflows` debe existir; no crea scaffolding. `template_plan` 13 passed/2 ignored, `repo_change_journal` 5/5, suite infra y Clippy pasan.
+- T027.d2c2 real Git `e718377`: opt-in `real_system_process_git_applies_registered_template_to_temporary_repository` pasó 1/1 en Windows con SystemProcessPort, Git profile/fingerprint y SQLite real en TempRepository; no toca el checkout. Runtime composition/CLI/GPUI aún no inyecta el SQLite journal.
+- Próximo T027.d2c3: startup recovery para journals pending; no se implementa todavía. Restarts pueden quedar como Pending hasta resolver recuperación conservadora de stage/target hashes.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -109,10 +112,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Cerrar T027.d2c2.src y empezar d2c2 con RED para target collision, stage failure y hard-link create-only bajo un `Dir` handle.
-2. Implementar `LocalRepoChangePort` con SQLite journal; si falla después de stage, dejar estado pending/recovery-visible, sin borrar target.
-3. Implementar recovery d2c3 por hashes y file identity; unresolved/reparse/junction states quedan conflicto.
-4. Ejecutar core/infra/CLI tests, Clippy, fmt/diff-check; composición storage GUI/CLI sigue pendiente.
+1. Iniciar T027.d2c3 con RED para recovery de Planned/Stage/CommitPending/Verified al reabrir SQLite.
+2. Resolver solo journals por root fingerprint, capability handles, stage/target hashes y file identity; no borrar target y dejar ambiguo como Conflict/Pending.
+3. Añadir failpoints crash/cancel después de stage, hard-link, verify y antes de commit state.
+4. Ejecutar core/infra/CLI tests, Clippy, fmt/diff-check; la composición RuntimeServices/GUI/CLI y junction Windows siguen pendientes.
 
 ## T020.b2.a completado
 
