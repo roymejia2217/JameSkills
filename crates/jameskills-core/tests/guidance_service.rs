@@ -230,6 +230,37 @@ fn acknowledgement_and_missing_session_cannot_create_success() {
 }
 
 #[test]
+fn acknowledging_a_copy_command_action_does_not_replace_check_evidence() {
+    let (service, _, _) = service();
+    let guidance = GUIDANCE.replace("\r\n", "\n").replacen(
+        "kind = \"open-official-url\"\nsource_id = \"git-install\"",
+        "kind = \"copy-approved-command\"\ntool_id = \"git\"\noperation = \"repository-root\"",
+        1,
+    );
+    assert_ne!(guidance, GUIDANCE, "fixture mutation must target Git setup");
+    let progress =
+        block_on(service.start_guidance(validated_bundle_with_guidance(&guidance), "git-setup"))
+            .unwrap();
+    let acknowledged = service
+        .advance(
+            progress.session_id(),
+            UserAnswer::Acknowledge {
+                step_id: "verify-git".to_owned(),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        acknowledged.decision().status(),
+        GuidanceProgressStatus::AwaitingEvidence
+    );
+    assert_eq!(
+        acknowledged.decision().steps()[0].verification_status(),
+        jameskills_core::domain::policy::CheckStatus::Unknown
+    );
+}
+
+#[test]
 fn recheck_replaces_unknown_reports_with_fresh_policy_results() {
     let (service, checks, _) = service();
     let progress = block_on(service.start_guidance(validated_bundle(), "git-setup")).unwrap();

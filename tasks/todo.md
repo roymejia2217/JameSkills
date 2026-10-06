@@ -1181,7 +1181,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T026 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** en curso (T026.src y T026.a completas; T026.b siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** en curso (T026.src y T026.a completas; T026.b en progreso).
 
 **Implementación y funciones:** GuidanceService::advance + recheck, doctor_command; ManualInstruction/OpenOfficialUrl/CopyApprovedCommand/SelectLocalPath/AnswerChoice/Recheck. Mutaciones reales pasan por PolicyService ApprovedRepoChange, no Guidance action libre. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1193,8 +1193,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - [x] **T026.a — Reportar candidates y guías en doctor** (4 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/doctor_command.rs`; `tasks/todo.md`. Datos bounded, paths/env omitidos, tool version sin probe no se marca Verified.
 - RED T026.a: `cargo test -p jameskills-cli --locked --test doctor_command` falló 2/2 por ausencia del array `data.tools` para Missing y Candidate; no fue error de compilación. GREEN: la misma suite pasó 3/3; cubre PATH vacío y guía oficial registrada, Candidate nativo no ejecutado/no verificado y renderer text.
 - Verificación T026.a Windows MSVC: `cargo test -p jameskills-cli --locked` 19/19; `cargo clippy -p jameskills-cli --all-targets --locked -- -D warnings`; fmt/diff-check pasan. `cargo run -p jameskills-cli --locked -- doctor --json` muestra Missing/Candidate/Blocked, null version si no hay probe y URLs registradas; no incluye executable paths.
-- [ ] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_actions.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
-- RED T026.b pendiente: step con CopyApprovedCommand no altera CheckStatus ni invoca ProcessPort; operación sin renderer queda Unsupported; cambio de facts invalida previa seleccionada antes de recheck.
+- [ ] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
+- RED T026.b: `cargo test -p jameskills-infra --locked --test guidance_actions renderer_resolves_only_registered_sources_and_exact_command_pairs` falló 0/1 por ausencia del renderer de `git-install` (no fue error de compilación). GREEN focal: `guidance_actions` 2/2 y `guidance_service` 7/7. La prueba core usa CopyApprovedCommand con check Unknown y confirma que acknowledge no lo convierte en Pass.
+- El renderer de `OpenOfficialUrl` usa cinco IDs/URLs app-owned; el único CopyApprovedCommand renderizado es `(Git, RepositoryRoot)` a texto copiable; combinación sin renderer queda `Unsupported`. No hay `ProcessPort` en la interfaz y el texto no se ejecuta.
 
 **Aceptación:**
 - [ ] La guía no ejecuta shell ni registra herramientas arbitrarias; copiar comando no cambia estado. Las acciones de repositorio tienen preview/digest y API aprobada.

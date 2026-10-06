@@ -182,6 +182,16 @@ usuario y no se pasa a ProcessPort ni modifica CheckResult. `SelectLocalPath`
 solicita un picker, `AnswerChoice` solo conserva un choice registrado y
 `Recheck` vuelve a consultar los providers; ninguna respuesta autoriza writes.
 
+`infra::platform::render_guidance_action(&GuidanceAction) ->
+RenderedGuidanceAction` transforma el enum cerrado en datos de presentación.
+`OpenOfficialUrl` resuelve solo los cinco `OfficialGuidanceSource` app-owned.
+`CopyApprovedCommand` tiene renderer únicamente para el par exacto
+`(Git, RepositoryRoot)` y produce `git rev-parse --show-toplevel`; otras
+combinaciones son `Unsupported`. El texto es solo copiable: este renderer no
+recibe `ProcessPort`, no ejecuta comandos ni produce evidencia. Las acciones de
+picker, choice, instrucción manual y recheck permanecen variantes de datos; el
+host de UI decide cómo presentarlas sin elevar su autoridad.
+
 `GuidanceFacts` contiene observaciones por `ApplicabilityFact`, cada una con
 valor del registry y `CheckEvidence`; la colección está ligada a un environment
 fingerprint. `GuidanceFactsProvider::observe_facts()` solo aporta facts realmente

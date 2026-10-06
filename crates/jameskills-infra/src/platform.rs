@@ -2,7 +2,7 @@ use directories::BaseDirs;
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
     domain::{
-        ToolId, ToolOperation,
+        GuidanceAction, OfficialGuidanceSource, ToolId, ToolOperation,
         guidance::{ToolAvailability, ToolDetection},
     },
     ports::process::{
@@ -231,6 +231,28 @@ pub struct ToolCandidate {
     kind: ToolCandidateKind,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub enum RenderedGuidanceAction {
+    ManualInstruction,
+    OpenOfficialUrl {
+        source_id: &'static str,
+        url: &'static str,
+    },
+    CopyApprovedCommand {
+        tool_id: ToolId,
+        operation: ToolOperation,
+        text: &'static str,
+    },
+    SelectLocalPath {
+        purpose: String,
+    },
+    AnswerChoice {
+        choices: Vec<String>,
+    },
+    Recheck,
+    Unsupported,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectStack {
     Rust,
@@ -279,6 +301,55 @@ impl ToolCandidate {
 
 pub fn load_tool_profiles() -> Result<Vec<ToolProfile>, Vec<Diagnostic>> {
     parse_tool_profiles(TOOL_PROFILE_SOURCE)
+}
+
+/// Resolves a validated guidance action to app-owned presentation data only.
+/// Returned command text is never passed to a process port.
+pub fn render_guidance_action(action: &GuidanceAction) -> RenderedGuidanceAction {
+    match action {
+        GuidanceAction::ManualInstruction => RenderedGuidanceAction::ManualInstruction,
+        GuidanceAction::OpenOfficialUrl { source } => match source {
+            OfficialGuidanceSource::GitInstall => RenderedGuidanceAction::OpenOfficialUrl {
+                source_id: "git-install",
+                url: "https://git-scm.com/downloads",
+            },
+            OfficialGuidanceSource::Gitleaks => RenderedGuidanceAction::OpenOfficialUrl {
+                source_id: "gitleaks",
+                url: "https://github.com/gitleaks/gitleaks",
+            },
+            OfficialGuidanceSource::ConventionalCommits => {
+                RenderedGuidanceAction::OpenOfficialUrl {
+                    source_id: "conventional-commits",
+                    url: "https://www.conventionalcommits.org/en/v1.0.0/",
+                }
+            }
+            OfficialGuidanceSource::GithubCli => RenderedGuidanceAction::OpenOfficialUrl {
+                source_id: "github-cli",
+                url: "https://cli.github.com/manual/gh_auth_login",
+            },
+            OfficialGuidanceSource::GithubRulesets => RenderedGuidanceAction::OpenOfficialUrl {
+                source_id: "github-rulesets",
+                url: "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets",
+            },
+        },
+        GuidanceAction::CopyApprovedCommand { tool_id, operation }
+            if *tool_id == ToolId::Git && *operation == ToolOperation::RepositoryRoot =>
+        {
+            RenderedGuidanceAction::CopyApprovedCommand {
+                tool_id: *tool_id,
+                operation: *operation,
+                text: "git rev-parse --show-toplevel",
+            }
+        }
+        GuidanceAction::CopyApprovedCommand { .. } => RenderedGuidanceAction::Unsupported,
+        GuidanceAction::SelectLocalPath { purpose } => RenderedGuidanceAction::SelectLocalPath {
+            purpose: purpose.clone(),
+        },
+        GuidanceAction::AnswerChoice { choices } => RenderedGuidanceAction::AnswerChoice {
+            choices: choices.clone(),
+        },
+        GuidanceAction::Recheck => RenderedGuidanceAction::Recheck,
+    }
 }
 
 pub async fn detect_tools(
