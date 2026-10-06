@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `e5089fe`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `8f52157`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T026 cerrado; T027 en curso
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `e5089fe`, 35 commits por delante de `origin/feat/t020-commit-test-checks`; T027.src/a/b/c/d1 completados localmente. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `8f52157`, 39 commits por delante de `origin/feat/t020-commit-test-checks`; T027.src/a/b/c/d1/d2.src/d2a completados localmente. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -29,7 +29,8 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T027.c `1b2e6e3`: root fingerprint canónico, planner de template create-only para `.github/workflows/jameskills-ci.yml`, diff bounded, paths padre no-follow/reparse check, conflicto si target existe y ninguna escritura/creación de directorios. `template_plan` 3/3; suite infra completa y Clippy infra `-D warnings` pasan. Workflow de ejemplo usa SHA de acciones del CI del proyecto y toolchain1.95.0; es data, no se ejecutó. Symlink-parent test `cfg(unix)` no corrió en Windows; reparse-check Windows compiló, runtime junction queda pendiente.
 - `75d1faa` actualiza el runtime-fixture assertion del CI de ejemplo: exige triggers, contents:read, refs SHA, toolchain1.95.0 y ningún placeholder/`exit 1`; el test de bundle pasó.
 - T027.d1 `e5089fe`: `OperationJournalPort` y SQLite usan tabla `operations` (schema v3, sin migración); payload JSON estricto 16KiB con paths locales/hashes, nunca contenido. Estado CAS transaccional y límites 256 pending. RED duplicate-ID detectó `INSERT OR REPLACE`; GREEN journal 5/5, core+infra suites completas y Clippy `-D warnings` pasan.
-- T027.d2.src en working tree: `RepoPolicyRequest` transporta Git executable+fingerprint+`ApprovedEnv`; `ProcessPort` lee versión registrada y `rev-parse HEAD` para preflight/apply. Composition aún no inicializa SQLite; el wiring durable no se atribuye hecho.
+- T027.d2.src `9be943a` define Git fingerprint/environment aprobado y limita los probes a argv/read-only; composition aún no inicializa SQLite.
+- T027.d2a `ca18acf`, corrección `8f52157`: requests y RepoChangePort llevan Git executable+fingerprint+`ApprovedEnv`; constructor exige confirmación del fingerprint exacto. RED confirmó que un digest distinto era aceptado; `repo_change_service` 4/4, Clippy core `-D warnings` y fmt/diff-check pasan.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -105,9 +106,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Implementar T027.d2a: type `ApprovedRepoGit` y tests del servicio; modificar port para que la aprobación explícita viaje con cada request.
-2. T027.d2b/d2c: read-only version/head provider; después create-only apply con journal, revalidación y recovery failpoints.
-3. La apertura SQLite en RuntimeServices/CLI/GPUI sigue pendiente; no inyectar un provider de éxito falso. Validar crash/cancel/reopen y suites al conectar storage real.
+1. Iniciar T027.d2b con RED de versión Git incompatible o HEAD stale; ambos deben bloquear preview y no modificar el repo.
+2. Implementar read-only `--version` + `rev-parse HEAD` con fingerprint/argv del profile y `ReadOnlyCheck`; volver a revisar HEAD inmediatamente antes del apply en d2c.
+3. T027.d2c: create-only apply/recovery con staging mismo filesystem y `OperationJournalPort`. Composition no abre SQLite aún; no afirmar RuntimeServices/CLI/GPUI wired.
+4. Correr tests core/infra/CLI, Clippy, fmt y diff-check; verificar cancel/crash/reopen y registrar runtime OS aún no probado.
 
 ## T020.b2.a completado
 
