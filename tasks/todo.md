@@ -1136,7 +1136,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T025 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b completa; T025.c siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** en curso (T025.b2 completa; T025.c en curso).
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1153,10 +1153,18 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - Evidencia T025.b.src: el planner deriva estado solo de applicability facts con evidence fresca, DAG de steps y CheckReport; UserAnswer no tiene autoridad para completar un step. Recheck usa GuidanceFactsProvider + PolicyService, reemplaza report y borra choices si cambia environment fingerprint. Sesiones process-local no se presentan como durables.
 - [x] **T025.b — Planificar próximo step desde facts/evidence** (4 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Orden topológico; rama Unknown no se selecciona; step solo completa con fresh Pass de todos sus verifiers.
 - RED T025.b: `cargo test -p jameskills-core --locked --test guidance_planner` con planner conservador falló porque un verifier Pass seguía AwaitingEvidence; Unknown applicability branch y estados de paso no se calculaban.
-- GREEN T025.b: `cargo test -p jameskills-core --locked --test guidance_planner` pasa 7/7. Cubre fresh Pass, fail/expired verifier, acknowledgement que no pasa, answer choice validado, fact mismatch/expiration, dependency blocked vs rama independiente y plan completion.
+- GREEN T025.b: suite guidance_planner 9/9 antes de añadir el regression slice de fingerprints; incluye fresh Pass, fail/expired verifier, acknowledgement que no pasa, answer choice validado, fact mismatch/expiration, dependency blocked vs rama independiente y Missing auth Blocked.
 - Gates T025.b: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
-- [ ] **T025.c — Crear servicio de sesiones y recheck real** (4 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
+- [x] **T025.b2 — Mantener independientes los fingerprints de facts y checks** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. La fingerprint de GuidanceFacts no sustituye la del provider en cada CheckEvidence; cada una se invalida por su propio origen/expiry.
+- RED T025.b2: `check_evidence_fingerprint_is_not_compared_to_platform_fact_fingerprint` falló Pass esperado/ AwaitingEvidence observado al exigir por error igualdad entre fingerprints de facts y CheckReport.
+- GREEN T025.b2: la prueba de fingerprints distintos pasa 1/1; checks siguen exigiendo evidence fresca, y la suite se repetirá en los gates acumulados finales.
+- [ ] **T025.c — Crear servicio de sesiones y recheck real** (5 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
+- RED T025.c: `cargo test -p jameskills-core --locked --test guidance_service` falló conductualmente con start Unknown en vez de exponer el step verificado y advance NotFound para una sesión recién creada.
+- GREEN T025.c: `guidance_service` pasa 6/6. Start incluye plan real y CheckReport; acknowledgement no concede status; recheck actualiza Unknown a Pass con report nuevo; fallo de recheck descarta Pass anterior; fingerprint distinto limpia choices; límite 64 y close libera capacidad.
+- Gates T025.c: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt/diff-check pasan. Live sessions son process-local; no se afirma persistencia SQLite.
 - [ ] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
+- RED T025.d: `guidance_runtime` expuso por compile-time que `RuntimeServices` aún no publicaba el acceso a GuidanceService; se corrige como wiring gap, no se cuenta como RED de dominio.
+- GREEN T025.d: `cargo test -p jameskills-infra --locked --test guidance_runtime` pasa 1/1; facts OS con CheckEvidence fresco seleccionan rama no aplicable, mientras el `UnavailablePolicyCheckProvider` deja el verifier aplicable como Unknown/AwaitingEvidence.
 
 **Semántica obligatoria:** facts desconocidos nunca seleccionan rama; “lo completé” solo registra una respuesta y no produce Pass; step solo Completed con fresh Pass para todos los `verification_requirement_ids`. Cambio de fingerprint/revision invalida respuestas/evidence dependientes. Acción copiar/abrir es inerte; credenciales y texto libre secreto no entran a la sesión.
 

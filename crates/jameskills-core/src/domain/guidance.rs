@@ -587,7 +587,6 @@ pub fn next_step(
         });
         let verification_status = verification_status(
             &step.verification_requirement_ids,
-            facts.environment_fingerprint(),
             reports,
             now_monotonic_ms,
         );
@@ -681,7 +680,6 @@ fn step_progress_status(
 
 fn verification_status(
     requirement_ids: &[String],
-    environment_fingerprint: &str,
     reports: &[CheckReport],
     now_monotonic_ms: u64,
 ) -> CheckStatus {
@@ -699,11 +697,7 @@ fn verification_status(
             statuses.push(CheckStatus::Unknown);
             continue;
         }
-        statuses.push(check_result_status(
-            result,
-            environment_fingerprint,
-            now_monotonic_ms,
-        ));
+        statuses.push(check_result_status(result, now_monotonic_ms));
     }
     if statuses.contains(&CheckStatus::Fail) {
         CheckStatus::Fail
@@ -716,16 +710,12 @@ fn verification_status(
     }
 }
 
-fn check_result_status(
-    result: &CheckResult,
-    environment_fingerprint: &str,
-    now_monotonic_ms: u64,
-) -> CheckStatus {
+fn check_result_status(result: &CheckResult, now_monotonic_ms: u64) -> CheckStatus {
     if result.evidence().is_empty()
-        || result.evidence().iter().any(|evidence| {
-            evidence.environment_fingerprint() != environment_fingerprint
-                || evidence.is_expired_at(now_monotonic_ms)
-        })
+        || result
+            .evidence()
+            .iter()
+            .any(|evidence| evidence.is_expired_at(now_monotonic_ms))
     {
         CheckStatus::Unknown
     } else {

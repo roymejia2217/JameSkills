@@ -57,6 +57,7 @@ impl ClockPort for TestClock {
 struct FakeChecks {
     passing: BTreeSet<String>,
     failing: BTreeSet<String>,
+    blocked: BTreeSet<String>,
     expires_at: Option<u64>,
 }
 
@@ -70,6 +71,8 @@ impl PolicyCheckProvider for FakeChecks {
             CheckStatus::Pass
         } else if self.failing.contains(requirement.id()) {
             CheckStatus::Fail
+        } else if self.blocked.contains(requirement.id()) {
+            CheckStatus::Blocked
         } else {
             return Ok(CheckObservation::unknown());
         };
@@ -119,10 +122,21 @@ fn check_report_with_failures(
     failing: &[&str],
     expires_at: Option<u64>,
 ) -> jameskills_core::domain::policy::CheckReport {
+    check_report_with_statuses(bundle, passing, failing, &[], expires_at)
+}
+
+fn check_report_with_statuses(
+    bundle: &jameskills_core::domain::ValidatedBundle,
+    passing: &[&str],
+    failing: &[&str],
+    blocked: &[&str],
+    expires_at: Option<u64>,
+) -> jameskills_core::domain::policy::CheckReport {
     let service = PolicyService::new(
         Arc::new(FakeChecks {
             passing: passing.iter().map(|id| (*id).to_owned()).collect(),
             failing: failing.iter().map(|id| (*id).to_owned()).collect(),
+            blocked: blocked.iter().map(|id| (*id).to_owned()).collect(),
             expires_at,
         }),
         Arc::new(TestClock),
@@ -160,6 +174,24 @@ fn facts_with_expiry(os: Option<&str>, expires_at: Option<u64>) -> GuidanceFacts
         })
         .unwrap_or_default();
     GuidanceFacts::new(ENVIRONMENT, observations).unwrap()
+}
+
+fn one_fact(fact: ApplicabilityFact, value: &str, expires_at: Option<u64>) -> GuidanceFacts {
+    let observation = GuidanceFactObservation::new(
+        fact,
+        value,
+        CheckEvidence::new(
+            "test.guidance.facts",
+            NOW,
+            None,
+            ENVIRONMENT,
+            "Typed applicability fact",
+            expires_at,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    GuidanceFacts::new(ENVIRONMENT, [observation]).unwrap()
 }
 
 fn guide<'a>(
@@ -286,6 +318,85 @@ fn failed_check_remains_failed_and_cannot_complete_a_step() {
         decision.steps()[0].status(),
         GuidanceStepStatus::AwaitingEvidence
     );
+}
+
+#[test]
+fn blocked_check_for_missing_auth_never_completes_from_manual_answer() {
+    let bundle = validated_bundle(GUIDANCE);
+    let report = check_report_with_statuses(&bundle, &[], &[], &["git-ready"], Some(200));
+    let answers = BTreeMap::from([("verify-git".to_owned(), GuidanceAnswer::Acknowledge)]);
+    let decision = next_step(
+        guide(&bundle, "git-setup"),
+        &facts(Some("windows")),
+        &[report],
+        &answers,
+        100,
+    );
+
+    assert_eq!(decision.status(), GuidanceProgressStatus::AwaitingEvidence);
+    assert_eq!(
+        decision.steps()[0].verification_status(),
+        CheckStatus::Blocked
+    );
+    assert_eq!(
+        decision.steps()[0].status(),
+        GuidanceStepStatus::AwaitingEvidence
+    );
+}
+
+#[test]
+fn stack_fact_selects_only_the_matching_registered_toolchain_branch() {
+    let conditional = GUIDANCE.replacen(
+        "verification_requirement_ids = [\"git-ready\"]",
+        "verification_requirement_ids = [\"git-ready\"]\napplies_when = { fact = \"stack\", equals = \"node\" }",
+        1,
+    );
+    let bundle = validated_bundle(&conditional);
+    let report = check_report(&bundle, &["git-ready"], Some(200));
+    let decision = next_step(
+        guide(&bundle, "git-setup"),
+        &one_fact(ApplicabilityFact::Stack, "rust", Some(200)),
+        &[report],
+        &BTreeMap::new(),
+        100,
+    );
+
+    assert_eq!(decision.status(), GuidanceProgressStatus::Complete);
+    assert_eq!(
+        decision.steps()[0].status(),
+        GuidanceStepStatus::NotApplicable
+    );
+}
+
+#[test]
+fn check_evidence_fingerprint_is_not_compared_to_platform_fact_fingerprint() {
+    let bundle = validated_bundle(GUIDANCE);
+    let report = check_report(&bundle, &["git-ready"], Some(200));
+    let platform_fingerprint = format!("sha256:{}", "1".repeat(64));
+    let platform_fact = GuidanceFactObservation::new(
+        ApplicabilityFact::Os,
+        "linux",
+        CheckEvidence::new(
+            "test.guidance.facts",
+            NOW,
+            None,
+            &platform_fingerprint,
+            "Platform fact from a different observation source.",
+            Some(200),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let facts = GuidanceFacts::new(&platform_fingerprint, [platform_fact]).unwrap();
+    let decision = next_step(
+        guide(&bundle, "git-setup"),
+        &facts,
+        &[report],
+        &BTreeMap::new(),
+        100,
+    );
+
+    assert_eq!(decision.status(), GuidanceProgressStatus::Complete);
 }
 
 #[test]
