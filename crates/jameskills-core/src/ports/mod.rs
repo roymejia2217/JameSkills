@@ -11,5 +11,5 @@ pub use filesystem::{
     write_bundle_archive,
 };
 pub use operation_journal::{OperationJournalPort, RepoChangeJournal, RepoChangeJournalState};
-pub use repo_change::RepoChangePort;
+pub use repo_change::{ApprovedRepoGit, RepoChangePort};
 pub use storage::{CURRENT_SCHEMA_VERSION, StoragePort};

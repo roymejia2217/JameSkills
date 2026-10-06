@@ -2,7 +2,7 @@ use crate::{
     AppError, AppResult, ContentHash, Diagnostic, PortablePath,
     domain::{ApprovedRepoChange, RepoChangePlan, RepoTemplateId, policy::RepositoryHead},
     ports::{
-        RepoChangePort,
+        ApprovedRepoGit, RepoChangePort,
         process::{ApprovedRoot, CancellationToken},
     },
 };
@@ -13,6 +13,7 @@ pub struct RepoPolicyRequest {
     root_fingerprint: ContentHash,
     expected_head: RepositoryHead,
     template_id: RepoTemplateId,
+    git: ApprovedRepoGit,
 }
 
 impl RepoPolicyRequest {
@@ -21,12 +22,14 @@ impl RepoPolicyRequest {
         root_fingerprint: ContentHash,
         expected_head: RepositoryHead,
         template_id: RepoTemplateId,
+        git: ApprovedRepoGit,
     ) -> Self {
         Self {
             root,
             root_fingerprint,
             expected_head,
             template_id,
+            git,
         }
     }
 
@@ -44,6 +47,10 @@ impl RepoPolicyRequest {
 
     pub fn template_id(&self) -> RepoTemplateId {
         self.template_id
+    }
+
+    pub fn git(&self) -> &ApprovedRepoGit {
+        &self.git
     }
 }
 
@@ -94,6 +101,7 @@ impl RepositoryChangeService {
                 request.root_fingerprint(),
                 request.expected_head(),
                 request.template_id(),
+                request.git(),
                 cancellation,
             )
             .await?;
@@ -126,7 +134,7 @@ impl RepositoryChangeService {
             ApprovedRepoChange::after_explicit_digest_confirmation(plan.clone(), confirmed_digest)
                 .map_err(AppError::Validation)?;
         self.port
-            .apply(request.root(), approval, cancellation)
+            .apply(request.root(), approval, request.git(), cancellation)
             .await?;
         Ok(RepoChangeReceipt {
             operation_id: plan.operation_id(),

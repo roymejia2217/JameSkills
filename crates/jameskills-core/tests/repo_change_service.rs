@@ -1,14 +1,17 @@
 use async_trait::async_trait;
 use jameskills_core::{
     AppError, AppResult, ContentHash,
-    application::{RepoPolicyRequest, RepositoryChangeService},
+    application::{ApprovedRepoGit, RepoPolicyRequest, RepositoryChangeService},
     domain::{RepoChangePlan, RepoTemplateId, policy::RepositoryHead},
     ports::{
         RepoChangePort,
-        process::{ApprovedRoot, CancellationToken},
+        process::{
+            ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
+        },
     },
 };
 use std::{
+    collections::BTreeMap,
     future::Future,
     sync::{
         Arc,
@@ -38,11 +41,17 @@ fn hash(byte: char) -> ContentHash {
 }
 
 fn request(root_fingerprint: char) -> RepoPolicyRequest {
+    let git = ApprovedRepoGit::new(
+        ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap(),
+        ExecutableFingerprint::from_sha256([0x5a; 32]),
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+    );
     RepoPolicyRequest::new(
         ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap(),
         hash(root_fingerprint),
         RepositoryHead::parse(&"a".repeat(40)).unwrap(),
         RepoTemplateId::RustCi,
+        git,
     )
 }
 
@@ -50,6 +59,7 @@ fn request(root_fingerprint: char) -> RepoPolicyRequest {
 struct FakeRepoChangePort {
     previews: AtomicUsize,
     applies: AtomicUsize,
+    seen_git_fingerprint: std::sync::Mutex<Option<[u8; 32]>>,
 }
 
 #[async_trait]
@@ -60,9 +70,11 @@ impl RepoChangePort for FakeRepoChangePort {
         root_fingerprint: &ContentHash,
         expected_head: &RepositoryHead,
         template_id: RepoTemplateId,
+        git: &ApprovedRepoGit,
         _cancellation: CancellationToken,
     ) -> AppResult<RepoChangePlan> {
         self.previews.fetch_add(1, Ordering::Relaxed);
+        *self.seen_git_fingerprint.lock().unwrap() = Some(*git.fingerprint().as_bytes());
         RepoChangePlan::new(
             template_id,
             root_fingerprint.clone(),
@@ -78,9 +90,11 @@ impl RepoChangePort for FakeRepoChangePort {
         &self,
         _root: &ApprovedRoot,
         _approval: jameskills_core::domain::ApprovedRepoChange,
+        git: &ApprovedRepoGit,
         _cancellation: CancellationToken,
     ) -> AppResult<()> {
         self.applies.fetch_add(1, Ordering::Relaxed);
+        *self.seen_git_fingerprint.lock().unwrap() = Some(*git.fingerprint().as_bytes());
         Ok(())
     }
 }
@@ -98,6 +112,7 @@ fn preview_calls_only_the_read_only_port() {
     );
     assert_eq!(port.previews.load(Ordering::Relaxed), 1);
     assert_eq!(port.applies.load(Ordering::Relaxed), 0);
+    assert_eq!(*port.seen_git_fingerprint.lock().unwrap(), Some([0x5a; 32]));
 }
 
 #[test]
@@ -151,4 +166,5 @@ fn exact_digest_approval_calls_the_write_port_and_returns_receipt() {
     assert_eq!(receipt.target(), preview.target());
     assert_eq!(receipt.applied_hash(), preview.proposed_hash());
     assert_eq!(port.applies.load(Ordering::Relaxed), 1);
+    assert_eq!(*port.seen_git_fingerprint.lock().unwrap(), Some([0x5a; 32]));
 }
