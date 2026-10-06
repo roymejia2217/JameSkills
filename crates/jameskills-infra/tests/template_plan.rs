@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use jameskills_core::{
-    AppError, AppResult, ContentHash,
+    AppError, AppResult, ContentHash, OperationId,
     application::{RepoPolicyRequest, RepositoryChangeService},
-    domain::{RepoTemplateId, policy::RepositoryHead},
+    domain::{RepoTemplateId, ToolId, policy::RepositoryHead},
     ports::{
         ApprovedRepoGit, ClockPort, OperationJournalPort, RepoChangeJournalState,
         process::{
@@ -16,11 +16,13 @@ use jameskills_infra::{
         LocalRepoChangePort, plan_repo_template, plan_repo_template_with_approved_git,
         repository_root_fingerprint,
     },
-    process::fingerprint_executable,
+    platform::{PlatformFacts, ToolCandidateKind, find_tool_candidates, load_tool_profiles},
+    process::{SystemProcessPort, fingerprint_executable},
     sqlite::SqliteStore,
 };
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
+    ffi::OsString,
     future::Future,
     path::{Path, PathBuf},
     sync::{
@@ -28,6 +30,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
     task::{Context, Poll, Wake, Waker},
+    time::Duration,
 };
 
 static NEXT_REPOSITORY: AtomicU64 = AtomicU64::new(0);
@@ -154,6 +157,75 @@ fn git_preview_outputs(head: char, cycles: usize) -> Vec<ProcessOutput> {
         outputs.push(git_output(&head_output));
     }
     outputs
+}
+
+fn approved_system_git(repository: &TempRepository) -> ApprovedRepoGit {
+    let profiles = load_tool_profiles().unwrap();
+    let paths = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let candidates = find_tool_candidates(&profiles, &paths, PlatformFacts::detect().platform);
+    let candidate = candidates
+        .iter()
+        .find(|candidate| {
+            candidate.tool_id() == ToolId::Git
+                && candidate.kind() == ToolCandidateKind::NativeExecutable
+        })
+        .expect("opt-in Git integration requires a native Git candidate");
+    let executable_path = candidate.path().expect("native Git has a path");
+    let fingerprint = fingerprint_executable(executable_path).unwrap();
+    let mut environment = BTreeMap::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        environment.insert(OsString::from("PATH"), path);
+    }
+    if cfg!(windows) {
+        environment.insert(
+            OsString::from("USERPROFILE"),
+            repository.path().as_os_str().to_os_string(),
+        );
+    } else {
+        environment.insert(
+            OsString::from("HOME"),
+            repository.path().as_os_str().to_os_string(),
+        );
+    }
+    ApprovedRepoGit::after_explicit_fingerprint_confirmation(
+        ApprovedExecutable::from_absolute_path(executable_path.to_path_buf()).unwrap(),
+        fingerprint,
+        &fingerprint,
+        ApprovedEnv::new(environment).unwrap(),
+    )
+    .unwrap()
+}
+
+fn run_approved_git_command(
+    git: &ApprovedRepoGit,
+    repository: &TempRepository,
+    args: &[&str],
+    permission: ProcessPermission,
+) -> ProcessOutput {
+    let executable =
+        ApprovedExecutable::from_absolute_path(git.executable().path().to_path_buf()).unwrap();
+    let root = repository.approved_root();
+    let environment = ApprovedEnv::new(git.environment().entries().clone()).unwrap();
+    let spec = ProcessSpec::new(
+        executable,
+        ToolId::Git,
+        args.iter().map(OsString::from).collect(),
+        root,
+        environment,
+        Duration::from_secs(30),
+        32 * 1024,
+        permission,
+        CancellationToken::new(),
+    )
+    .unwrap()
+    .with_approved_executable_fingerprint(git.fingerprint());
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(SystemProcessPort.run(spec))
+        .unwrap()
 }
 
 fn change_service(
@@ -411,6 +483,103 @@ fn approved_apply_creates_only_the_registered_template_and_commits_its_journal()
     assert_eq!(
         store.load_operation(operation_id).unwrap().unwrap().state(),
         RepoChangeJournalState::Committed
+    );
+    assert!(store.pending_operations().unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "explicitly runs fingerprint-approved Git and applies only within a temporary repository"]
+fn real_system_process_git_applies_registered_template_to_temporary_repository() {
+    let repository = TempRepository::new();
+    let git_template_dir = repository.path().join("empty-git-template");
+    std::fs::create_dir_all(&git_template_dir).unwrap();
+    let git = approved_system_git(&repository);
+    let template_arg = format!("--template={}", git_template_dir.to_string_lossy());
+    let initialized = run_approved_git_command(
+        &git,
+        &repository,
+        &["init", template_arg.as_str()],
+        ProcessPermission::ExplicitMutation(OperationId::new()),
+    );
+    assert_eq!(initialized.exit_code(), Some(0));
+    let committed = run_approved_git_command(
+        &git,
+        &repository,
+        &[
+            "-c",
+            "user.name=JameSkills Fixture",
+            "-c",
+            "user.email=jameskills@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ],
+        ProcessPermission::ExplicitMutation(OperationId::new()),
+    );
+    assert_eq!(committed.exit_code(), Some(0));
+    let head_output = run_approved_git_command(
+        &git,
+        &repository,
+        &["rev-parse", "HEAD"],
+        ProcessPermission::ReadOnlyCheck,
+    );
+    assert_eq!(head_output.exit_code(), Some(0));
+    let actual_head = std::str::from_utf8(head_output.stdout())
+        .unwrap()
+        .trim()
+        .to_owned();
+    let workflow_directory = repository.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflow_directory).unwrap();
+    let root = repository.approved_root();
+    let root_fingerprint = repository_root_fingerprint(&root).unwrap();
+    let store = Arc::new(SqliteStore::open(&repository.path().join("jameskills.sqlite3")).unwrap());
+    let port = Arc::new(LocalRepoChangePort::new(
+        Arc::new(SystemProcessPort),
+        store.clone(),
+        Arc::new(TestClock),
+    ));
+    let service = RepositoryChangeService::new(port);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let preview = runtime
+        .block_on(service.plan_repo_changes(
+            &RepoPolicyRequest::new(
+                root,
+                root_fingerprint,
+                RepositoryHead::parse(&actual_head).unwrap(),
+                RepoTemplateId::RustCi,
+                git,
+            ),
+            CancellationToken::new(),
+        ))
+        .unwrap();
+    let operation_id = preview.operation_id();
+    let digest = preview.confirmation_digest().clone();
+    let apply_git = approved_system_git(&repository);
+
+    let receipt = runtime
+        .block_on(service.apply_repo_changes(
+            RepoPolicyRequest::new(
+                repository.approved_root(),
+                repository_root_fingerprint(&repository.approved_root()).unwrap(),
+                RepositoryHead::parse(&actual_head).unwrap(),
+                RepoTemplateId::RustCi,
+                apply_git,
+            ),
+            preview,
+            &digest,
+            CancellationToken::new(),
+        ))
+        .unwrap();
+
+    assert_eq!(receipt.operation_id(), operation_id);
+    assert_eq!(
+        std::fs::read_to_string(repository.path().join(RepoTemplateId::RustCi.target())).unwrap(),
+        include_str!("../../../examples/repository-foundation/templates/ci-rust.yml")
     );
     assert!(store.pending_operations().unwrap().is_empty());
 }
