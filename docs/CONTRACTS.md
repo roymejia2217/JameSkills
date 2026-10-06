@@ -562,8 +562,12 @@ y `apply_repo_changes(ApprovedRepoChange) -> ApplyResult` pertenecen a un
 servicio de aplicación dedicado, no a `GuidanceService` ni al check-only
 `PolicyService`. El request acepta solo
 un `RepoTemplateId` app-owned (nunca bytes, rutas o comandos del bundle) y queda
-vinculado al `ApprovedRoot` seleccionado y `RepositoryHead` observado. El plan
-expone targets portables, diff bounded, hash anterior/ausencia esperada, hash del
+vinculado al `ApprovedRoot`, `RepositoryHead` y `ApprovedRepoGit` seleccionado;
+este último conserva executable fingerprint y environment allowlisted. Preview
+verifica versión Git con argv registrado y observa `rev-parse HEAD` mediante
+`ProcessPort`/`ReadOnlyCheck`; nunca ejecuta shell. Apply repite esa revalidación
+antes de mutar. El plan expone targets portables, diff bounded, hash
+anterior/ausencia esperada, hash del
 contenido nuevo y digest de confirmación sobre root/head/target/estados. La
 confirmación es un DTO no deserializable ligado al plan y su `OperationId`.
 

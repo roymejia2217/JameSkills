@@ -29,7 +29,7 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T027.c `1b2e6e3`: root fingerprint canónico, planner de template create-only para `.github/workflows/jameskills-ci.yml`, diff bounded, paths padre no-follow/reparse check, conflicto si target existe y ninguna escritura/creación de directorios. `template_plan` 3/3; suite infra completa y Clippy infra `-D warnings` pasan. Workflow de ejemplo usa SHA de acciones del CI del proyecto y toolchain1.95.0; es data, no se ejecutó. Symlink-parent test `cfg(unix)` no corrió en Windows; reparse-check Windows compiló, runtime junction queda pendiente.
 - `75d1faa` actualiza el runtime-fixture assertion del CI de ejemplo: exige triggers, contents:read, refs SHA, toolchain1.95.0 y ningún placeholder/`exit 1`; el test de bundle pasó.
 - T027.d1 `e5089fe`: `OperationJournalPort` y SQLite usan tabla `operations` (schema v3, sin migración); payload JSON estricto 16KiB con paths locales/hashes, nunca contenido. Estado CAS transaccional y límites 256 pending. RED duplicate-ID detectó `INSERT OR REPLACE`; GREEN journal 5/5, core+infra suites completas y Clippy `-D warnings` pasan.
-- Próximo slice T027.d2: implementar RepoChangePort real con ProcessPort/fingerprint Git y expected-HEAD revalidation, stage/apply create-only bajo journal, rollback/recovery y composition wiring. T027.e actualizará la guidance fixture después de tener apply seguro; no saltarse edits concurrentes ni ejecutar templates.
+- T027.d2.src en working tree: `RepoPolicyRequest` transporta Git executable+fingerprint+`ApprovedEnv`; `ProcessPort` lee versión registrada y `rev-parse HEAD` para preflight/apply. Composition aún no inicializa SQLite; el wiring durable no se atribuye hecho.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -105,10 +105,9 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Iniciar T027.d2 con RED sobre expected HEAD/destination hash changed entre preview y apply; aún no hay implementación `RepoChangePort` infra.
-2. Implementar `RepoChangePort` con identidad Git aprobada/fingerprint y revalidación; no invocar comandos shell ni aplicar contenido imported.
-3. Hacer apply create-only transaccional con same-filesystem staging, journal antes/después de rename y recovery failpoints; no borrar/overwrite si owner hash cambió.
-4. Conectar composition y probar crash/cancel/reopen + suites core/infra/CLI, Clippy, fmt/diff-check. Runtime Windows junction sigue bloqueando afirmar cobertura completa.
+1. Implementar T027.d2a: type `ApprovedRepoGit` y tests del servicio; modificar port para que la aprobación explícita viaje con cada request.
+2. T027.d2b/d2c: read-only version/head provider; después create-only apply con journal, revalidación y recovery failpoints.
+3. La apertura SQLite en RuntimeServices/CLI/GPUI sigue pendiente; no inyectar un provider de éxito falso. Validar crash/cancel/reopen y suites al conectar storage real.
 
 ## T020.b2.a completado
 
