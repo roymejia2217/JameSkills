@@ -189,13 +189,14 @@ evidence presente/fresca. `GuidanceDecision` expone estado acotado por step y
 como máximo el siguiente paso actionable.
 
 `GuidanceService` recibe `Arc<PolicyService>`, `GuidanceFactsProvider` y
-`ClockPort`. `start_guidance(ValidatedBundle, plan_id)` captura facts y checks
+`ClockPort`. `start_guidance(Arc<ValidatedBundle>, plan_id)` captura facts y checks
 para las policies del bundle. `advance(session_id, UserAnswer)` acepta solo
 acknowledge o choice registrada y vuelve a calcular el planner; nunca altera
 check status/evidence. `recheck(session_id)` vuelve a pedir facts y ejecutar
 PolicyService; reemplaza reports anteriores. Si cambia el fingerprint borra
-answers del plan. Session progress es process-local en este slice; no se declara
-persistencia aunque exista una tabla reservada en el esquema SQLite.
+answers del plan. Hay como máximo 64 sesiones vivas; `close_session` libera una.
+Session progress es process-local en este slice; no se declara persistencia
+aunque exista una tabla reservada en el esquema SQLite.
 
 `Check::CiContract { workflow_paths, required_jobs }` trata `required_jobs` como
 IDs de `jobs`, no como display names de status checks. Inspecciona solo paths bajo
@@ -516,7 +517,7 @@ Funciones públicas previstas:
 | application/library | create_skill(CreateSkill); save_draft(SaveDraft); publish(SaveRevisionRequest); import_bundle(ImportRequest); export_bundle(ExportRequest); delete_skill(DeleteRequest); list_skills(LibraryQuery) |
 | application/policy | PolicyService::check(CheckRequest)->AppResult<CheckReport> (async); plan_repo_changes(RepoPolicyRequest)->RepoChangePlan; apply_repo_changes(ApprovedRepoChange)->ApplyResult |
 | application/install | detect_agents(DetectionContext); plan_install(InstallRequest)->InstallPlan; apply_install(ApprovedInstall)->InstallReceipt; remove_installation(RemoveRequest)->RemovalResult |
-| application/guidance | start_guidance(StartGuidance); advance(session_id, UserAnswer)->GuidanceDecision; recheck(session_id)->GuidanceProgress |
+| application/guidance | start_guidance(Arc<ValidatedBundle>, plan_id)->GuidanceProgress; advance(session_id, UserAnswer)->GuidanceProgress; recheck(session_id)->GuidanceProgress; close_session(session_id) |
 | application/sync | plan_remote_reset(ResetRequest)->RemoteResetPlan; apply_remote_reset(ApprovedReset)->ResetResult; connect(ConnectRequest); disconnect(DisconnectRequest); unlock(UnlockRequest); sync_once(SyncRequest)->SyncResult; preview_restore(RestoreRequest)->RestorePlan; apply_restore(ApprovedRestore)->RestoreResult |
 
 `GuidanceFacts` conserva por `ApplicabilityFact` un valor registrado, su
@@ -527,7 +528,7 @@ fresh es NotApplicable; requisito de verificación solo completa un step con
 `CheckStatus::Pass`, evidencia presente y no expirada. Dependientes quedan
 pendientes cuando un prerequisito no pasa, sin bloquear ramas independientes.
 
-`GuidanceService` toma una `ValidatedBundle`, ID de plan y un
+`GuidanceService` toma un `Arc<ValidatedBundle>`, ID de plan y un
 `GuidanceFactsProvider`; usa el `PolicyService` del bundle para observar sus
 requisitos. `start_guidance` crea un `OperationId` de sesión; `advance` admite
 solo `Acknowledge(step_id)` o `Choose(step_id, choice)` válidos para la acción y
