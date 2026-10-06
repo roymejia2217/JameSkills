@@ -3,6 +3,7 @@ use crate::platform::{
     PlatformFacts, ToolCandidate, ToolCandidateKind, ToolProfile, find_tool_candidates,
     load_tool_profiles, parse_tool_version_output, probe_registered_tool_version,
 };
+use cap_std::{ambient_authority, fs::Dir as RootedDir};
 use jameskills_core::{
     AppError, AppResult, Diagnostic,
     application::{
@@ -2873,6 +2874,19 @@ pub fn repository_root_fingerprint(root: &ApprovedRoot) -> AppResult<ContentHash
     Ok(ContentHash::from_digest(hasher.finalize().into()))
 }
 
+fn open_repository_root(root: &ApprovedRoot) -> AppResult<(PathBuf, RootedDir)> {
+    let canonical = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
+    if !canonical.is_dir() {
+        return Err(AppError::NotFound);
+    }
+    let directory = RootedDir::open_ambient_dir(&canonical, ambient_authority()).map_err(|_| {
+        AppError::PermissionDenied {
+            operation: "repo.change.root.open".to_owned(),
+        }
+    })?;
+    Ok((canonical, directory))
+}
+
 /// Read-only planner for the app-owned Rust CI template. It never creates
 /// parent directories or writes the target; apply performs full revalidation.
 pub fn plan_repo_template(
@@ -2881,10 +2895,7 @@ pub fn plan_repo_template(
     expected_head: &RepositoryHead,
     template_id: RepoTemplateId,
 ) -> AppResult<RepoChangePlan> {
-    let canonical_root = std::fs::canonicalize(root.path()).map_err(|_| AppError::NotFound)?;
-    if !canonical_root.is_dir() {
-        return Err(AppError::NotFound);
-    }
+    let (canonical_root, root_directory) = open_repository_root(root)?;
     if &repository_root_fingerprint(root)? != root_fingerprint {
         return Err(AppError::Conflict { current: vec![] });
     }
@@ -2903,8 +2914,7 @@ pub fn plan_repo_template(
             "Registered repository template target is invalid.",
         )])
     })?;
-    inspect_repo_change_target_parents(&canonical_root, &target)?;
-    match read_repository_document(&canonical_root, &target) {
+    match read_rooted_repo_change_document(&root_directory, &canonical_root, &target) {
         ReadmeFile::Missing => {}
         ReadmeFile::Bytes(_) => return Err(AppError::Conflict { current: vec![] }),
         ReadmeFile::Blocked => {
@@ -2928,6 +2938,154 @@ pub fn plan_repo_template(
         diff,
     )
     .map_err(AppError::Validation)
+}
+
+fn read_rooted_repo_change_document(
+    root: &RootedDir,
+    canonical_root: &Path,
+    target: &PortablePath,
+) -> ReadmeFile {
+    let Some(parent) = (match open_rooted_repo_change_parent(root, canonical_root, target) {
+        Ok(parent) => parent,
+        Err(_) => return ReadmeFile::Blocked,
+    }) else {
+        return ReadmeFile::Missing;
+    };
+    let Some(name) = target.as_str().rsplit('/').next() else {
+        return ReadmeFile::Blocked;
+    };
+    let metadata = match parent.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return ReadmeFile::Missing,
+        Err(_) => return ReadmeFile::Blocked,
+    };
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_README_BYTES
+        || std::fs::symlink_metadata(canonical_root.join(target.as_str()))
+            .is_ok_and(|metadata| is_reparse_point(&metadata))
+    {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(mut file) = parent.open(name) else {
+        return ReadmeFile::Blocked;
+    };
+    let relative_target = Path::new(target.as_str());
+    let Ok(resolved_target) = root.canonicalize(relative_target) else {
+        return ReadmeFile::Blocked;
+    };
+    if resolved_target != relative_target {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(opened_metadata) = file.metadata() else {
+        return ReadmeFile::Blocked;
+    };
+    if !opened_metadata.file_type().is_file()
+        || opened_metadata.len() > MAX_README_BYTES
+        || opened_metadata.len() != metadata.len()
+    {
+        return ReadmeFile::Blocked;
+    }
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    if Read::by_ref(&mut file)
+        .take(MAX_README_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_README_BYTES
+    {
+        return ReadmeFile::Blocked;
+    }
+    let Ok(after_metadata) = file.metadata() else {
+        return ReadmeFile::Blocked;
+    };
+    if bytes.len() as u64 != after_metadata.len()
+        || opened_metadata.modified().ok() != after_metadata.modified().ok()
+    {
+        return ReadmeFile::Blocked;
+    }
+    ReadmeFile::Bytes(bytes)
+}
+
+fn open_rooted_repo_change_parent(
+    root: &RootedDir,
+    canonical_root: &Path,
+    target: &PortablePath,
+) -> AppResult<Option<RootedDir>> {
+    let (parent, _) = target.as_str().rsplit_once('/').ok_or_else(|| {
+        AppError::Validation(vec![Diagnostic::error(
+            "repo.change.target.invalid",
+            "Registered repository template target is invalid.",
+        )])
+    })?;
+    let mut current = root.try_clone().map_err(|_| AppError::PermissionDenied {
+        operation: "repo.change.target.parent.blocked".to_owned(),
+    })?;
+    let mut relative = PathBuf::new();
+    for component in parent.split('/') {
+        relative.push(component);
+        let system_metadata =
+            std::fs::symlink_metadata(canonical_root.join(&relative)).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    AppError::NotFound
+                } else {
+                    AppError::PermissionDenied {
+                        operation: "repo.change.target.parent.blocked".to_owned(),
+                    }
+                }
+            });
+        let system_metadata = match system_metadata {
+            Ok(metadata) => metadata,
+            Err(AppError::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if is_reparse_point(&system_metadata) {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.parent.blocked".to_owned(),
+            });
+        }
+        let metadata = match current.symlink_metadata(component) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => {
+                return Err(AppError::PermissionDenied {
+                    operation: "repo.change.target.parent.blocked".to_owned(),
+                });
+            }
+        };
+        if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.parent.blocked".to_owned(),
+            });
+        }
+        let child = current
+            .open_dir(component)
+            .map_err(|_| AppError::PermissionDenied {
+                operation: "repo.change.target.parent.blocked".to_owned(),
+            })?;
+        let resolved = root
+            .canonicalize(&relative)
+            .map_err(|_| AppError::PermissionDenied {
+                operation: "repo.change.target.parent.blocked".to_owned(),
+            })?;
+        if resolved != relative {
+            return Err(AppError::PermissionDenied {
+                operation: "repo.change.target.parent.blocked".to_owned(),
+            });
+        }
+        current = child;
+    }
+    Ok(Some(current))
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// Runs only the registered read-only Git version and HEAD probes before
@@ -3028,50 +3186,6 @@ pub async fn plan_repo_template_with_approved_git(
         return Err(AppError::Conflict { current: vec![] });
     }
     Ok(plan)
-}
-
-fn inspect_repo_change_target_parents(root: &Path, target: &PortablePath) -> AppResult<()> {
-    let components = target.as_str().split('/').collect::<Vec<_>>();
-    let mut candidate = root.to_path_buf();
-    for component in components.iter().take(components.len().saturating_sub(1)) {
-        candidate.push(component);
-        let metadata = match std::fs::symlink_metadata(&candidate) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(_) => {
-                return Err(AppError::PermissionDenied {
-                    operation: "repo.change.target.blocked".to_owned(),
-                });
-            }
-        };
-        let file_type = metadata.file_type();
-        if !file_type.is_dir() || file_type.is_symlink() || is_reparse_point(&metadata) {
-            return Err(AppError::PermissionDenied {
-                operation: "repo.change.target.blocked".to_owned(),
-            });
-        }
-        let canonical =
-            std::fs::canonicalize(&candidate).map_err(|_| AppError::PermissionDenied {
-                operation: "repo.change.target.blocked".to_owned(),
-            })?;
-        if canonical != candidate || !canonical.starts_with(root) {
-            return Err(AppError::PermissionDenied {
-                operation: "repo.change.target.blocked".to_owned(),
-            });
-        }
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
-    false
 }
 
 fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {

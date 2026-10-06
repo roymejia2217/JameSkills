@@ -1212,7 +1212,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T027 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src/a/b/c/d1/d2.src/d2a/d2b completas; T027.d2c.src documentando no-follow handles).
+**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src/a/b/c/d1/d2.src/d2a/d2b/d2c.src/d2c1 completas; T027.d2c2 siguiente).
 
 **Implementación y funciones:** servicio de repositorio dedicado para plan/apply; helpers para templates propios/managed sections, journal y diff. No añadir writes a `GuidanceService` ni al check-only `PolicyService`. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1240,7 +1240,8 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - [ ] **T027.d2c — Apply create-only con journal/recovery** (descomponer antes de writes; nofollow handles, journal antes de mutación, create-only sin fallback).
 - [x] **T027.d2c.src — Fijar semántica filesystem por handles** (4 archivos): `docs/CONTRACTS.md`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. `cap-std=4.0.3` y sus fuentes; límite de symlink/reparse, create-only hardlink, same-filesystem y recovery.
 - Evidencia T027.d2c.src: docs.rs cap-std 4.0.3 (27-08-2026) confirma `Dir::open_ambient_dir` y APIs de paths relativos; `hard_link` no reemplaza destino existente. Los handles limitan escape pero no rechazan por sí solos symlinks internos; se exige comprobar cada componente antes de operar.
-- [ ] **T027.d2c1 — Planner y root capability handles** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`.
+- [x] **T027.d2c1 — Planner y root capability handles** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`.
+- GREEN T027.d2c1: `cargo check -p jameskills-infra --locked`; `cargo test -p jameskills-infra --locked` pasa; infra Clippy `-D warnings` pasa. Preview ahora abre root con `cap-std=4.0.3`, lee mediante handles relativos y verifica symlink/reparse components; no hay writes en este slice. Windows junction test no pudo crear reparse point por OS error 1314 y queda ignorado explícitamente; Linux symlink test aún no observado en este host.
 - [ ] **T027.d2c2 — Apply create-only registrado** (4 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`; `tasks/todo.md`. Journal/Approved/Stage/hard-link/Verified/Committed; no reemplaza destino existente.
 - [ ] **T027.d2c3 — Recovery idempotente/failpoints** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`; `tasks/todo.md`. Preserva edits; unresolved ownership queda Conflict/Pending y visible.
 - La construcción concreta de `RepositoryChangeService` recibe RepoChangePort + SQLite journal desde composition que abre DB; RuntimeServices actual no inicializa storage. No afirmar wiring de CLI/GPUI hasta que su lifecycle de storage esté conectado.

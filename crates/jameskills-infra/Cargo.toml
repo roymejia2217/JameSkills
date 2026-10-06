@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 async-trait = "=0.1.92"
+cap-std = "=4.0.3"
 command-group = { version = "=5.0.1", default-features = false }
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "=6.0.0"

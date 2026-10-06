@@ -339,3 +339,22 @@ fn symlinked_target_parent_is_blocked_without_writing_outside_root() {
     ));
     assert!(std::fs::read_dir(outside.path()).unwrap().next().is_none());
 }
+
+#[cfg(windows)]
+#[test]
+#[ignore = "this Windows host lacks symlink/junction creation privilege (ERROR_PRIVILEGE_NOT_HELD)"]
+fn reparse_target_parent_is_blocked_without_writing_outside_root() {
+    use std::os::windows::fs::symlink_dir;
+
+    let repository = TempRepository::new();
+    let outside = TempRepository::new();
+    symlink_dir(outside.path(), repository.path().join(".github")).unwrap();
+    let root = repository.approved_root();
+    let fingerprint = repository_root_fingerprint(&root).unwrap();
+
+    assert!(matches!(
+        plan_repo_template(&root, &fingerprint, &head(), RepoTemplateId::RustCi),
+        Err(AppError::PermissionDenied { .. })
+    ));
+    assert!(std::fs::read_dir(outside.path()).unwrap().next().is_none());
+}
