@@ -146,6 +146,11 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 
 ## Herramientas estándar y contratos a consultar al implementar
 
+- cap-std filesystem capabilities, pinned crate source `4.0.3`: https://docs.rs/cap-std/4.0.3/cap_std/fs/struct.Dir.html
+  `Dir::open_ambient_dir` establishes the explicitly selected root; subsequent
+  open/create/hard-link/remove operations accept paths relative to that handle.
+  This is a containment boundary, not a promise that every internal symlink is
+  rejected; callers still inspect each component and preserve create-only rules.
 - Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0/
 - GitHub rulesets: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets
 - REST rulesets: https://docs.github.com/en/rest/repos/rules

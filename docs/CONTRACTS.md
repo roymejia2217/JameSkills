@@ -581,6 +581,13 @@ templates ni instala/activa hooks. Hooks, si se añade un template local, son
 opcionales y eludibles. Contenido importado es dato inerte: no puede ampliar el
 registry de templates/actions ni generar argv.
 
+Filesystem apply se implementa con `cap_std::fs::Dir` abierto una vez sobre el
+root seleccionado; las operaciones siguientes usan paths relativos a handles,
+no `starts_with` sobre paths absolutos. Cada componente del destino se inspecciona
+sin seguir links/reparse points. Stage y target son siblings; el commit usa un
+create-only hard link (nunca `rename` que reemplace destino). Si el filesystem no
+soporta hard links, el apply queda Blocked sin fallback de overwrite.
+
 No olvidar expected_heads/revision en Publish, ApplyInstall, RepoChange, ResolveConflict y Restore. Mutable operations tienen OperationId y journal.
 
 ## Reducer y ejemplos de TDD

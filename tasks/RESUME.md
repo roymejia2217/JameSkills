@@ -1,13 +1,13 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `d767f3c`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `4e37606`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T026 cerrado; T027 en curso
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `d767f3c`, 41 commits por delante de `origin/feat/t020-commit-test-checks`; T027.src/a/b/c/d1/d2.src/d2a/d2b completados localmente. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `4e37606`, 42 commits por delante de `origin/feat/t020-commit-test-checks`; T027.src/a/b/c/d1/d2.src/d2a/d2b completados localmente. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
@@ -32,6 +32,7 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - T027.d2.src `9be943a` define Git fingerprint/environment aprobado y limita los probes a argv/read-only; composition aún no inicializa SQLite.
 - T027.d2a `ca18acf`, corrección `8f52157`: requests y RepoChangePort llevan Git executable+fingerprint+`ApprovedEnv`; constructor exige confirmación del fingerprint exacto. RED confirmó que un digest distinto era aceptado; `repo_change_service` 4/4, Clippy core `-D warnings` y fmt/diff-check pasan.
 - T027.d2b `d767f3c`: helper infra verifica Git profile/version y HEAD antes/después del preview con `--version` y `rev-parse HEAD` bajo ReadOnlyCheck/fingerprint. `template_plan` 7/7 y core+infra suites completas; Clippy core/infra pasa. ProcessPort fake verifica argv/permisos; todavía no es una implementación de `RepoChangePort` ni prueba un spawn real.
+- T027.d2c.src en working tree cita cap-std `4.0.3` y fija root-scoped filesystem capability handles, nofollow/reparse checks, create-only hardlink, same-filesystem staging y recovery sin borrar edits ajenos.
 
 ## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
@@ -107,10 +108,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Iniciar T027.d2c con RED conductual de destino creado/cambiado entre preview y apply e interrupción en los estados del journal.
-2. Implementar `RepoChangePort` completo con apply create-only y journal; el helper read-only actual todavía no es el port.
-3. Revalidar identidad root/Git/HEAD/file justo antes del hardlink/create-only commit; recovery nunca borra contenido ajeno.
-4. Probar failpoints/cancel/reopen, ejecutar core/infra/CLI Clippy/fmt/diff-check y registrar que composition storage sigue sin cablear.
+1. Cerrar T027.d2c.src en <=4 archivos con su fuente/version pinned antes de añadir `cap-std` al workspace.
+2. Iniciar T027.d2c1 con tests que bloqueen symlink/reparse path components bajo root capability; no confiar solo en canonicalize preflight.
+3. D2c2/d2c3: implementar RepoChangePort completo, stage/hardlink create-only, journal transitions y recovery failpoints preservando modificaciones concurrentes.
+4. Ejecutar core/infra/CLI tests, Clippy, fmt/diff-check; composition storage de RuntimeServices/CLI/GPUI sigue pendiente y debe permanecer explícita.
 
 ## T020.b2.a completado
 
