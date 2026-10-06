@@ -1,24 +1,24 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `4d39633`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `d70eedf`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
 ## Checkpoint T020–T025 y C008 cerrado; T026 siguiente
 
-- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `4d39633`, 19 commits por delante de `origin/feat/t020-commit-test-checks`; T025.d infra wiring/docs en working tree. No hay push.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `d70eedf`, 20 commits por delante de `origin/feat/t020-commit-test-checks`; working tree limpio al cerrar T025. No hay push.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
 - T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
 - T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
 - T024 RED `current_project_version_requires_a_published_matching_release_with_asset_digest`: `Unknown` porque no había dispatch para `ReleaseContract`; GREEN release_checks 12 passed + 1 opt-in ignored. Cubre conflicto de versiones, JSON duplicate key, semver/tag wrong, draft/prerelease, release ausente vs 403/404, lista de 100 sin paginar, SHA-256 asset digest, changelog con notas, firma annotated/tag lightweight y no requerir flags desactivados.
 - T024 gates Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features y `-D warnings`, `cargo fmt --all -- --check`, `git diff --check` pasan. Opt-in release read-only pasó 1/1; solo valida evidence/source/version bound, no exige que el checkout tenga release publicada ni marca el resultado Pass.
 - C008 completado localmente: T022–T024 GitHub tests usan GET/read-only, los gates acumulados pasan, no se escribieron reglas/releases/tags. CI remoto conocido `37328599512` solo cubre `c976f02`; no atribuirlo al HEAD local.
-- T025.src committed `0a0dfbf`; T025.a implemented `f578924`. `ValidatedBundle` conserva policies y plans tipados; `guidance_schema` GREEN 5/5; core suite, Clippy core `-D warnings`, fmt/diff-check pass.
-- T025.b.src `3bb5636`; planner `6f91cd6`; corrección `874accf` separa fingerprints de facts/checks y verifica Blocked/Stack. `guidance_planner` 10/10; core suite/Clippy/fmt pass.
-- T025.c `GuidanceService` implementation ahora en `4d39633`; service suite 6/6 incluye plan validado, answers cerrados, recheck fresh/error, fingerprint invalidation y límite/close sessions. Sessions son process-local, sin claim de persistencia.
-- T025.d integra facts OS/architecture app-owned; `UnavailablePolicyCheckProvider` mantiene verifiers Unknown. `guidance_runtime` 1/1.
-- Gates acumulados Windows MSVC con T025: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features `-D warnings`, fmt/diff-check pasan. Session runtime limitada a memoria; se informa que no es durable. CI remoto conocido sigue cubriendo solo `c976f02`.
+- T025.src committed `0a0dfbf`; T025.a `f578924` conserva policies/plans tipados. `guidance_schema`: 5/5.
+- T025.b.src `3bb5636`; planner `6f91cd6`; b2 `874accf` separa facts/check fingerprints. `guidance_planner`: 10/10, incluye fresh pass/Unknown/Blocked/expired/NotApplicable/branching.
+- T025.c GuidanceService commit `4d39633`; `guidance_service`: 6/6 para start/advance/recheck, answer, fingerprint invalidation, report refresh/error, límite/close. Las sesiones son process-local, no durable SQLite.
+- T025.d runtime wiring `d70eedf`; `guidance_runtime`: 1/1. OS/arch facts llevan `CheckEvidence` fresca; el PolicyCheckProvider runtime no disponible mantiene verifiers en Unknown.
+- Gates acumulados T025 en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features y `-D warnings`, fmt y diff-check pasan. CI remoto conocido solo cubre `c976f02`; no atribuirlo a HEAD local.
 - Próxima tarea elegible T026 (`T009`, T016, T025 completadas): ejecutar acciones registradas/doctor; no ejecutar comandos arbitrary ni convertir UserAnswer en success.
 
 ## Historial inmediatamente anterior
@@ -95,9 +95,9 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Revisar y commit del slice T025.d (facts con evidence+TTL, provider fallback Unknown, read-only test).
-2. Leer T026 contracts, process approvals y fuentes de acciones; diseñar un RED sobre ejecutar solo operaciones tipadas/preview-digest.
-3. Completar T026 en cortes <=5 archivos, manteniendo shell/argv y privilegios cerrados.
+1. Leer T026 y contratos de acciones/procesos; identificar service/CLI wiring existente antes de ampliar APIs.
+2. Capturar RED para acciones registradas y doctor sin shell/argv arbitrario, con estado Unsupported/Unknown separado de éxito.
+3. Implementar T026 en slices <=5 archivos y ejecutar tests focales/workspace gates.
 
 ## T020.b2.a completado
 
