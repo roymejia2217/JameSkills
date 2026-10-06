@@ -1212,7 +1212,7 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 - [ ] **T027 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src/a/b/c/d1/d2.src/d2a completas; T027.d2b siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src/a/b/c/d1/d2.src/d2a/d2b completas; T027.d2c siguiente).
 
 **Implementación y funciones:** servicio de repositorio dedicado para plan/apply; helpers para templates propios/managed sections, journal y diff. No añadir writes a `GuidanceService` ni al check-only `PolicyService`. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1235,7 +1235,8 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - [ ] **T027.d2 — Apply/recover con Git aprobado y journal** (descomponer por capa; máximo cinco archivos cada una).
 - [x] **T027.d2a — Bind de Git aprobado a requests/port** (5 archivos): `crates/jameskills-core/src/application/repo_change.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/src/ports/repo_change.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/repo_change_service.rs`. `ApprovedRepoGit` encapsula executable fingerprint + `ApprovedEnv`; no se detecta/ejecuta PATH automáticamente.
 - RED T027.d2a: `cargo test -p jameskills-core --locked --test repo_change_service approved_git_requires_confirmation_of_the_same_executable_fingerprint` falló porque no se comparaba el fingerprint mostrado con el aprobado. GREEN `repo_change_service` 4/4; Clippy core `-D warnings`, fmt y diff-check pasan. `ApprovedRepoGit` no se deserializa; el port recibe la misma identidad en preview/apply.
-- [ ] **T027.d2b — Preview port verifica Git/head read-only** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `tasks/todo.md`. Git `--version` y `rev-parse HEAD` solo con argv registrado, `ReadOnlyCheck` y fingerprint.
+- [x] **T027.d2b — Git/head read-only preview verifier** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `tasks/todo.md`. Git `--version` y `rev-parse HEAD` solo con argv registrado, `ReadOnlyCheck` y fingerprint.
+- RED T027.d2b: `cargo test -p jameskills-infra --locked --test template_plan stale_git_head_blocks_preview_after_fixed_read_only_argv` falló cuando el helper devolvía NotFound; compilación correcta. GREEN: `template_plan` 7/7, core+infra suites completas, Clippy core/infra `-D warnings`, fmt/diff-check pasan. Cubre argv/permisos/fingerprint, versión incompatible, Git cambiado, head stale y éxito preview; usa ProcessPort fake, no declara un spawn real. Es aún un helper, no la implementación completa de `RepoChangePort`; eso va en d2c junto con apply/recovery.
 - [ ] **T027.d2c — Apply create-only con journal/recovery** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`. Stage same-filesystem, create-only commit (sin replace), failpoints y recuperación por hashes/owner; cancellation no oculta operaciones pendientes.
 - La construcción concreta de `RepositoryChangeService` recibe RepoChangePort + SQLite journal desde composition que abre DB; RuntimeServices actual no inicializa storage. No afirmar wiring de CLI/GPUI hasta que su lifecycle de storage esté conectado.
 - [ ] **T027.e — Actualizar guía de ejemplo sin habilitar acciones** (2 archivos): `examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/guidance_service.rs`.
