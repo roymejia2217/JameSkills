@@ -984,7 +984,7 @@ fn symlinked_target_parent_is_blocked_without_writing_outside_root() {
 
 #[cfg(windows)]
 #[test]
-#[ignore = "this Windows host lacks symlink/junction creation privilege (ERROR_PRIVILEGE_NOT_HELD)"]
+#[ignore = "opt-in Windows test creates a reparse-point target parent"]
 fn reparse_target_parent_is_blocked_without_writing_outside_root() {
     use std::os::windows::fs::symlink_dir;
 
