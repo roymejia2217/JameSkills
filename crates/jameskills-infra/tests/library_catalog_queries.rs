@@ -1,4 +1,7 @@
-use jameskills_core::{domain::SkillId, ports::{LibraryItemState, LibraryQuery}};
+use jameskills_core::{
+    domain::SkillId,
+    ports::{LibraryItemState, LibraryQuery},
+};
 use jameskills_infra::sqlite::SqliteStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -25,11 +28,7 @@ impl Drop for TestRoot {
     }
 }
 
-fn insert_skill(
-    connection: &rusqlite::Connection,
-    id: &str,
-    display_name: &str,
-) {
+fn insert_skill(connection: &rusqlite::Connection, id: &str, display_name: &str) {
     connection
         .execute(
             "INSERT INTO skills(id, slug, display_name, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -87,15 +86,8 @@ fn sqlite_catalog_pages_are_stable_bounded_and_metadata_only() {
     let cursor = first.next().cloned().unwrap();
     let second = store
         .list_skills(
-            &LibraryQuery::new(
-                None,
-                vec![],
-                vec![],
-                LibraryItemState::Any,
-                Some(cursor),
-                2,
-            )
-            .unwrap(),
+            &LibraryQuery::new(None, vec![], vec![], LibraryItemState::Any, Some(cursor), 2)
+                .unwrap(),
         )
         .unwrap();
     assert_eq!(
@@ -115,8 +107,7 @@ fn sqlite_catalog_search_escapes_like_metacharacters_literally() {
     let store = temporary_store(&root);
     let page = store
         .list_skills(
-            &LibraryQuery::new(Some("%"), vec![], vec![], LibraryItemState::Any, None, 10)
-                .unwrap(),
+            &LibraryQuery::new(Some("%"), vec![], vec![], LibraryItemState::Any, None, 10).unwrap(),
         )
         .unwrap();
     assert_eq!(page.items().len(), 1);

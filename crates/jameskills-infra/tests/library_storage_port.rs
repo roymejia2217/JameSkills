@@ -46,10 +46,7 @@ fn storage_port_lists_catalog_metadata_through_the_blocking_pool() {
     connection
         .execute(
             "INSERT INTO library_catalog(skill_id, normalized_display_name) VALUES (?1, ?2)",
-            (
-                "11111111-1111-4111-8111-111111111111",
-                "port skill",
-            ),
+            ("11111111-1111-4111-8111-111111111111", "port skill"),
         )
         .unwrap();
     drop(connection);

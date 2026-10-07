@@ -108,5 +108,8 @@ fn validated_revision_catalog_tags_are_committed_atomically_and_searchable() {
     assert_eq!(page.items().len(), 1);
     assert_eq!(page.items()[0].skill_id(), skill_id);
     assert_eq!(page.items()[0].tags(), &["ci", "git", "security"]);
-    assert_eq!(page.items()[0].heads()[0].revision_id(), committed.revision().id());
+    assert_eq!(
+        page.items()[0].heads()[0].revision_id(),
+        committed.revision().id()
+    );
 }
