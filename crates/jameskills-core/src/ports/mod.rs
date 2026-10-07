@@ -14,4 +14,8 @@ pub use filesystem::{
 };
 pub use operation_journal::{OperationJournalPort, RepoChangeJournal, RepoChangeJournalState};
 pub use repo_change::{ApprovedRepoGit, RepoChangePort};
-pub use storage::{CURRENT_SCHEMA_VERSION, StoragePort};
+pub use storage::{
+    CURRENT_SCHEMA_VERSION, LibraryCursor, LibraryHeadSummary, LibraryHistoryEntry, LibraryHistoryPage,
+    LibraryHistoryQuery, LibraryItemState, LibraryLoadedHead, LibraryPage, LibraryQuery,
+    LibrarySkillDetail, LibrarySkillSummary, MAX_LIBRARY_PAGE_SIZE, StoragePort,
+};
