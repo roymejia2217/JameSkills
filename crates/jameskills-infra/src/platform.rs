@@ -1071,6 +1071,26 @@ pub fn user_home_directory() -> Result<PathBuf, PlatformError> {
         .map(|directories| directories.home_dir().to_path_buf())
         .ok_or(PlatformError::BaseDirectoriesUnavailable)
 }
+
+pub fn opencode_config_directory(
+    user_home: &Path,
+    xdg_config_home: Option<&Path>,
+    config_directory_override: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let user_home =
+        ApprovedRoot::from_absolute_path(user_home.to_path_buf()).map_err(AppError::Validation)?;
+    if let Some(override_root) = config_directory_override {
+        return ApprovedRoot::from_absolute_path(override_root.to_path_buf())
+            .map(|root| root.path().to_path_buf())
+            .map_err(AppError::Validation);
+    }
+    let config_base = xdg_config_home
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| user_home.path().join(".config"));
+    let config_base =
+        ApprovedRoot::from_absolute_path(config_base).map_err(AppError::Validation)?;
+    Ok(config_base.path().join("opencode"))
+}
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(
