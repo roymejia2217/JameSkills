@@ -7,6 +7,8 @@ use jameskills_core::{
         SaveRevisionResult, SkillId, policy::RepositoryHead,
     },
     ports::{
+        LibraryCursor, LibraryHeadSummary, LibraryItemState, LibraryPage,
+        LibraryQuery, LibrarySkillSummary,
         CURRENT_SCHEMA_VERSION, OperationJournalPort, RepoChangeJournal, RepoChangeJournalState,
         StoragePort, process::ApprovedRoot,
     },
@@ -179,6 +181,13 @@ impl SqliteStore {
         } else {
             Err(storage_error("storage.integrity.failed"))
         }
+    }
+
+    /// Returns a stable, bounded metadata page. Query values are always SQL
+    /// parameters; only fixed predicates and the bounded count of filter
+    /// clauses are interpolated into the statement.
+    pub fn list_skills(&self, query: &LibraryQuery) -> AppResult<LibraryPage> {
+        list_skills_from_connection(&self.connection, query)
     }
 
     /// Lists valid content-addressed blobs with no committed content revision.
@@ -397,6 +406,170 @@ impl SqliteStore {
         let new_heads = vec![record.id().clone()];
         Ok(SaveRevisionResult::new(record, new_heads))
     }
+}
+
+fn list_skills_from_connection(
+    connection: &Mutex<Connection>,
+    query: &LibraryQuery,
+) -> AppResult<LibraryPage> {
+    use rusqlite::types::Value;
+
+    let guard = connection
+        .lock()
+        .map_err(|_| storage_error("storage.lock.poisoned"))?;
+    let mut predicates = Vec::new();
+    let mut values = Vec::<Value>::new();
+    if let Some(search) = query.search() {
+        predicates.push("c.normalized_display_name LIKE ? ESCAPE '\\'".to_owned());
+        values.push(Value::Text(format!("%{}%", escape_like(search))));
+    }
+    for tag in query.tags() {
+        predicates.push("EXISTS (SELECT 1 FROM skill_heads h JOIN revision_tags t ON t.revision_id = h.revision_id WHERE h.skill_id = s.id AND t.tag = ?)".to_owned());
+        values.push(Value::Text(tag.clone()));
+    }
+    for capability in query.capabilities() {
+        predicates.push("EXISTS (SELECT 1 FROM skill_heads h JOIN revision_capabilities c2 ON c2.revision_id = h.revision_id WHERE h.skill_id = s.id AND c2.capability = ?)".to_owned());
+        values.push(Value::Text(capability.clone()));
+    }
+    match query.state() {
+        LibraryItemState::Any => {}
+        LibraryItemState::Active => predicates.push(
+            "(SELECT COUNT(*) FROM skill_heads h JOIN revisions r ON r.id = h.revision_id WHERE h.skill_id = s.id) = 1 AND EXISTS (SELECT 1 FROM skill_heads h JOIN revisions r ON r.id = h.revision_id WHERE h.skill_id = s.id AND r.state = 'content')".to_owned(),
+        ),
+        LibraryItemState::Deleted => predicates.push(
+            "EXISTS (SELECT 1 FROM skill_heads h WHERE h.skill_id = s.id) AND NOT EXISTS (SELECT 1 FROM skill_heads h JOIN revisions r ON r.id = h.revision_id WHERE h.skill_id = s.id AND r.state <> 'tombstone')".to_owned(),
+        ),
+        LibraryItemState::Conflicted => predicates.push(
+            "(SELECT COUNT(*) FROM skill_heads h WHERE h.skill_id = s.id) > 1".to_owned(),
+        ),
+    }
+    if let Some(cursor) = query.after() {
+        predicates.push(
+            "(c.normalized_display_name > ? OR (c.normalized_display_name = ? AND s.id > ?))"
+                .to_owned(),
+        );
+        values.push(Value::Text(cursor.normalized_display_name().to_owned()));
+        values.push(Value::Text(cursor.normalized_display_name().to_owned()));
+        values.push(Value::Text(cursor.skill_id().as_uuid().to_string()));
+    }
+    let mut sql = String::from(
+        "SELECT s.id, s.slug, s.display_name, c.normalized_display_name FROM skills s JOIN library_catalog c ON c.skill_id = s.id",
+    );
+    if !predicates.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&predicates.join(" AND "));
+    }
+    sql.push_str(" ORDER BY c.normalized_display_name, s.id LIMIT ?");
+    values.push(Value::Integer((query.page_size() + 1) as i64));
+
+    let mut statement = guard
+        .prepare(&sql)
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let rows = statement
+        .query_map(rusqlite::params_from_iter(values), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|_| storage_error("storage.data.corrupt"))?);
+    }
+    drop(statement);
+
+    let has_more = records.len() > query.page_size();
+    records.truncate(query.page_size());
+    let mut items = Vec::with_capacity(records.len());
+    let mut last_cursor = None;
+    for (id, slug, display_name, normalized_name) in records {
+        let skill_id = SkillId::parse(&id).map_err(|_| storage_error("storage.data.corrupt"))?;
+        let heads = load_catalog_heads(&guard, skill_id)?;
+        let tags = load_catalog_metadata(&guard, skill_id, "revision_tags", "tag")?;
+        let capabilities = load_catalog_metadata(&guard, skill_id, "revision_capabilities", "capability")?;
+        items.push(LibrarySkillSummary::new(
+            skill_id,
+            slug,
+            display_name,
+            tags,
+            capabilities,
+            heads,
+        ));
+        last_cursor = Some(
+            LibraryCursor::new(&normalized_name, skill_id)
+                .map_err(|_| storage_error("storage.data.corrupt"))?,
+        );
+    }
+    let next = has_more.then_some(last_cursor).flatten();
+    Ok(LibraryPage::new(items, next))
+}
+
+fn load_catalog_heads(
+    connection: &Connection,
+    skill_id: SkillId,
+) -> AppResult<Vec<LibraryHeadSummary>> {
+    let mut statement = connection
+        .prepare(
+            "SELECT r.id, r.semantic_version, r.state FROM skill_heads h JOIN revisions r ON r.id = h.revision_id WHERE h.skill_id = ?1 ORDER BY r.id",
+        )
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let rows = statement
+        .query_map([skill_id.as_uuid().to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    rows.map(|row| {
+        let (revision, version, state) = row.map_err(|_| storage_error("storage.data.corrupt"))?;
+        let deleted = match state.as_str() {
+            "content" => false,
+            "tombstone" => true,
+            _ => return Err(storage_error("storage.data.corrupt")),
+        };
+        Ok(LibraryHeadSummary::new(
+            RevisionId::parse_hex(&revision).map_err(|_| storage_error("storage.data.corrupt"))?,
+            version,
+            deleted,
+        ))
+    })
+    .collect()
+}
+
+fn load_catalog_metadata(
+    connection: &Connection,
+    skill_id: SkillId,
+    table: &'static str,
+    column: &'static str,
+) -> AppResult<Vec<String>> {
+    // These identifiers are fixed catalog call-site values, not query input.
+    let sql = format!(
+        "SELECT DISTINCT m.{column} FROM {table} m JOIN skill_heads h ON h.revision_id = m.revision_id WHERE h.skill_id = ?1 ORDER BY m.{column}"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    statement
+        .query_map([skill_id.as_uuid().to_string()], |row| row.get(0))
+        .map_err(|_| storage_error("storage.query.failed"))?
+        .map(|value| value.map_err(|_| storage_error("storage.data.corrupt")))
+        .collect()
+}
+
+fn escape_like(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(character, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn read_heads(transaction: &Transaction<'_>, skill_id: SkillId) -> AppResult<Vec<String>> {
