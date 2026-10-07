@@ -13,8 +13,8 @@ use jameskills_core::{
 };
 use jameskills_infra::{
     fs::{
-        LocalRepoChangePort, plan_repo_template, plan_repo_template_with_approved_git,
-        repository_root_fingerprint,
+        LocalRepoChangePort, RepoChangeRecoveryStatus, plan_repo_template,
+        plan_repo_template_with_approved_git, repository_root_fingerprint,
     },
     platform::{PlatformFacts, ToolCandidateKind, find_tool_candidates, load_tool_profiles},
     process::{SystemProcessPort, fingerprint_executable},
@@ -241,6 +241,48 @@ fn change_service(
         Arc::new(TestClock),
     ));
     (RepositoryChangeService::new(port), store)
+}
+
+struct FailTransitionJournal {
+    store: Arc<SqliteStore>,
+    fail_at: RepoChangeJournalState,
+    failed: AtomicBool,
+}
+
+impl OperationJournalPort for FailTransitionJournal {
+    fn record_operation(
+        &self,
+        journal: &jameskills_core::ports::RepoChangeJournal,
+    ) -> AppResult<()> {
+        self.store.record_operation(journal)
+    }
+
+    fn load_operation(
+        &self,
+        operation_id: OperationId,
+    ) -> AppResult<Option<jameskills_core::ports::RepoChangeJournal>> {
+        self.store.load_operation(operation_id)
+    }
+
+    fn transition_operation(
+        &self,
+        operation_id: OperationId,
+        expected: RepoChangeJournalState,
+        next: RepoChangeJournalState,
+        updated_at: &str,
+    ) -> AppResult<()> {
+        if next == self.fail_at && !self.failed.swap(true, Ordering::SeqCst) {
+            return Err(AppError::Storage {
+                code: "test.repo_change.injected_interruption".to_owned(),
+            });
+        }
+        self.store
+            .transition_operation(operation_id, expected, next, updated_at)
+    }
+
+    fn pending_operations(&self) -> AppResult<Vec<jameskills_core::ports::RepoChangeJournal>> {
+        self.store.pending_operations()
+    }
 }
 
 struct TestClock;
@@ -485,6 +527,153 @@ fn approved_apply_creates_only_the_registered_template_and_commits_its_journal()
         RepoChangeJournalState::Committed
     );
     assert!(store.pending_operations().unwrap().is_empty());
+}
+
+#[test]
+fn recovery_after_apply_journal_failpoints_preserves_a_consistent_outcome() {
+    let cases = [
+        (
+            RepoChangeJournalState::CommitPending,
+            RepoChangeJournalState::Staged,
+            RepoChangeRecoveryStatus::Recovered,
+            RepoChangeJournalState::Recovered,
+            false,
+            true,
+        ),
+        (
+            RepoChangeJournalState::NewMoved,
+            RepoChangeJournalState::CommitPending,
+            RepoChangeRecoveryStatus::Committed,
+            RepoChangeJournalState::Committed,
+            true,
+            true,
+        ),
+        (
+            RepoChangeJournalState::Verified,
+            RepoChangeJournalState::NewMoved,
+            RepoChangeRecoveryStatus::Committed,
+            RepoChangeJournalState::Committed,
+            true,
+            true,
+        ),
+        (
+            RepoChangeJournalState::Committed,
+            RepoChangeJournalState::Verified,
+            RepoChangeRecoveryStatus::Committed,
+            RepoChangeJournalState::Committed,
+            true,
+            false,
+        ),
+    ];
+
+    for (fail_at, interrupted_state, expected_status, final_state, target_exists, stage_exists) in
+        cases
+    {
+        let repository = TempRepository::new();
+        let workflow_directory = repository.path().join(".github/workflows");
+        std::fs::create_dir_all(&workflow_directory).unwrap();
+        let (git, fingerprint) = approved_git(&repository);
+        let root = repository.approved_root();
+        let root_fingerprint = repository_root_fingerprint(&root).unwrap();
+        let store =
+            Arc::new(SqliteStore::open(&repository.path().join("jameskills.sqlite3")).unwrap());
+        let failpoint = Arc::new(FailTransitionJournal {
+            store: store.clone(),
+            fail_at,
+            failed: AtomicBool::new(false),
+        });
+        let process = Arc::new(FakeProcessPort::new(
+            fingerprint,
+            git_preview_outputs('a', 4),
+        ));
+        let port = Arc::new(LocalRepoChangePort::new(
+            process,
+            failpoint.clone(),
+            Arc::new(TestClock),
+        ));
+        let service = RepositoryChangeService::new(port.clone());
+        let request =
+            RepoPolicyRequest::new(root, root_fingerprint, head(), RepoTemplateId::RustCi, git);
+        let preview =
+            block_on(service.plan_repo_changes(&request, CancellationToken::new())).unwrap();
+        let operation_id = preview.operation_id();
+        let digest = preview.confirmation_digest().clone();
+        let target = repository.path().join(RepoTemplateId::RustCi.target());
+        let stage =
+            workflow_directory.join(format!(".jameskills-{}.stage", operation_id.as_uuid()));
+
+        assert!(matches!(
+            block_on(service.apply_repo_changes(
+                repo_policy_request(&repository, approved_git(&repository).0),
+                preview,
+                &digest,
+                CancellationToken::new(),
+            )),
+            Err(AppError::Storage { .. })
+        ));
+        assert!(failpoint.failed.load(Ordering::SeqCst));
+        assert_eq!(
+            store.load_operation(operation_id).unwrap().unwrap().state(),
+            interrupted_state,
+            "injected before transition to {fail_at:?}"
+        );
+        assert_eq!(target.exists(), target_exists, "failpoint {fail_at:?}");
+        assert_eq!(stage.exists(), stage_exists, "failpoint {fail_at:?}");
+        if target_exists {
+            assert_eq!(
+                std::fs::read(&target).unwrap(),
+                include_bytes!("../../../examples/repository-foundation/templates/ci-rust.yml")
+            );
+        }
+
+        drop(service);
+        drop(port);
+        drop(failpoint);
+        drop(store);
+        let reopened =
+            Arc::new(SqliteStore::open(&repository.path().join("jameskills.sqlite3")).unwrap());
+        let recovery_process = Arc::new(FakeProcessPort::new(
+            fingerprint_executable(&repository.path().join("bin").join(if cfg!(windows) {
+                "git.exe"
+            } else {
+                "git"
+            }))
+            .unwrap(),
+            vec![],
+        ));
+        let recovery = LocalRepoChangePort::new(
+            recovery_process.clone(),
+            reopened.clone(),
+            Arc::new(TestClock),
+        );
+        let recovered = recovery.recover_pending().unwrap();
+
+        assert_eq!(recovered.len(), 1, "failpoint {fail_at:?}");
+        assert_eq!(
+            recovered[0].status(),
+            expected_status,
+            "failpoint {fail_at:?}"
+        );
+        assert_eq!(
+            reopened
+                .load_operation(operation_id)
+                .unwrap()
+                .unwrap()
+                .state(),
+            final_state,
+            "failpoint {fail_at:?}"
+        );
+        assert!(reopened.pending_operations().unwrap().is_empty());
+        assert!(recovery_process.invocations.lock().unwrap().is_empty());
+        assert_eq!(target.exists(), target_exists, "recovered {fail_at:?}");
+        assert!(!stage.exists(), "recovered {fail_at:?}");
+        if target_exists {
+            assert_eq!(
+                std::fs::read(&target).unwrap(),
+                include_bytes!("../../../examples/repository-foundation/templates/ci-rust.yml")
+            );
+        }
+    }
 }
 
 #[test]
