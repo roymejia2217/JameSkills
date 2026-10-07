@@ -1066,6 +1066,11 @@ pub fn resolve_user_dirs() -> Result<UserDirectories, PlatformError> {
     ))
 }
 
+pub fn user_home_directory() -> Result<PathBuf, PlatformError> {
+    BaseDirs::new()
+        .map(|directories| directories.home_dir().to_path_buf())
+        .ok_or(PlatformError::BaseDirectoriesUnavailable)
+}
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(
