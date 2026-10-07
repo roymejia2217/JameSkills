@@ -1105,6 +1105,23 @@ pub fn pi_agent_directory(
         None => Ok(user_home.path().join(".pi").join("agent")),
     }
 }
+
+pub fn antigravity_cli_install_candidate(user_home: &Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let _ = user_home;
+        BaseDirs::new().map(|directories| {
+            directories
+                .data_local_dir()
+                .join("agy")
+                .join("bin")
+                .join("agy.exe")
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        Some(user_home.join(".local").join("bin").join("agy"))
+    }
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(

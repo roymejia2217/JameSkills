@@ -11,6 +11,10 @@ pub struct AgentArtifact {
 }
 
 impl AgentArtifact {
+    pub(crate) fn from_app_owned_files(target: PathBuf, files: BundleFiles) -> Self {
+        Self { target, files }
+    }
+
     pub fn target(&self) -> &Path {
         &self.target
     }
