@@ -393,14 +393,20 @@ no acredita integridad del conjunto de módulos npm cargados.
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
 TrustState = Quarantined | Reviewed. TrustState local, no autoridad obtenida de contenido importado.
+`ImportScanStatus = Unavailable | NoFindings | Findings | Unknown | Blocked` solo comunica resultado redacted; ningún estado cambia `TrustState`. `ImportPreview::confirmation_digest` liga también el estado mostrado al usuario.
 RevisionRecord { id, skill_id, bundle_hash, parents: Vec<RevisionId>, kind: RevisionKind, semantic_version }.
 RevisionKind = Content | Tombstone { observed_heads: Vec<RevisionId> }.
 Revision parents ordenados únicos. Blob inmutable guarda bundle; registro de revisión separa padres, así un mismo contenido puede participar en merge distinto.
 SaveRevisionRequest { bundle, expected_heads, parent_ids, reason }; SaveRevisionResult { revision, new_heads }.
 
-AgentDetection { id, executable: Option<ApprovedExecutable>, version: Option<String>, profile_root, availability, capabilities: BTreeMap<CapabilityId, CapabilitySupport>, evidence }.
-Availability = Missing | Candidate | Verified | Blocked.
-CapabilitySupport = Supported | NeedsVerification | Unsupported; incluir source/date/tested_version metadata.
+`AgentId` es cerrado: `codex`, `opencode`, `pi`, `antigravity`, `grok`; no acepta IDs de contenido importado. `AgentCapabilityId` enumera por separado `user-install`, `project-install`, `discovery-verification`, `vendor-plugin-install` y `open-ai-metadata`. Todo perfil debe declarar cada capability como `Supported`, `NeedsVerification` o `Unsupported`; scopes/features no se infieren unos de otros.
+
+`CapabilityEvidence { source_id, observed_at, tested_version?, fixture_id? }` referencia source/fixture app-owned y se exige para cada estado; `Supported` además requiere tested version y fixture. Documentar o inspeccionar una CLI sin fixture no demuestra soporte. `AgentProfile { id, install_mode, capabilities }` usa `FileCopy` o `VendorPlugin`; el plugin `agy` es de scope User y Project permanece Unsupported. `AgentAvailability = Missing | Candidate | Verified | Blocked`. `DetectionContext { scope, project_root? }` exige root aprobado en Project. `AgentDetection { id, executable: Option<ApprovedExecutable>, executable_fingerprint: Option<ExecutableFingerprint>, version: Option<Version>, profile_root: Option<PathBuf>, availability, capabilities, evidence }`; `Verified` exige executable aprobado, fingerprint y versión observada; Missing/Candidate no pueden incluirlos.
+
+`ApprovedAgentExecutable` se construye con un `ApprovedExecutable`, el fingerprint
+observado al seleccionar el binario y la confirmación explícita del mismo
+fingerprint. Solo `DetectionContext` con este valor puede lanzar probes
+read-only; candidatos de PATH permanecen sin ejecutar.
 InstallPlan { operation_id, agent, scope, source_revision, source_hash, target, changes: Vec<FileChange>, required_checks, vendor_action?, fingerprint, expires_at }.
 FileChange = Create | ReplaceOwned { before_hash, after_hash } | ConflictUnowned | ConflictEdited.
 InstallReceipt { operation_id, agent, scope, skill_id, revision_id, target, files: Vec<InstalledFileHash>, vendor_package?, installed_at }.
@@ -414,12 +420,24 @@ Ports object-safe async vía async-trait; core depende de serde, semver, uuid, s
 #[async_trait::async_trait]
 pub trait StoragePort: Send + Sync {
     async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage>;
+    async fn load_skill(&self, id: SkillId) -> AppResult<Option<LibrarySkillDetail>>;
+    async fn load_history(&self, query: LibraryHistoryQuery) -> AppResult<LibraryHistoryPage>;
+    async fn load_draft(&self, id: SkillId) -> AppResult<Option<SkillDraft>>;
+    async fn save_draft(&self, request: SaveDraftRequest) -> AppResult<()>;
+    async fn create_skill(&self, create: CreateSkill, draft: SkillDraft) -> AppResult<()>;
+    async fn apply_import(&self, preview: ImportPreview, resolution: ImportResolution) -> AppResult<ImportResult>;
+    async fn store_validated_bundle(&self, bundle: ValidatedBundle, files: BundleFiles) -> AppResult<()>;
+    async fn commit_revision(&self, request: SaveRevisionRequest) -> AppResult<SaveRevisionResult>;
     async fn load_revision(&self, id: &RevisionId) -> AppResult<RevisionRecord>;
     async fn get_heads(&self, id: SkillId) -> AppResult<Vec<RevisionId>>;
-    async fn commit_revision(&self, request: CommitRevision) -> AppResult<SaveRevisionResult>;
     async fn capture_snapshot(&self) -> AppResult<SnapshotPayload>;
     async fn merge_snapshot(&self, plan: MergePlan) -> AppResult<MergeResult>;
     async fn journal(&self, operation: OperationJournal) -> AppResult<()>;
+}
+
+[async_trait::async_trait]
+pub trait ImportScanPort: Send + Sync {
+    async fn scan(&self, validated_files: &BundleFiles) -> AppResult<ImportScanStatus>;
 }
 
 #[async_trait::async_trait]
@@ -439,10 +457,12 @@ pub trait ProcessPort: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait AgentPort: Send + Sync {
+    fn profile(&self) -> &AgentProfile;
     async fn detect(&self, context: DetectionContext) -> AppResult<AgentDetection>;
-    fn render_export(&self, bundle: &Bundle, scope: Scope) -> AppResult<AgentExport>;
-    async fn verify_install(&self, receipt: &InstallReceipt) -> AppResult<Verification>;
 }
+
+// T029.a se limita a profile/detect. render_export y verify_install se añaden
+// junto con sus Bundle/Receipt tipados; no declarar éxitos vacíos.
 
 #[async_trait::async_trait]
 pub trait RemoteSnapshotPort: Send + Sync {
@@ -487,7 +507,15 @@ ApprovedRoot, ApprovedExecutable y SecretInput tienen constructores controlados;
 el proveedor vuelve a calcularlo con lectura limitada antes de spawn. Los probes de
 tools registrados no ejecutan candidatos sin fingerprint aprobado; presencia o PATH
 por sí solos solo producen `Candidate`.
-ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint>, approved_script: Option<(ApprovedScript, ExecutableFingerprint)> }.
+`ProcessIdentity = Tool(ToolId) | Agent(AgentId)` separa los probes policy de
+los probes de agentes. `ProcessSpec { executable: ApprovedExecutable,
+identity: ProcessIdentity, args: Vec<OsString>, cwd: ApprovedRoot, env:
+ApprovedEnv, timeout: Duration, output_limit_bytes, permission:
+ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint>,
+approved_script: Option<(ApprovedScript, ExecutableFingerprint)> }`.
+`ProcessSpec::new` crea identidad Tool; `new_for_agent` crea identidad Agent.
+`tool_id() -> Option<ToolId>` es None para procesos de agente y nunca sustituye
+el agent id por un tool policy ficticio.
 `SystemProcessPort` permite `ReadOnlyCheck` y `ExplicitMutation(OperationId)`;
 ambos lanzan solo el executable aprobado, argv separados, cwd/environment
 aprobados, fingerprints y límites bounded, y cancelan el grupo completo. El ID
@@ -513,10 +541,11 @@ Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+
 
 ## Servicios
 
-El primer wiring de infraestructura publica `RuntimeServices { facts,
+El wiring de infraestructura publica `RuntimeServices { facts,
 directories, clock, library, policy }` mediante `infra::composition::build_services(dirs)`.
-Valida que config/data/cache sean absolutas, distintas y no solapadas; no crea
-directorios. Su `SystemClock` entrega UTC RFC3339 y elapsed monotonic local.
+Valida que config/data/cache sean absolutas, distintas y no solapadas; abre
+`data/library.sqlite3` con migraciones reales, creando el directorio de datos si
+es necesario. Su `SystemClock` entrega UTC RFC3339 y elapsed monotonic local.
 PolicyService usa un provider conservador que devuelve Unknown hasta que existan
 providers reales; ausencia de driver nunca se reporta como Pass.
 
@@ -530,7 +559,7 @@ Funciones públicas previstas:
 | domain/policy | parse_policy(bytes)->Policy; evaluate_predicate(requirement, observation, now_monotonic_ms)->CheckResult; strict_exit(report)->u8 |
 | domain/guidance | next_step(plan, facts, evidence)->GuidanceDecision; validate_guidance_graph(plan)->Result |
 | domain/sync | validate_snapshot(payload)->Result; merge_heads(local, remote, graph)->MergePlan; resolve_heads(choice)->RevisionRecord |
-| application/library | create_skill(CreateSkill); save_draft(SaveDraft); publish(SaveRevisionRequest); import_bundle(ImportRequest); export_bundle(ExportRequest); delete_skill(DeleteRequest); list_skills(LibraryQuery) |
+| application/library | create_skill(CreateSkill); load_draft(SkillId); save_draft(SaveDraftRequest); publish(PublishDraft)->SaveRevisionResult; preview_import(source,kind)->ImportPreview; apply_import(ImportPreview,ImportResolution)->ImportResult; export_bundle(ExportRequest); delete_skill(DeleteRequest); list_skills(LibraryQuery) |
 | application/policy | PolicyService::check(CheckRequest)->AppResult<CheckReport> (async) |
 | application/repo_change | RepositoryChangeService::plan_repo_changes(RepoPolicyRequest)->AppResult<RepoChangePlan>; apply_repo_changes(ApprovedRepoChange)->AppResult<ApplyResult> (async) |
 | application/install | detect_agents(DetectionContext); plan_install(InstallRequest)->InstallPlan; apply_install(ApprovedInstall)->InstallReceipt; remove_installation(RemoveRequest)->RemovalResult |
@@ -554,6 +583,35 @@ answers no son evidence ni alteran status; al cambiar el environment fingerprint
 se limpian answers y resultados dependientes. Las sesiones de este slice son
 acotadas y process-local; no se afirma persistencia durable en `guidance_sessions`
 hasta conectar un StoragePort de sesión.
+
+`LibraryService::list_skills(LibraryQuery)` delega en el StoragePort asíncrono.
+El catálogo se ordena por nombre normalizado + UUID y usa cursor estable; su
+consulta carga solo metadata/head summaries, nunca descomprime blobs.
+`SkillDraft` persiste bytes semánticamente inválidos para no perder edición,
+con paths portables, límites de recursos y CAS de generation/base-head. Un draft
+no crea revisiones ni actualiza `skill_heads`; solo Publish valida el bundle y
+usa expected-heads. Un conflicto de generation/base-head requiere recargar el draft.
+`LibraryService::save_draft` y `load_draft` delegan estos casos de uso al
+StoragePort; autosave no valida ni publica.
+`LibraryService::create_skill(CreateSkill)` genera un template v1 válido y
+persiste skill, catálogo y draft inicial como una unidad atómica.
+`LibraryService::publish(PublishDraft)` toma generación persistida y expected-heads
+observadas, valida semántica/ID antes de staging, almacena blob content-addressed
+y confirma revisión+heads+consumo del draft en la misma transacción. El mismo
+bundle/version sobre el head actual devuelve su revisión existente; contenido
+cambiado exige una versión SemVer mayor y los errores conservan el draft.
+`preview_import(source, kind)` solo lee un directorio o `.jskill` bounded, valida
+bytes y clasifica identidad nueva/duplicado exacto/conflicto sin persistir. Apply
+requiere `KeepExisting` o `AddConcurrentRoot`; importa con heads observadas y no
+retira heads anteriores. Un `.jskill` no aporta ancestry, por lo que su revisión
+es raíz concurrente. Cada import nuevo queda `Quarantined` en metadata local
+`revision_trust`; preview/parse nunca marca `Reviewed`, y la trust state no se
+incluye en snapshots remotos. Scanner no disponible mantiene la cuarentena.
+T041 expone `add_asset`, `replace_asset(expected_file_hash)`, `remove_asset`,
+`rename_asset` y `preview_asset` sobre `SkillDraft`; una referencia encontrada
+bloquea rename/remove con diagnóstico explícito. `AssetPreview` entrega solo
+texto UTF-8 de extensiones registradas con límite 64KiB; SVG se trata como texto,
+y binarios no devuelven contenido ni se ejecutan.
 
 ### Cambios aprobados de repositorio
 
@@ -636,7 +694,7 @@ Binario jameskills-cli, nombre mostrado jameskills. JSON wrapper {schema_version
 - doctor --json
 - validate --path <bundle> --json
 - check --repo <path> --skill <uuid> --profile <rust|node|generic> --json --strict
-- library list --json; library import --path <bundle|jskill> --json
+- library list --json; library import --path <dir|.jskill|SKILL.md> --json (preview only); apply requires `--apply --resolution <keep-existing|add-concurrent-root|create-quarantined-draft> --confirmation-digest <sha256>` and plain-SKILL reuses the previewed identity with `--skill-id <uuid>`.
 - library export --skill <uuid> --output <path.jskill> --json
 - agents detect --json
 - install plan --skill <uuid> --agent <id> --scope <user|project> [--repo <path>] --output <plan.json>

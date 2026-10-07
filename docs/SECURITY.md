@@ -13,7 +13,7 @@ Datos externos nunca autorizan ejecución/redirección/privilegios/trust automá
 
 | Frontera | Amenaza | Control normativo | Verificación |
 |---|---|---|---|
-| Import/fs | traversal/bomb/symlink/reparse/case collision | PortablePath, límites, staging privado, rooted handles | fs_security nativo adversarial |
+| Import/fs | traversal/bomb/symlink/reparse/case collision | PortablePath, límites, staging/blob privado, expected-heads, TrustState local Quarantined por default | import/safe_bundle adversarial |
 | Parse | YAML aliases/tags/schema ambiguo | Parser restringido, bounded bytes, unknown fields fail | format malicious |
 | Instructions | prompt injection/secret commands | datos inertes en app, trust review antes instalar | import no execution, review flow |
 | Tools | PATH hijack/npm shim falso | candidate provenance, identity hash aprobada y args driver | resolver changed binary |
@@ -34,7 +34,7 @@ Linux dirs0700/files privados0600; Windows ACL usuario KnownFolder, comprobar no
 Approved root canonical una vez y después relative handles con no-follow; no basta string starts_with. cap-std/fs2/windows-sys candidatos requieren comprobar semánticas reales; no asumir cap-std prohíbe todos symlinks. Ancestor chain/reparse y concurrent swap tests cuando OS permite.
 Cross-device rename se rechaza o staging same fs; recovery solo owned hashes unchanged. Locks orden fijo por recurso, UI no bloquea render en mutex.
 Export picker valida destination/overwrite; DB path mostrado y override startup seguro; no mover SQLite abierta.
-Markdown HTML/remote image autoload deshabilitado. SVG arbitrary no render si sanitizer mantenido ausente; conservar bytes cuarentena. Iconos Kit vetted sí.
+Markdown HTML/remote image autoload deshabilitado. SVG arbitrary no render si sanitizer mantenido ausente; conservar bytes cuarentena. Iconos Kit vetted sí. Library asset preview entrega el SVG solo como texto UTF-8 bounded, nunca como markup activo; binarios permanecen Unsupported y no se ejecutan.
 
 ## Secret handling
 

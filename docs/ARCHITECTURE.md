@@ -68,7 +68,7 @@ crates/
     src/{lib,composition,sqlite,fs,process,platform,crypto,keyring,github}.rs
     src/agents/{mod,codex,opencode,pi,antigravity,grok}.rs
     src/google/{mod,oauth,drive}.rs
-    migrations/{001_library,002_operations,003_sync}.sql
+    migrations/{001_library,002_operations,003_sync,004_library_catalog,005_import_lookup,006_revision_trust}.sql
     tests/{fs_security,storage,install_recovery,agents,oauth,drive,crypto,github}.rs
   jameskills-cli/
     Cargo.toml
@@ -101,10 +101,13 @@ Migrations con SQL explícito y transacción; schema_version SQLite user_version
 
 Tablas:
 - skills(id TEXT PK, slug TEXT, display_name TEXT, created_at TEXT); slug no necesariamente único porque se pueden importar dos UUID con mismo nombre, colisión visible.
+- library_catalog(skill_id FK, normalized_display_name); índice por `(normalized_display_name, skill_id)` para búsqueda y cursor estable; nombre normalizado por Rust Unicode lowercase.
 - revisions(id TEXT PK sha256, skill_id FK, bundle_hash TEXT, semantic_version TEXT, schema_version INTEGER, state TEXT, created_at TEXT). PK revision = hash de bytes canónicos.
+- revision_tags(revision_id FK, tag), revision_capabilities(revision_id FK, capability); metadata de cada revisión para filtrar por heads sin abrir blobs.
+- revision_trust(revision_id FK, trust_state, source_kind); trust local-only (Quarantined por default), no se sincroniza ni se infiere del bundle.
 - revision_parents(revision_id FK, parent_revision_id TEXT, PRIMARY KEY ambos); parent puede aún no estar descargado, no FK forzada a revisions.
 - skill_heads(skill_id FK, revision_id FK, PRIMARY KEY ambos). >1 heads = conflicto.
-- drafts(skill_id PK, base_head TEXT nullable, draft_json BLOB, generation INTEGER); locales no se sincronizan.
+- drafts(skill_id PK, base_head TEXT nullable, draft_json BLOB con envelope binario versionado, generation INTEGER); locales no se sincronizan. Writes usan CAS generation/base-head; bytes inválidos semánticamente siguen siendo editables.
 - deletions(skill_id TEXT, deletion_revision_id TEXT PK, observed_heads_json BLOB); borrado causal representado también en DAG.
 - operations(id PK, kind TEXT, state TEXT, journal_json BLOB, updated_at TEXT). Sin tokens/llaves.
 - installations(id PK, agent TEXT, scope TEXT, target_path TEXT, skill_id TEXT, revision_id TEXT, receipt_json BLOB). Un archivo compartido puede tener múltiples asociaciones pero un owner.

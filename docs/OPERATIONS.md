@@ -44,12 +44,12 @@ Paths KnownFolders; separar Windows/WSL. Política IT faltante guía dueño, nun
 Una vez targets existentes y ejemplo docs copiado a examples/repository-foundation:
 ~~~
 cargo run -p jameskills-cli --locked -- validate --path examples/repository-foundation --json
-cargo run -p jameskills-cli --locked -- library import --path examples/repository-foundation --json
+cargo run -p jameskills-cli --locked -- library import --path examples/repository-foundation --json # preview only; no writes
 cargo run -p jameskills-cli --locked -- check --repo . --skill f9c0199f-c4ce-4b04-85dd-ae12a7db292b --profile rust --json --strict
 cargo run -p jameskills-cli --locked -- agents detect --json
 cargo run -p jameskills-cli --locked -- doctor --json
 ~~~
-Check estricta puede exit1/3 por host/tool faltante; correcto hasta guía completa. Tests deterministic no pedir creds todo pipeline.
+Import preview no escribe; apply requiere una de sus resoluciones y el digest exacto mostrado. Si Gitleaks no está disponible, el estado queda `unavailable` y cualquier import sigue `quarantined`. Check estricta puede exit1/3 por host/tool faltante; correcto hasta guía completa. Tests deterministic no pedir creds todo pipeline.
 
 ## Git del propio producto
 
