@@ -118,7 +118,7 @@ impl FakeProcessPort {
 #[async_trait]
 impl ProcessPort for FakeProcessPort {
     async fn run(&self, spec: ProcessSpec) -> AppResult<ProcessOutput> {
-        if spec.tool_id() != jameskills_core::domain::ToolId::Git
+        if spec.tool_id() != Some(jameskills_core::domain::ToolId::Git)
             || spec.permission() != ProcessPermission::ReadOnlyCheck
             || spec.approved_executable_fingerprint() != Some(&self.approved_fingerprint)
         {

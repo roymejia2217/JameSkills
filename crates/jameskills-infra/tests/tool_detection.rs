@@ -62,7 +62,9 @@ impl FakeProcessPort {
 impl ProcessPort for FakeProcessPort {
     async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
         self.invocations.lock().unwrap().push(Invocation {
-            tool_id: spec.tool_id(),
+            tool_id: spec
+                .tool_id()
+                .expect("tool detection uses a registered ToolId"),
             args: spec.args().to_vec(),
             fingerprint: spec.approved_executable_fingerprint().copied(),
         });

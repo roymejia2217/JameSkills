@@ -156,7 +156,9 @@ impl ProcessPort for FakeProcess {
             .as_ref()
             .and_then(|path| std::fs::read(path).ok());
         self.invocations.lock().unwrap().push(Invocation {
-            tool_id: spec.tool_id(),
+            tool_id: spec
+                .tool_id()
+                .expect("commit checks use a registered ToolId"),
             executable: spec.executable().path().to_path_buf(),
             args: spec.args().to_vec(),
             cwd: spec.cwd().path().to_path_buf(),
