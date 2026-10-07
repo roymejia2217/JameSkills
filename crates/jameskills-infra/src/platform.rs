@@ -1122,6 +1122,7 @@ pub fn antigravity_cli_install_candidate(user_home: &Path) -> Option<PathBuf> {
     {
         Some(user_home.join(".local").join("bin").join("agy"))
     }
+}
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(
