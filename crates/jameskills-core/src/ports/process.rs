@@ -1,6 +1,6 @@
 use crate::{
     AppResult, Diagnostic,
-    domain::{OperationId, ToolId},
+    domain::{AgentId, OperationId, ToolId},
 };
 use std::{
     collections::BTreeMap,
@@ -161,11 +161,17 @@ pub enum ProcessPermission {
     ExplicitMutation(OperationId),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ProcessIdentity {
+    Tool(ToolId),
+    Agent(AgentId),
+}
+
 /// Approved argv invocation. It carries no shell string, and each argument
 /// remains a distinct OS string all the way to the provider.
 pub struct ProcessSpec {
     executable: ApprovedExecutable,
-    tool_id: ToolId,
+    identity: ProcessIdentity,
     args: Vec<OsString>,
     cwd: ApprovedRoot,
     env: ApprovedEnv,
@@ -182,6 +188,56 @@ impl ProcessSpec {
     pub fn new(
         executable: ApprovedExecutable,
         tool_id: ToolId,
+        args: Vec<OsString>,
+        cwd: ApprovedRoot,
+        env: ApprovedEnv,
+        timeout: Duration,
+        output_limit_bytes: usize,
+        permission: ProcessPermission,
+        cancellation: CancellationToken,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        Self::new_with_identity(
+            executable,
+            ProcessIdentity::Tool(tool_id),
+            args,
+            cwd,
+            env,
+            timeout,
+            output_limit_bytes,
+            permission,
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_for_agent(
+        executable: ApprovedExecutable,
+        agent_id: AgentId,
+        args: Vec<OsString>,
+        cwd: ApprovedRoot,
+        env: ApprovedEnv,
+        timeout: Duration,
+        output_limit_bytes: usize,
+        permission: ProcessPermission,
+        cancellation: CancellationToken,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        Self::new_with_identity(
+            executable,
+            ProcessIdentity::Agent(agent_id),
+            args,
+            cwd,
+            env,
+            timeout,
+            output_limit_bytes,
+            permission,
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_identity(
+        executable: ApprovedExecutable,
+        identity: ProcessIdentity,
         args: Vec<OsString>,
         cwd: ApprovedRoot,
         env: ApprovedEnv,
@@ -208,7 +264,7 @@ impl ProcessSpec {
         }
         Ok(Self {
             executable,
-            tool_id,
+            identity,
             args,
             cwd,
             env,
@@ -242,8 +298,15 @@ impl ProcessSpec {
         &self.executable
     }
 
-    pub fn tool_id(&self) -> ToolId {
-        self.tool_id
+    pub fn tool_id(&self) -> Option<ToolId> {
+        match self.identity {
+            ProcessIdentity::Tool(tool_id) => Some(tool_id),
+            ProcessIdentity::Agent(_) => None,
+        }
+    }
+
+    pub fn process_identity(&self) -> ProcessIdentity {
+        self.identity
     }
 
     pub fn args(&self) -> &[OsString] {

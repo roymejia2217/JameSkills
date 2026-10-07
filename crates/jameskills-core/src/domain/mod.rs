@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod bundle;
 pub mod guidance;
 mod ids;
@@ -6,6 +7,10 @@ pub mod policy;
 pub mod repo_change;
 mod scope;
 pub mod skill;
+pub use agent::{
+    AgentCapabilities, AgentCapabilityAssessment, AgentCapabilityId, AgentId, AgentInstallMode,
+    AgentProfile, CapabilityEvidence, CapabilitySupport,
+};
 
 pub use bundle::{
     BundleEntry, EntryKind, ValidatedFile, ValidatedInventory, validate_bundle_inventory,

@@ -171,7 +171,9 @@ impl FakeProcess {
 impl ProcessPort for FakeProcess {
     async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
         self.invocations.lock().unwrap().push(Invocation {
-            tool_id: spec.tool_id(),
+            tool_id: spec
+                .tool_id()
+                .expect("test suite checks use a registered ToolId"),
             executable: spec.executable().path().to_path_buf(),
             args: spec.args().to_vec(),
             cwd: spec.cwd().path().to_path_buf(),

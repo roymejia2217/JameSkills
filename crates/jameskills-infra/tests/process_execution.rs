@@ -1,6 +1,6 @@
 use jameskills_core::{
     AppError,
-    domain::{OperationId, ToolId},
+    domain::{AgentId, OperationId, ToolId},
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ProcessPermission,
         ProcessPort, ProcessSpec,
@@ -59,6 +59,35 @@ fn helper_spec(
     .unwrap()
 }
 
+fn agent_helper_spec(
+    mode: &str,
+    timeout: Duration,
+    output_cap: usize,
+    cancellation: CancellationToken,
+) -> ProcessSpec {
+    let executable =
+        ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap();
+    let fingerprint = fingerprint_executable(executable.path()).unwrap();
+    let cwd = ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap();
+    let args = ["--exact", mode, "--ignored", "--nocapture"]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+    ProcessSpec::new_for_agent(
+        executable,
+        AgentId::Codex,
+        args,
+        cwd,
+        safe_environment(),
+        timeout,
+        output_cap,
+        ProcessPermission::ReadOnlyCheck,
+        cancellation,
+    )
+    .unwrap()
+    .with_approved_executable_fingerprint(fingerprint)
+}
+
 fn run(spec: ProcessSpec) -> Result<jameskills_core::ports::process::ProcessOutput, AppError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -106,6 +135,20 @@ fn process_runner_drains_both_streams_and_keeps_output_bounded() {
     assert_eq!(output.exit_code(), Some(0));
     assert!(String::from_utf8_lossy(output.stdout()).contains("stdout-process-canary"));
     assert!(String::from_utf8_lossy(output.stderr()).contains("stderr-process-canary"));
+}
+
+#[test]
+fn process_runner_runs_approved_agent_probe_with_separate_process_identity() {
+    let output = run(agent_helper_spec(
+        "process_probe_output",
+        Duration::from_secs(5),
+        4096,
+        CancellationToken::new(),
+    ))
+    .unwrap();
+
+    assert_eq!(output.exit_code(), Some(0));
+    assert!(String::from_utf8_lossy(output.stdout()).contains("stdout-process-canary"));
 }
 
 #[test]

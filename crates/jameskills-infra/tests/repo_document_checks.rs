@@ -52,7 +52,7 @@ impl FakeGit {
 #[async_trait]
 impl ProcessPort for FakeGit {
     async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
-        assert!(spec.tool_id() == ToolId::Git);
+        assert!(spec.tool_id() == Some(ToolId::Git));
         assert!(matches!(
             spec.permission(),
             ProcessPermission::ReadOnlyCheck
@@ -101,7 +101,9 @@ impl ProcessPort for FakeGitleaks {
             .as_ref()
             .and_then(|path| std::fs::read_to_string(path).ok());
         self.invocations.lock().unwrap().push(GitleaksInvocation {
-            tool_id: spec.tool_id(),
+            tool_id: spec
+                .tool_id()
+                .expect("gitleaks check uses a registered ToolId"),
             args: spec.args().to_vec(),
             fingerprint: spec.approved_executable_fingerprint().copied(),
             config_path,

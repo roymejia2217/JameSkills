@@ -1066,6 +1066,78 @@ pub fn resolve_user_dirs() -> Result<UserDirectories, PlatformError> {
     ))
 }
 
+pub fn user_home_directory() -> Result<PathBuf, PlatformError> {
+    BaseDirs::new()
+        .map(|directories| directories.home_dir().to_path_buf())
+        .ok_or(PlatformError::BaseDirectoriesUnavailable)
+}
+
+pub fn opencode_config_directory(
+    user_home: &Path,
+    xdg_config_home: Option<&Path>,
+    config_directory_override: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let user_home =
+        ApprovedRoot::from_absolute_path(user_home.to_path_buf()).map_err(AppError::Validation)?;
+    if let Some(override_root) = config_directory_override {
+        return ApprovedRoot::from_absolute_path(override_root.to_path_buf())
+            .map(|root| root.path().to_path_buf())
+            .map_err(AppError::Validation);
+    }
+    let config_base = xdg_config_home
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| user_home.path().join(".config"));
+    let config_base =
+        ApprovedRoot::from_absolute_path(config_base).map_err(AppError::Validation)?;
+    Ok(config_base.path().join("opencode"))
+}
+
+pub fn pi_agent_directory(
+    user_home: &Path,
+    agent_directory_override: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let user_home =
+        ApprovedRoot::from_absolute_path(user_home.to_path_buf()).map_err(AppError::Validation)?;
+    match agent_directory_override {
+        Some(directory) => ApprovedRoot::from_absolute_path(directory.to_path_buf())
+            .map(|root| root.path().to_path_buf())
+            .map_err(AppError::Validation),
+        None => Ok(user_home.path().join(".pi").join("agent")),
+    }
+}
+
+pub fn antigravity_cli_install_candidate(user_home: &Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let _ = user_home;
+        BaseDirs::new().map(|directories| {
+            directories
+                .data_local_dir()
+                .join("agy")
+                .join("bin")
+                .join("agy.exe")
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        Some(user_home.join(".local").join("bin").join("agy"))
+    }
+}
+
+pub fn grok_home_directory(
+    user_home: &Path,
+    grok_home_override: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let user_home =
+        ApprovedRoot::from_absolute_path(user_home.to_path_buf()).map_err(AppError::Validation)?;
+    match grok_home_override {
+        Some(directory) => ApprovedRoot::from_absolute_path(directory.to_path_buf())
+            .map(|root| root.path().to_path_buf())
+            .map_err(AppError::Validation),
+        None => Ok(user_home.path().join(".grok")),
+    }
+}
+
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(

@@ -144,7 +144,7 @@ impl FakeGit {
 #[async_trait]
 impl ProcessPort for FakeGit {
     async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, AppError> {
-        assert!(matches!(spec.tool_id(), ToolId::Git));
+        assert!(matches!(spec.tool_id(), Some(ToolId::Git)));
         assert!(matches!(
             spec.permission(),
             ProcessPermission::ReadOnlyCheck
