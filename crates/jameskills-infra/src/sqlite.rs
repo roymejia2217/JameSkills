@@ -16,7 +16,7 @@ use jameskills_core::{
 use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension, Transaction};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MIGRATIONS: [(u32, &str); 4] = [
@@ -38,7 +38,7 @@ fn storage_error(code: &'static str) -> AppError {
 /// backup before any destructive upgrade; a future schema opens read-only
 /// and locked instead of downgrading.
 pub struct SqliteStore {
-    connection: Mutex<Connection>,
+    connection: Arc<Mutex<Connection>>,
     path: PathBuf,
     blob_root: PathBuf,
     read_only: bool,
@@ -87,7 +87,7 @@ impl SqliteStore {
             .unwrap_or_else(|| Path::new("."))
             .join("blobs");
         let store = Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
             path: path.to_path_buf(),
             blob_root,
             read_only: false,
@@ -108,7 +108,7 @@ impl SqliteStore {
             .execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
             .map_err(|_| storage_error("storage.open.failed"))?;
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
             path: path.to_path_buf(),
             blob_root: path
                 .parent()
@@ -188,6 +188,12 @@ impl SqliteStore {
     /// clauses are interpolated into the statement.
     pub fn list_skills(&self, query: &LibraryQuery) -> AppResult<LibraryPage> {
         list_skills_from_connection(&self.connection, query)
+    }
+    async fn list_skills_async(&self, query: LibraryQuery) -> AppResult<LibraryPage> {
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || list_skills_from_connection(&connection, &query))
+            .await
+            .map_err(|_| storage_error("storage.query.worker.failed"))?
     }
 
     /// Lists valid content-addressed blobs with no committed content revision.
@@ -595,6 +601,7 @@ fn observed_heads_json(heads: &[RevisionId]) -> String {
         }
         out.push('"');
         out.push_str(head.as_str());
+#[async_trait::async_trait]
         out.push('"');
     }
     out.push(']');
@@ -603,6 +610,9 @@ fn observed_heads_json(heads: &[RevisionId]) -> String {
 
 impl StoragePort for SqliteStore {
     fn schema_version(&self) -> AppResult<u32> {
+    async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage> {
+        self.list_skills_async(query).await
+    }
         SqliteStore::schema_version(self)
     }
 
