@@ -18,7 +18,7 @@ const MAX_ARGUMENT_BYTES: usize = 4096;
 const MAX_TOTAL_ARGUMENT_BYTES: usize = 16 * 1024;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_TIMEOUT: Duration = Duration::from_secs(120);
-const MAX_ENV_ENTRIES: usize = 16;
+const MAX_ENV_ENTRIES: usize = 24;
 const MAX_ENV_BYTES: usize = 16 * 1024;
 
 /// Absolute executable selected by trusted infrastructure or configuration.
@@ -36,6 +36,31 @@ impl ApprovedExecutable {
             return Err(process_diagnostic(
                 "process.executable.invalid",
                 "Executable must be an absolute, non-shell path.",
+            ));
+        }
+        Ok(Self(path))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+/// Absolute JavaScript entrypoint approved as data to be interpreted by a
+/// separately approved runtime. The infrastructure adapter rechecks its
+/// fingerprint immediately before spawning that runtime.
+pub struct ApprovedScript(PathBuf);
+
+impl ApprovedScript {
+    pub fn from_absolute_path(path: PathBuf) -> Result<Self, Vec<Diagnostic>> {
+        if !valid_absolute_path(&path)
+            || path.extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+            })
+        {
+            return Err(process_diagnostic(
+                "process.script.invalid",
+                "Script must be an absolute, non-shell path.",
             ));
         }
         Ok(Self(path))
@@ -149,6 +174,7 @@ pub struct ProcessSpec {
     permission: ProcessPermission,
     cancellation: CancellationToken,
     approved_executable_fingerprint: Option<ExecutableFingerprint>,
+    approved_script: Option<(ApprovedScript, ExecutableFingerprint)>,
 }
 
 impl ProcessSpec {
@@ -191,6 +217,7 @@ impl ProcessSpec {
             permission,
             cancellation,
             approved_executable_fingerprint: None,
+            approved_script: None,
         })
     }
 
@@ -199,6 +226,15 @@ impl ProcessSpec {
         fingerprint: ExecutableFingerprint,
     ) -> Self {
         self.approved_executable_fingerprint = Some(fingerprint);
+        self
+    }
+
+    pub fn with_approved_script(
+        mut self,
+        script: ApprovedScript,
+        fingerprint: ExecutableFingerprint,
+    ) -> Self {
+        self.approved_script = Some((script, fingerprint));
         self
     }
 
@@ -240,6 +276,12 @@ impl ProcessSpec {
 
     pub fn approved_executable_fingerprint(&self) -> Option<&ExecutableFingerprint> {
         self.approved_executable_fingerprint.as_ref()
+    }
+
+    pub fn approved_script(&self) -> Option<(&ApprovedScript, &ExecutableFingerprint)> {
+        self.approved_script
+            .as_ref()
+            .map(|(script, fingerprint)| (script, fingerprint))
     }
 }
 
@@ -370,6 +412,15 @@ fn approved_env_key(key: &OsStr) -> bool {
         "LANGUAGE",
         "TMP",
         "TEMP",
+        "INCLUDE",
+        "LIB",
+        "LIBPATH",
+        "VCINSTALLDIR",
+        "VCToolsInstallDir",
+        "WindowsSdkDir",
+        "WindowsSDKVersion",
+        "UniversalCRTSdkDir",
+        "UCRTVersion",
     ]
     .iter()
     .any(|approved| key.to_string_lossy().eq_ignore_ascii_case(approved))

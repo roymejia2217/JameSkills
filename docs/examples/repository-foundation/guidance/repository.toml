@@ -75,8 +75,15 @@ id = "ci-setup"
 requirement_ids = ["ci-contract"]
 [[plans.steps]]
 id = "pipeline"
-prompt_es = "Usa el perfil real del stack y configura quality. Revisa el diff y las referencias fijadas antes de aplicar."
+prompt_es = "Usa el stack detectado para definir workflow_paths y los IDs exactos de required_jobs; incluye push y pull_request sin filtros de paths que omitan cambios. Este LocalCheck prueba configuración local, no reglas del host ni CI del SHA actual."
 requires = []
+verification_requirement_ids = ["ci-contract"]
+[plans.steps.action]
+kind = "manual-instruction"
+[[plans.steps]]
+id = "least-privilege-actions"
+prompt_es = "Declara permisos explícitos mínimos; evita continue-on-error en jobs/steps requeridos y fija cada Action externa por SHA completo. Revisa el diff antes de aplicar."
+requires = ["pipeline"]
 verification_requirement_ids = ["ci-contract"]
 [plans.steps.action]
 kind = "manual-instruction"
@@ -86,7 +93,7 @@ id = "ci-current-setup"
 requirement_ids = ["ci-current"]
 [[plans.steps]]
 id = "wait-ci"
-prompt_es = "Ejecuta CI en el SHA que quieres publicar y vuelve a comprobar sus checks; un SHA anterior no cuenta."
+prompt_es = "Solicita al administrador que una regla activa de main exija los status checks de required_checks; después ejecuta y vuelve a leer CI para el SHA exacto que quieres publicar. El YAML local y un SHA anterior no prueban RequiredCi."
 requires = []
 verification_requirement_ids = ["ci-current"]
 [plans.steps.action]

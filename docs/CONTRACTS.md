@@ -163,6 +163,22 @@ dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
 La existencia de policy/guidance paths y las referencias cruzadas entre archivos
 se validan al ensamblar el bundle, no al parsear una policy aislada.
 
+`Check::CiContract { workflow_paths, required_jobs }` trata `required_jobs` como
+IDs de `jobs`, no como display names de status checks. Inspecciona solo paths bajo
+`.github/workflows/` con extensión `.yml` o `.yaml` del root aprobado, máximo 8
+archivos y 256 KiB por workflow, con `serde-saphyr` y budgets estrictos. Requiere triggers `push` y
+`pull_request`, los jobs declarados por el profile cubiertos por ambos eventos,
+permisos explícitos con keys del registry GitHub y sin grants `write`, refs SHA
+completos/digest para Actions externas y ausencia de `continue-on-error` en
+jobs/steps requeridos. Un filtro de paths o activity-types que omita `pull_request`,
+una gate/job/runner/needs ausente o permisos write es Fail conocido; YAML
+malformado, permisos implícitos/desconocidos, branch filter sin protected-branch
+scope, condición dinámica, reusable workflow requerido o sintaxis fuera del
+subset es Unknown. La lectura no ejecuta YAML, Actions ni steps. El resultado
+satisfactorio es `LocalCheck` únicamente; no prueba provider remoto, branch
+protection/ruleset ni check-runs para SHA actual. `CiEvidence` permanece Unknown
+hasta que exista el provider host/SHA exacto correspondiente.
+
 `CheckEvidence` lleva source_id, RFC3339 UTC, revision opcional, fingerprint
 `sha256:` y resumen app-authored acotado; su expiry monotónica es válida solo en
 el proceso que la observó. CheckObservation sin evidencia nunca produce Pass;
@@ -180,6 +196,31 @@ pub fn evaluate_predicate(
 pub fn strict_exit(report: &CheckReport) -> u8;
 ~~~
 
+`TestSuiteRunResult` separa `TestSuiteDeclaration` (`Declared | Missing |
+Unknown`) de `TestSuiteExecution` (`NotRun | Blocked | Passed | Failed`) y
+`exit_code`. Solo `Passed` acepta exit 0 y `Failed` acepta exit distinto de 0;
+`NotRun`/`Blocked` no tienen exit code y una suite `Missing` no puede marcarse
+ejecutada. La ejecución es una acción explícita, separada de `PolicyService::check`.
+`TestSuiteRunApproval::after_explicit_trust_confirmation` es un DTO app-owned,
+no deserializable, que liga `ApprovedRoot`, suite fija, `RepositoryHead`, hash
+de manifests y `OperationId`; por sí solo no ejecuta procesos ni representa
+evidencia de suite exitosa. El servicio/runner concreto debe revalidar
+root/head/manifiestos justo antes del spawn; policy inspection nunca invoca el
+runner.
+
+El provider Cargo obtiene la declaración mediante `cargo metadata --no-deps
+--format-version 1 --locked --offline`; solo considera `packages` cuyos IDs están
+en `workspace_members`, y declara suite si alguno tiene `targets[].test = true`.
+Esto constata targets seleccionables por Cargo, no que las pruebas pasen ni una
+cobertura determinada. Tras aprobación explícita el argv fijo ejecuta
+`cargo test --workspace --locked --manifest-path <root>/Cargo.toml`, es decir,
+los targets de test de los miembros del workspace. La inspección usa
+`ReadOnlyCheck`; la ejecución aprobada usa `ExplicitMutation(OperationId)`, con
+timeout/salida limitados y revalidación del root, HEAD y fingerprint de los
+manifiestos antes del spawn. Cargo exit 0 se registra como Passed; exit no cero
+como Failed (puede representar fallo de compilación o de prueba); spawn/tool no
+disponible o cancelación no se convierte en Pass.
+
 `PolicyCheckProvider::observe(&Requirement)` es async e inyectado a
 `PolicyService::new(provider, clock)`. `PolicyService::check(CheckRequest)` es async y evalúa
 todos los requisitos, conserva autoridad observada aparte de la exigida y devuelve
@@ -187,6 +228,28 @@ guidance_id estructurado. Unknown/Blocked/Fail/Unsupported requerido y cualquier
 resultado ausente dan strict exit 1; un resultado opcional no bloquea. `NotApplicable`
 solo nace de mismatch de un `applies_when` registrado con fact evidence fresca;
 una respuesta del provider que diga NotApplicable sin ese fundamento queda Unknown.
+
+`RepositoryPolicyCheckProvider` implementa `Check::CiContract` como un check local
+de datos, no como una ejecución de GitHub Actions. Antes de inspeccionar workflows,
+requiere Git nativo/fingerprinted con versión registrada compatible y al menos un
+remote configurado por `git remote -v` cuyo fetch/push host sea exactamente
+`github.com`; el comando solo lee config local, bounded, sin red. GitLab, GitHub
+Enterprise no registrado, URLs no analizables, mezcla de hosts o ausencia de
+remotes deja resultado Unknown; esto tampoco prueba que el repositorio exista en
+el host ni que las reglas de branch estén activas. URLs, incluidas credenciales,
+no se copian a evidencia ni logs. El check solo admite workflow paths bajo
+`.github/workflows/` con extensión `.yml` o `.yaml`, máximo 8 archivos y 256 KiB por archivo; rechaza
+symlinks/archivos no regulares antes de parsear. `serde-saphyr` recibe un budget
+cerrado (1 documento, depth 32, 8,192 nodos, 16,384 eventos, scalar bytes bounded,
+sin aliases/anchors/merge keys/custom tags/duplicate keys ni snippets). El parser
+comprueba `push` y `pull_request` (con `opened` y `synchronize` si hay activity
+filters), jobs/runner/needs declarados, los jobs solicitados presentes en ambos
+eventos, permisos explícitos registrados sin `write`, pinned refs para Actions
+externas, y que jobs/steps requeridos no habiliten `continue-on-error`. Condiciones
+de job/step no conocidas, reusable workflows requeridos o formas fuera del subset dan Unknown;
+fallas comprobables del contrato dan Fail. Pass tiene autoridad `LocalCheck`.
+No inspecciona protección/rulesets del host ni un check-run para SHA actual; `ci-evidence`
+y `RequiredCi` permanecen Unknown/Blocked hasta tener esos proveedores remotos.
 
 `infra::fs::ApprovedRepositoryTool::new(executable, fingerprint)` y
 `RepositoryPolicyCheckProvider::new(root, git, gitleaks, environment, process,
@@ -202,6 +265,76 @@ Blocked antes de lanzar procesos porque el driver oficial también la aplica des
 el target y no ofrece un bypass independiente. `include_history=true` devuelve
 Unsupported hasta que el ejecutable Git hijo tenga un driver/identidad aprobada
 independiente. Ningún output crudo se copia a CheckEvidence.
+
+`RepositoryPolicyCheckProvider::with_commitlint` acepta un `ApprovedCommitlint`
+nativo o `ApprovedCommitlintNode`. El route Node exige Node nativo con fingerprint
+aprobado, Node dentro del rango app-owned y >=22.12.0, y entrypoint aprobado cuyo
+path termina en `node_modules/@commitlint/cli/cli.js`; valida con ese entrypoint
+la versión exacta `@commitlint/cli@21.2.2`. `ProcessSpec` revalida los fingerprints
+del runtime y del script antes de spawn. No se ejecuta el `.cmd` de npm ni se usa
+shell.
+
+`LocalFileSystem::check_conventional_commit(root, git, commitlint, environment,
+process, observed_at, environment_fingerprint)` lee solo el mensaje HEAD con
+Git `--no-pager log -1 --format=%B` (máximo 64 KiB), lo escribe junto con una
+config JSON app-owned vacía en un directorio privado fuera del repo y ejecuta el
+CLI Commitlint 21.2.2 con `--default-config --config <private-json> --edit
+<private-message>`. El cwd privado y `--config` explícito evitan ejecutar
+configuración del proyecto. Para el route Node, el proceso conserva cwd privado
+y pasa `--cwd <repo-root>` al CLI: el `--edit` oficial exige resolver el root
+Git, mientras `--config` absoluto obliga a cargar solo el JSON privado. El PATH
+antepone la carpeta del Git aprobado para la llamada interna `git config
+core.commentChar`. Las rutas Windows `\\?\` se normalizan solo en argv Node;
+los paths originales permanecen aprobados y fingerprinted por el ProcessPort.
+Este límite está respaldado por el loader `load-config.ts` y el lector
+`get-edit-commit.ts` oficiales de Commitlint v21.2.2, registrados en
+`docs/SOURCES.md`.
+Exit 0/1 significa Pass/Fail como LocalCheck; otro código o CLI no registrado
+queda Blocked. Message, stdout y stderr no se copian a evidencia. El fingerprint
+del entrypoint no equivale a una auditoría completa del árbol de dependencias Node.
+Tras exit 0/1, el provider consulta read-only `git rev-parse --git-path
+hooks/commit-msg` usando el mismo Git aprobado/fingerprinted y el root aprobado.
+La evidencia del hook nunca eleva la autoridad: no se ejecuta el hook. Solo se
+inspeccionan archivos regulares, bounded (16 KiB), no-symlink y dentro del root;
+en Unix también se comprueba el bit executable. El contenido se lee dos veces y
+se comparan sus SHA-256 para detectar cambios durante la lectura. La ruta, el
+digest y el contenido del hook no se copian a logs/evidencia. Incluso con target instalado,
+la evidencia indica que argv/driver identity e invocación no están probados y el
+resultado continúa como `LocalCheck`: el bootstrap de Husky y comandos npm/shell
+no prueban que se invocó el entrypoint Commitlint aprobado. `LocalHook` requiere
+un contrato aparte que enlace configuración efectiva, script gestionado, argv y
+fingerprints del driver; sigue siendo eludible con `--no-verify`/`HUSKY=0`.
+
+El runner Node previsto mapea `NodeLint | NodeTest | NodeBuild` a las claves root
+`lint`, `test` y `build` detectadas como datos; nunca recibe un nombre de script
+ni argumentos libres del caller. Debe ejecutar npm CLI `11.16.0` cargando su
+`npm-cli.js` mediante el Node nativo aprobado, no `npm.cmd`; Node debe satisfacer
+el engine declarado por esa versión de npm (`^20.17.0 || >=22.9.0`), dentro del
+rango de Node admitido por el profile. Runtime y entrypoint npm deben fingerprintarse
+y volverse a validar antes del spawn; esta huella no verifica todos los módulos
+relativos del paquete npm.
+
+La invocación definida para el driver fijo `npm run-script <suite>` con `--prefix` al root aprobado,
+`--workspaces=false`, `--ignore-scripts`, un `--script-shell` del sistema fijado
+por plataforma, y `--userconfig`/`--globalconfig` dirigidos a archivos privados
+vacíos fuera del repo. npm documenta que `--ignore-scripts` suprime los hooks
+`pre<event>`/`post<event>` pero ejecuta el script solicitado; npm ejecuta ese
+texto mediante `/bin/sh` en POSIX o `cmd.exe` en Windows. Por tanto la aprobación
+explícita es consentimiento para ejecutar código del repositorio bajo su shell
+de plataforma, no una sandbox ni un argv extraído de `package.json`. La implementación
+no pasará texto de scripts como argumento ni iniciará el shim `.cmd`. Si existe
+`.npmrc` en el root, la ejecución deberá quedar Blocked; el runner no debe
+incorporar credenciales de config npm del proyecto/usuario, ni importar los valores de `scripts` a logs o
+evidencia. Root, HEAD, manifests, declaración y selección se revalidan antes de
+`ExplicitMutation`; cancelación, npm no disponible, script ausente y exit no
+cero mantienen estados separados. Un exit 0 certifica exit del script solicitado,
+no cobertura ni que el script haya probado un objetivo específico.
+`infra::fs::npm_cli_entrypoint_for_candidate(&ToolCandidate) -> Option<PathBuf>`
+resuelve layouts registrados de npm sin ejecutar el candidate launcher. El
+provider requiere un `ApprovedNodeNpm` que ata un Node aprobado a ese entrypoint
+JavaScript y su fingerprint; el ProcessPort vuelve a validar ambos antes de
+spawn. `.npmrc` root presente o no regular bloquea, y el fingerprint de npm-cli.js
+no acredita integridad del conjunto de módulos npm cargados.
 
 Bundle { manifest: SkillManifest, frontmatter: SkillFrontmatter, files: BTreeMap<PortablePath, Vec<u8>>, trust: TrustState }.
 `BundleEntry { path: PortablePath, kind: EntryKind, compressed_bytes: u64, uncompressed_bytes: u64 }` modela metadatos no confiables. `validate_bundle_inventory(&[BundleEntry]) -> Result<ValidatedInventory, Vec<Diagnostic>>` es lógica pura: limita 20MiB/2000 entries/2MiB por texto/256KiB SKILL, permite solo archivos regulares, rechaza duplicate/case-fold path collisions; nunca accede al filesystem. `ValidatedInventory` y sus entries tienen campos privados. `EntryKind` incluye file, directory, symlink, hardlink y reparse point para rechazar todos salvo regular file.
@@ -300,9 +433,26 @@ ApprovedRoot, ApprovedExecutable y SecretInput tienen constructores controlados;
 el proveedor vuelve a calcularlo con lectura limitada antes de spawn. Los probes de
 tools registrados no ejecutan candidatos sin fingerprint aprobado; presencia o PATH
 por sí solos solo producen `Candidate`.
-ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint> }.
-ProcessPermission = ReadOnlyCheck | ExplicitMutation(OperationId). Allowlist driver's args verificada, logs solo tool_id/timing/exit.
-ApprovedEnv mínimo; rutas PATH necesarias, HOME/USERPROFILE por driver, idioma fijo cuando parseador depende. No heredar XAI_API_KEY/GEMINI_API_KEY ni credenciales ajenas.
+ProcessSpec { executable: ApprovedExecutable, tool_id, args: Vec<OsString>, cwd: ApprovedRoot, env: ApprovedEnv, timeout: Duration, output_limit_bytes, permission: ProcessPermission, approved_executable_fingerprint: Option<ExecutableFingerprint>, approved_script: Option<(ApprovedScript, ExecutableFingerprint)> }.
+`SystemProcessPort` permite `ReadOnlyCheck` y `ExplicitMutation(OperationId)`;
+ambos lanzan solo el executable aprobado, argv separados, cwd/environment
+aprobados, fingerprints y límites bounded, y cancelan el grupo completo. El ID
+no constituye por sí solo trust/consent del repositorio: el driver de suites
+debe exigir la aprobación tipada explícita y construir argv desde registry antes
+de solicitar `ExplicitMutation`. Ningún policy inspection solicita esa acción.
+`ApprovedEnv` es mínimo y acepta las rutas `PATH`, `HOME`/`USERPROFILE` por
+driver e idioma fijo cuando el parser lo requiere. Para toolchain MSVC también
+puede conservar `INCLUDE`, `LIB`, `LIBPATH`, `VCINSTALLDIR`, `VCToolsInstallDir`,
+`WindowsSdkDir`, `WindowsSDKVersion`, `UniversalCRTSdkDir` y `UCRTVersion`, que
+ubican compilador, headers y bibliotecas del SDK. Estos nombres se allowlistean
+individualmente; `CL` y `_CL_` permanecen rechazados porque permiten añadir
+argumentos al compilador/linker mediante el entorno. Nunca heredar
+`XAI_API_KEY`/`GEMINI_API_KEY` ni credenciales ajenas.
+`ProcessSpec::with_approved_script(ApprovedScript, ExecutableFingerprint)` ata
+un entrypoint JavaScript aprobado al runtime aprobado. `SystemProcessPort`
+revalida que siga siendo un archivo regular, canónico y con el mismo SHA-256
+inmediatamente antes del spawn. El contrato cubre el entrypoint; no sustituye
+la verificación del paquete/dependencias declarados por el driver.
 Windows .cmd de npm no se ejecuta como PE. Resolver wrapper conocido a node.exe+entrypoint aprobado cuando sea posible; fallback oficial específico explícito limitado y testeado, sin construir una línea arbitraria shell. tools/COMMITLINT y drivers git son del proyecto, no importados de skills.
 
 ## Servicios

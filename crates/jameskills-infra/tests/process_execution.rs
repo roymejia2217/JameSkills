@@ -1,6 +1,6 @@
 use jameskills_core::{
     AppError,
-    domain::ToolId,
+    domain::{OperationId, ToolId},
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ProcessPermission,
         ProcessPort, ProcessSpec,
@@ -198,4 +198,39 @@ fn process_runner_accepts_an_unchanged_approved_executable() {
     .with_approved_executable_fingerprint(approved);
 
     assert_eq!(run(spec).unwrap().exit_code(), Some(0));
+}
+
+#[test]
+fn process_runner_executes_only_when_explicit_mutation_permission_is_present() {
+    let executable_path = std::env::current_exe().unwrap();
+    let approved = fingerprint_executable(&executable_path).unwrap();
+    let cwd = ApprovedRoot::from_absolute_path(std::env::current_dir().unwrap()).unwrap();
+    let args = [
+        "--exact",
+        "process_probe_output",
+        "--ignored",
+        "--nocapture",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect();
+    let spec = ProcessSpec::new(
+        ApprovedExecutable::from_absolute_path(executable_path).unwrap(),
+        ToolId::Cargo,
+        args,
+        cwd,
+        safe_environment(),
+        Duration::from_secs(5),
+        4096,
+        ProcessPermission::ExplicitMutation(OperationId::new()),
+        CancellationToken::new(),
+    )
+    .unwrap()
+    .with_approved_executable_fingerprint(approved);
+
+    let output = run(spec).unwrap();
+
+    assert_eq!(output.exit_code(), Some(0));
+    assert!(String::from_utf8_lossy(output.stdout()).contains("stdout-process-canary"));
+    assert!(String::from_utf8_lossy(output.stderr()).contains("stderr-process-canary"));
 }

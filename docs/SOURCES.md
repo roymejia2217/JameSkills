@@ -80,6 +80,8 @@ Fuentes de versión/license/MSRV: [async-trait crates.io](https://crates.io/api/
 [`command-group CommandGroup`](https://docs.rs/command-group/5.0.1/command_group/stdlib/trait.CommandGroup.html),
 [`command-group GroupChild`](https://docs.rs/command-group/5.0.1/command_group/struct.GroupChild.html).
 
+MSVC child-process environment: Microsoft Learn [Build Tools from the command line](https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170) states that the command-line toolchain requires environment variables for executable, include, library, and SDK paths; it specifically lists `PATH`, `TMP`, `INCLUDE`, `LIB`, and `LIBPATH`, and recommends the installed developer command file because values vary by target and installation. The [CL environment-variable reference](https://learn.microsoft.com/en-us/cpp/build/reference/cl-environment-variables?view=msvc-170) documents `INCLUDE`/`LIBPATH` and confirms `CL`/`_CL_` inject compiler arguments. JameSkills therefore permits only named toolchain path variables in `ApprovedEnv`, never `CL` or `_CL_`.
+
 Comprobación local T001: `cargo info gpui-kit@0.7.0` descargó versión 0.7.0,
 licencia Apache-2.0 y reportó `rust-version: unknown`. El índice sparse local de
 Cargo indica 0.7.0 `yanked=false` y 0.6.5 `yanked=true`. El crate normalizado
@@ -99,6 +101,8 @@ dlopen upstream de fontconfig están detalladas en `docs/PLATFORM-EVIDENCE.md`.
 Revisión 2026-10-04: la página actual de installation ofrece v0.7.0 y cita Rust 1.92+ para su grafo vigente; el README publicado en el tag v0.7.0 todavía muestra `gpui-kit = "0.6"`, por lo que ese ejemplo no sirve para seleccionar la versión del producto. Para JameSkills prevalecen la dependencia exacta `gpui-kit = "=0.7.0"`, el Cargo.lock y la evidencia de compilación del snapshot `gpui-pre 0.3.7`: el workspace requiere Rust 1.95 por `std::hint::cold_path`, aunque la página de instalación cite 1.92. Las URLs de documentación `/versions/v0.7.0/docs/...` previamente consultadas devolvieron 404; firmas/APIs se verifican contra el tag y los crates versionados, no contra ejemplos ambiguos.
 
 Cargo 1.95: [`cargo test --locked`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-test.html) asegura que no cambie la resolución existente del lockfile; [`cargo clippy`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-clippy.html) es un subcomando externo distribuido como componente del toolchain. CI y los comandos locales usan Rust/Cargo fijados en 1.95.0; el modo `--locked` no sustituye la ejecución de tests, lint ni build.
+
+Runner de suites T020.c: Cargo 1.95 [`cargo metadata`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-metadata.html) recomienda `--format-version 1`, define `workspace_members` y `packages[].targets[].test`, y `--no-deps` omite dependencias. El runner usa metadata `--no-deps --format-version 1 --locked --offline` como inspección declarativa y no invoca `cargo test` durante esa inspección. La ejecución aprobada usa [`cargo test`](https://doc.rust-lang.org/1.95.0/cargo/commands/cargo-test.html) con `--workspace --locked`: Cargo documenta que selecciona miembros del workspace y que `--locked` rechaza cambios a `Cargo.lock`; exit 0 es éxito de Cargo y exit 101 es fallo de Cargo. Un exit no nulo por sí solo no prueba que una prueba individual fallara ni distingue fallo de compilación de fallo del harness.
 
 Licencias: software y ejemplos Kit Apache-2.0; prosa/ilustraciones originales de docs bajo CC BY4.0 según sitio. Este dossier resume requisitos, no copia ilustraciones. Conservar atribuciones de Lucide/Isocons y dependencias en THIRD-PARTY-NOTICES.
 
@@ -146,6 +150,7 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GitHub rulesets: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets
 - REST rulesets: https://docs.github.com/en/rest/repos/rules
 - Git hooks: https://git-scm.com/docs/githooks
+- Git remotes: https://git-scm.com/docs/git-remote
 - Git ignore probe: https://git-scm.com/docs/git-check-ignore
 - Commitlint: https://commitlint.js.org/reference/cli.html
 - Gitleaks: https://github.com/gitleaks/gitleaks
@@ -157,6 +162,10 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - GPUI headless recipes y APIs: fuente v0.7.0 indicada arriba.
 - MSRV/toolchain: https://doc.rust-lang.org/cargo/reference/rust-version.html
 - GitHub Actions permissions: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication
+- GitHub Actions workflow syntax: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+- GitHub Actions job matrices: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
+- GitHub protected branches/status checks: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+- GitHub ruleset rules: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets
 
 ## Guías oficiales de instalación para el registry de tools
 
@@ -177,6 +186,60 @@ descargar, instalar ni ejecutar herramientas automáticamente.
 | cargo-deny | [cargo-deny-install-windows](https://embarkstudios.github.io/cargo-deny/) | [cargo-deny-install-linux](https://embarkstudios.github.io/cargo-deny/) | [cargo-deny CLI](https://embarkstudios.github.io/cargo-deny/cli/index.html) |
 
 Gitleaks v8.30.1 CLI contract: [README at tag v8.30.1](https://github.com/gitleaks/gitleaks/blob/v8.30.1/README.md) documents `dir`, `--config` precedence over repository `.gitleaks.toml`, default `useDefault` rules, redaction, JSON output, and exit-code override. Only 8.30.1 is currently accepted: it is the exact tag whose CLI and JSON fixture were reviewed; all other versions remain Blocked until separately evidenced. The [tagged `cmd/root.go`](https://github.com/gitleaks/gitleaks/blob/v8.30.1/cmd/root.go) also shows that `.gitleaksignore` is loaded from the scan source independently of `--config`; therefore the check blocks when that file exists rather than treating its suppressions as trusted. The repository test fixture is sanitized; findings values are never returned or logged.
+
+Commitlint T020 source/API: [`@commitlint/cli` v21.2.2](https://github.com/conventional-changelog/commitlint/tree/v21.2.2/%40commitlint/cli) implements `--default-config` with built-in `@commitlint/config-conventional` and `--edit <file>` input. Its [`cli.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/src/cli.ts) source confirms config-file discovery and exit behavior. JameSkills pins this driver to 21.2.2; the checker must run with an app-owned private cwd so repository Commitlint configs are not loaded. The official current CLI page reports 21.2.3, which is outside the verified pin and remains Blocked.
+
+Commitlint v21.2.2 [`package.json`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/cli/package.json) declares Node `>=22.12.0`. The app-owned general Node discovery range includes stable Node 18–24 (`<25`); the Commitlint driver separately enforces the package's Node minimum. The [Node release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) records Node 24 as LTS through 2028-04-30; Node 25 is excluded until separately reviewed.
+
+The Commitlint v21.2.2 [`load-config.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/load/src/utils/load-config.ts) uses `explorer.load(explicitPath)` when `--config` is supplied, rather than cosmiconfig search from cwd. Its [`get-edit-commit.ts`](https://github.com/conventional-changelog/commitlint/blob/v21.2.2/%40commitlint/read/src/get-edit-commit.ts) resolves the Git top-level from the CLI cwd before reading `--edit`. Therefore the Node driver keeps the OS process cwd private, passes the approved repository root as Commitlint `--cwd`, and supplies an absolute app-owned JSON config path; it does not execute repository Commitlint config files.
+
+Git's [`githooks` manual](https://git-scm.com/docs/githooks) specifies that hooks without the executable bit are ignored, `core.hooksPath` selects the hooks directory, and `commit-msg` may be bypassed with `--no-verify`. The [Husky v9 setup guide](https://typicode.github.io/husky/get-started.html) additionally documents disabling hooks with `HUSKY=0`. Therefore an installed hook is local feedback, not a security or merge boundary; inspecting config/file presence cannot prove invocation.
+
+Commitlint's [local setup guide](https://commitlint.js.org/guides/local-setup.html) recommends a Husky `commit-msg` hook and explicitly says local linting can be tinkered with; its [CI setup guide](https://commitlint.js.org/guides/ci-setup.html) demonstrates validating commits in push/PR workflows. The live [`nodejs/node` commit-lint workflow](https://github.com/nodejs/node/blob/main/.github/workflows/commit-lint.yml) validates the PR's first commit message in a remote workflow and pins its validator release and action by SHA. Its [workflow directory](https://github.com/nodejs/node/tree/main/.github/workflows) separately contains Linux, Windows, and macOS test workflows. This is evidence for using local hooks as convenience and remote CI as enforcement, not a claim that Node validates every commit message.
+
+GitHub's [protected-branch documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) states that required status checks must succeed before merging. Its [ruleset documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) describes layered active rulesets and their visible enforcement state. Workflow YAML and successful run evidence alone do not prove that the host requires the check.
+
+For cross-platform CI patterns, the live [`microsoft/vscode` workflow directory](https://github.com/microsoft/vscode/tree/main/.github/workflows) has reusable Linux, Windows, and macOS test workflows; the platform workflows select OS-specific runners/shells and pin GitHub actions by commit SHA. The live [`rust-lang/rust` CI workflow](https://github.com/rust-lang/rust/blob/main/.github/workflows/ci.yml) and its [job definitions](https://github.com/rust-lang/rust/blob/main/src/ci/github-actions/jobs.yml) enumerate Linux, macOS, Windows, and architecture-specific jobs. These are observed repository implementations, not a universal prescription to run every check on every OS.
+
+T021 CI-contract parser references: GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) specifies event triggers, job IDs, permissions and workflow fields; its [matrix guide](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) defines job matrix expansion. GitHub notes that a workflow skipped by filters can leave a required check pending. The [protected branch status-check rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) describe host-side merge enforcement; local YAML inspection cannot establish that rule or a check run for the current SHA.
+
+The T021 local workflow parser will use the already locked [`serde-saphyr` 1.3.0](https://docs.rs/serde-saphyr/1.3.0/serde_saphyr/) directly in infra with an explicit event/depth/node/scalar budget, duplicate-key errors, zero aliases/anchors, rejected custom tags/merge keys, and disabled snippets. YAML data remains inert; parser output is inspected as data and never executes workflow steps or Actions.
+
+T021 host discrimination uses Git's [`remote -v` documentation](https://git-scm.com/docs/git-remote), which reports remote names and configured fetch/push URLs. This is local configuration only (no network request); URLs may contain credentials and must stay in bounded process memory, never evidence/log output. A GitHub Actions YAML file without an observed supported GitHub remote remains Unknown, not RequiredCi.
+
+T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
+the Windows host together with Node `24.18.0`. The tagged
+[`package.json`](https://github.com/npm/cli/blob/v11.16.0/package.json) declares
+Node engines `^20.17.0 || >=22.9.0`; the profile already discovers npm 9–11 and
+Node 18–24, while the suite driver pins the exact npm CLI release and enforces
+that engine separately. npm's tagged [`run` command](https://github.com/npm/cli/blob/v11.16.0/lib/commands/run.js)
+checks the requested script key and executes only it when `ignore-scripts` is
+true, suppressing matching pre/post hooks. The tagged
+[`npm-cli.js`](https://github.com/npm/cli/blob/v11.16.0/bin/npm-cli.js) loads
+relative implementation modules, so fingerprinting that entrypoint does not
+attest the whole installed npm tree.
+
+The npm CLI v11 [`npm run` docs](https://docs.npmjs.com/cli/v11/commands/npm-run)
+and v11.16.0 source agree that `run-script` invokes the selected script through
+the platform shell (`/bin/sh` or `cmd.exe`) and supports `script-shell`; this is
+explicitly treated as execution of repository code after trust confirmation,
+not as shell-free execution or a sandbox. The same docs specify that
+`--ignore-scripts` still executes the specifically requested script but not its
+pre/post scripts. npm's [config](https://docs.npmjs.com/cli/v11/using-npm/config)
+and [`.npmrc`](https://docs.npmjs.com/cli/v11/configuring-npm/npmrc) docs list
+project, user, global and builtin config sources; [folders](https://docs.npmjs.com/cli/v11/configuring-npm/folders)
+documents global npm installation layouts. The T020.c.c contract requires the
+driver to redirect user/global config to private empty files and block when a project-root `.npmrc` exists,
+because credentials or config-defined shell behavior must not silently reach a
+suite. A package tree/lockfile does not pin the globally installed npm CLI.
+
+[`@npmcli/run-script` v10.0.4 `make-spawn-args.js`](https://github.com/npm/run-script/blob/v10.0.4/lib/make-spawn-args.js)
+starts its child environment from `process.env` and sets the configured shell on
+the spawn; [`run-script-pkg.js`](https://github.com/npm/run-script/blob/v10.0.4/lib/run-script-pkg.js)
+obtains command text from the selected package script. JameSkills calls npm with
+the minimal ProcessPort `ApprovedEnv`, suppresses lifecycle hooks and requires
+explicit repository trust. This does not sandbox a script from same-user
+filesystem access.
 
 La guía de npm es fuente primaria para comprobar versiones mediante `node -v` y
 `npm -v`; Commitlint documenta `--version`; Gitleaks documenta `version` y
