@@ -3,7 +3,7 @@ use jameskills_core::{
     AppError, AppResult,
     domain::{RepoChangePlan, RepoTemplateId, policy::RepositoryHead},
     ports::{
-        ClockPort, CURRENT_SCHEMA_VERSION, OperationJournalPort, RepoChangeJournal,
+        CURRENT_SCHEMA_VERSION, ClockPort, OperationJournalPort, RepoChangeJournal,
         RepoChangeJournalState,
         process::{ApprovedRoot, ProcessOutput, ProcessPort, ProcessSpec},
     },
