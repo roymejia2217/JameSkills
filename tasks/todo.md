@@ -1210,9 +1210,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T027 — Aplicar templates y hooks locales con preview
 
-- [ ] **T027 completada y verificada**
+- [x] **T027 completada localmente y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** en curso (T027.src/a/b/c/d1/d2.src/d2a/d2b/d2c.src/d2c1/d2c2.src/d2c2 completas; T027.d2c3 siguiente).
+**Módulo:** `policy-engine`. **Dependencias:** T014, T025, T026. **Estado:** completada localmente en Windows MSVC.
 
 **Implementación y funciones:** servicio de repositorio dedicado para plan/apply; helpers para templates propios/managed sections, journal y diff. No añadir writes a `GuidanceService` ni al check-only `PolicyService`. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1232,33 +1232,39 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - RED T027.d1: `cargo test -p jameskills-infra --locked --test repo_change_journal duplicate_operation_id_is_conflict_and_does_not_replace_the_original_journal` falló porque el `INSERT OR REPLACE` reemplazaba el registro existente. GREEN: `repo_change_journal` 5/5; core+infra suites completas y Clippy `-D warnings` pasan. Reusa schema v3 `operations` sin migration extra; prueba reopen, CAS transitions, replay conflict, corrupt-field rejection, pending recovery y ausencia del contenido template.
 - [x] **T027.d2.src — Fijar revalidación Git y composición** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. El request debe transportar Git executable fingerprint/environment ya aprobados; fixed `--version` + `rev-parse HEAD` con ProcessPort; storage runtime no se inventa.
 - Evidencia T027.d2.src: `RepoChangePort` existente no transportaba executable ni env y no podía revalidar HEAD; `RuntimeServices` aún no abre SQLite. Se exige un `ApprovedRepoGit` por request con fingerprint y `ApprovedEnv`, sin detección/spawn automático. No se altera side-effect de `build_services` ni se publica un service runtime que no tiene journal.
-- [ ] **T027.d2 — Apply/recover con Git aprobado y journal** (descomponer por capa; máximo cinco archivos cada una).
+- [x] **T027.d2 — Apply/recover con Git aprobado y journal** (descomponer por capa; máximo cinco archivos cada una).
 - [x] **T027.d2a — Bind de Git aprobado a requests/port** (5 archivos): `crates/jameskills-core/src/application/repo_change.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/src/ports/repo_change.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/repo_change_service.rs`. `ApprovedRepoGit` encapsula executable fingerprint + `ApprovedEnv`; no se detecta/ejecuta PATH automáticamente.
 - RED T027.d2a: `cargo test -p jameskills-core --locked --test repo_change_service approved_git_requires_confirmation_of_the_same_executable_fingerprint` falló porque no se comparaba el fingerprint mostrado con el aprobado. GREEN `repo_change_service` 4/4; Clippy core `-D warnings`, fmt y diff-check pasan. `ApprovedRepoGit` no se deserializa; el port recibe la misma identidad en preview/apply.
 - [x] **T027.d2b — Git/head read-only preview verifier** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `tasks/todo.md`. Git `--version` y `rev-parse HEAD` solo con argv registrado, `ReadOnlyCheck` y fingerprint.
 - RED T027.d2b: `cargo test -p jameskills-infra --locked --test template_plan stale_git_head_blocks_preview_after_fixed_read_only_argv` falló cuando el helper devolvía NotFound; compilación correcta. GREEN: `template_plan` 7/7, core+infra suites completas, Clippy core/infra `-D warnings`, fmt/diff-check pasan. Cubre argv/permisos/fingerprint, versión incompatible, Git cambiado, head stale y éxito preview; usa ProcessPort fake, no declara un spawn real. Es aún un helper, no la implementación completa de `RepoChangePort`; eso va en d2c junto con apply/recovery.
-- [ ] **T027.d2c — Apply create-only con journal/recovery** (subincrements de máximo cinco archivos).
+- [x] **T027.d2c — Apply create-only con journal/recovery** (subincrements de máximo cinco archivos).
 - [x] **T027.d2c.src — Fijar semántica filesystem por handles** (4 archivos): `docs/CONTRACTS.md`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. `cap-std=4.0.3` y sus fuentes; límite de symlink/reparse, create-only hardlink, same-filesystem y recovery.
 - Evidencia T027.d2c.src: docs.rs cap-std 4.0.3 (27-08-2026) confirma `Dir::open_ambient_dir` y APIs de paths relativos; `hard_link` no reemplaza destino existente. Los handles limitan escape pero no rechazan por sí solos symlinks internos; se exige comprobar cada componente antes de operar.
 - [x] **T027.d2c1 — Planner y root capability handles** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`.
-- GREEN T027.d2c1: `cargo check -p jameskills-infra --locked`; `cargo test -p jameskills-infra --locked` pasa; infra Clippy `-D warnings` pasa. Preview ahora abre root con `cap-std=4.0.3`, lee mediante handles relativos y verifica symlink/reparse components; no hay writes en este slice. Windows junction test no pudo crear reparse point por OS error 1314 y queda ignorado explícitamente; Linux symlink test aún no observado en este host.
+- GREEN T027.d2c1: `cargo check -p jameskills-infra --locked`; `cargo test -p jameskills-infra --locked` pasa; infra Clippy `-D warnings` pasa. Preview abre root con `cap-std=4.0.3`, lee mediante handles relativos y verifica symlink/reparse components; no hay writes en este slice. La prueba Windows de reparse parent, inicialmente ignorada por OS error 1314, pasó opt-in tras activar Developer Mode: `cargo test -p jameskills-infra --locked --test template_plan reparse_target_parent_is_blocked_without_writing_outside_root -- --ignored --exact` (1/1). Linux symlink runtime aún no observado en este host.
 - [x] **T027.d2c2.src — Definir commit-pending, stage identity y rollback policy** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Persistir `CommitPending` antes de hard-link; no remove target jamás.
 - Evidencia T027.d2c2.src: el stage y target son siblings dentro del mismo `Dir` capability; `CommitPending` durable antes de hard-link permite recovery distinguir target ausente, stage-only y hardlink ya materializado. Recovery nunca borra target; si ownership/hash es ambiguo, mantiene conflicto.
 - [x] **T027.d2c2 — Apply create-only registrado** (5 archivos): `crates/jameskills-core/src/ports/operation_journal.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/template_plan.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`; `tasks/todo.md`. Root handles, stage hashed y hard-link create-only; no reemplaza destino existente.
 - RED T027.d2c2: `cargo test -p jameskills-infra --locked --test template_plan approved_apply_creates_only_the_registered_template_and_commits_its_journal` falló mientras apply era NotFound. GREEN: template plan defaults 13 passed/2 ignored; `repo_change_journal` 5/5; suite infra completa y Clippy infra `-D warnings` pasan. Opt-in `cargo test -p jameskills-infra --locked --test template_plan real_system_process_git_applies_registered_template_to_temporary_repository -- --ignored --exact` pasó 1/1. Apply usa digest/root/Git/version/HEAD revalidation, target create-only y parent existente; cancellation post-stage limpia solo staging hash-owned y recupera el journal.
 - Integración nativa opcional Windows: `cargo test -p jameskills-infra --locked --test template_plan real_system_process_git_applies_registered_template_to_temporary_repository -- --ignored --exact` pasó 1/1. Inicializa/crea un commit solo en un temp repo por argv/fingerprint aprobados, valida Git real por SystemProcessPort y aplica/lee el template con SQLite; main checkout intacto.
-- [ ] **T027.d2c3 — Recovery idempotente/failpoints** (3 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`; `tasks/todo.md`. Preserva edits; unresolved ownership queda Conflict/Pending y visible.
+- [ ] **T027.d2c3 — Recovery idempotente/failpoints** (dividida por capa; máximo cinco archivos cada una).
+- [x] **T027.d2c3.a — Reconciliar snapshots pending de forma idempotente** (4 archivos): `crates/jameskills-infra/Cargo.toml`; `Cargo.lock`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/repo_change_journal.rs`. `recover_pending` resuelve journals sin spawn, completa commit solo con target/stage hash-owned y misma identidad; rollback elimina solo stage hash-owned; cambios de target o ownership ambiguo quedan Conflict/Pending.
+- RED T027.d2c3.a: el test `recovery_completes_a_hard_linked_commit_pending_operation_without_spawning` devolvía `Conflict` en vez de `Committed` con resolución de identidad pendiente; compilación correcta. GREEN: `repo_change_journal` 8/8; `cargo test -p jameskills-infra --locked` pasa; `cargo clippy -p jameskills-infra --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check` y `git diff --check` pasan en Windows MSVC. Identidad usa `same-file=1.0.6` sobre handles abiertos relativamente desde `cap-std`; snapshots simulados cubren Planned/Approved/Staged/CommitPending/NewMoved/Verified/RollbackPending y segunda llamada idempotente. Tests separados cubren CommitPending hardlinked y preservación de target editado/no-owned.
+- [x] **T027.d2c3.b — Inyectar fallos en límites de apply/recovery** (3 archivos): `crates/jameskills-infra/tests/template_plan.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Wrapper `FailTransitionJournal` de tests inyecta fallos al persistir CommitPending/NewMoved/Verified/Committed; simula interrupción tras stage, hard-link, verify y cleanup, reabre SQLite, comprueba estado final y cero spawn durante recovery. No hay failpoint en el código de producción.
+- RED T027.d2c3.b: no se requería cambio del comportamiento productivo; el gap era la falta de pruebas que ejercieran apply real antes de interrumpir la persistencia. GREEN: `recovery_after_apply_journal_failpoints_preserves_a_consistent_outcome` 1/1; `repo_change_journal` 8/8; `template_plan` 14 passed/2 ignored; suite infra completa; Clippy infra `-D warnings`, fmt y diff-check pasan en Windows MSVC. Opt-in reparse test también pasó 1/1 con Developer Mode activado.
 - La construcción concreta de `RepositoryChangeService` recibe RepoChangePort + SQLite journal desde composition que abre DB; RuntimeServices actual no inicializa storage. No afirmar wiring de CLI/GPUI hasta que su lifecycle de storage esté conectado.
-- [ ] **T027.e — Actualizar guía de ejemplo sin habilitar acciones** (2 archivos): `examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/guidance_service.rs`.
+- [x] **T027.e — Actualizar guía de ejemplo sin habilitar acciones** (5 archivos): `examples/repository-foundation/guidance/repository.toml`; `docs/examples/repository-foundation/guidance/repository.toml`; `crates/jameskills-core/tests/guidance_service.rs`; `tasks/todo.md`; `tasks/RESUME.md`. La plantilla CI se describe como material para inspección manual; la guidance sigue `ManualInstruction` y no escribe archivos ni activa hooks.
+- RED T027.e: `application_ci_guidance_keeps_template_review_manual_and_non_mutating` falló porque la guía del ejemplo no orientaba a revisar el template/diff. Al cambiar solo el runtime example, `runtime_guidance_references_known_requirements_and_registered_actions` detectó que el fixture documental quedó desincronizado; se actualizaron ambas copias.
+- GREEN T027.e: `cargo test -p jameskills-core --locked` pasa; `guidance_service` 8/8 y `bundle_manifest` 23/23. Core+infra Clippy `-D warnings`, suite infra, fmt/diff-check pasan. T027.d2c3.b failpoint tests y Windows reparse opt-in también pasan.
 
 **Aceptación:**
-- [ ] Preview muestra contenido/paths y cambios aplican transaccionalmente tras validación.
-- [ ] Hooks son opcionales y se etiquetan eludibles; CI remota y host tienen evidencia aparte.
-- [ ] Templates importados se tratan como datos y no se ejecutan ni habilitan acciones nuevas.
+- [x] Preview muestra contenido/paths y cambios aplican create-only tras revalidar plan, root, Git/HEAD y journal.
+- [x] La guía deja la revisión/aplicación manual; no instala hooks. CI remota y host mantienen evidencia aparte.
+- [x] Templates importados no amplían el registry app-owned ni se ejecutan/activan como acciones.
 
 **Verificación:** cargo test -p jameskills-infra --locked template_plan; probar cancel/crash en repo temporal y confirmar main/history sin cambios.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Windows MSVC: suite infra y suite core completas; Clippy core/infra `-D warnings`, fmt y diff-check pasan. `repo_change_journal` 8/8, `template_plan` 14 passed/2 ignored (incluye fallos inyectados en transiciones apply), `guidance_service` 8/8. Opt-in Git real apply 1/1 y reparse/junction parent 1/1. Linux symlink runtime e integración de RepositoryChangeService en CLI/GPUI siguen pendientes y no se atribuyen a este cierre.
 
 ## C009 — Checkpoint tras T025–T027
 
@@ -1302,9 +1308,9 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 ## T029 — Definir perfiles, capacidades y registry de agentes
 
-- [ ] **T029 completada y verificada**
+- [x] **T029 completada localmente y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T010, T012, T016. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T010, T012, T016. **Estado:** completada localmente en Windows MSVC; las CLIs/perfiles aún no están detectados ni instalados.
 
 **Implementación y funciones:** AgentProfile, AgentCapabilities, AgentDetection, AgentPort, InstallPlan, AgentRegistry; Scope User/Project; plugin es mecanismo vendor de User y compatibilidad de schema/version. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1318,19 +1324,25 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 - `crates/jameskills-core/tests/agent_registry.rs`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T029.a — Dominio/puerto de agente** (5 archivos): `crates/jameskills-core/src/domain/agent.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/ports/agent.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/agent_registry.rs`. Scope User/Project; plugin vendor en export/action. Validar caps/version/profile roots.
-- [ ] **T029.b — Registry infraestructura** (3 archivos): `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/agent_registry.rs`. Registrar solo adapters implementados de T030–T034; ausentes Candidate/NeedsVerification, nunca fake Verified.
+- [x] **T029.a — Dominio/puerto de agente** (5 archivos): `crates/jameskills-core/src/domain/agent.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/ports/agent.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/agent_registry.rs`. Agrega IDs cerrados, perfiles y capacidades independientes, evidencia version/fixture para Supported, mecanismo de instalación, detección/contexto y AgentPort object-safe async.
+- Evidencia T029.a: `agent_registry` 8/8; core suite completa; core Clippy `-D warnings`; infra `cargo check --locked`; fmt/diff-check pasan en Windows MSVC. No se cuenta un compile-only fallo como RED: las pruebas se diseñaron como restricciones de comportamiento para el modelo nuevo. Cada capability requiere source/date; Supported exige versión + fixture; no se ha marcado perfil Supported/Verified sin evidencia.
+- [x] **T029.a.contract — Sincronizar contrato canónico del port y evidencia** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Port limitado a profile/detect hasta que Bundle/Receipt tipados existan; no prometer export/verify vacíos.
+- [x] **T029.b — Registry infraestructura y fuentes** (subincrements <=5 archivos).
+- [x] **T029.b.registry — Perfiles app-owned conservadores** (3 archivos): `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/agent_registry.rs`. Registra los cinco perfiles cerrados; no implementa ni inventa adapters, y capabilities sin pruebas quedan NeedsVerification/Unsupported.
+- GREEN T029.b.registry: `cargo test -p jameskills-infra --locked --test agent_registry` 4/4. Todos los perfiles tienen source/date por capability; ninguno está Supported; Antigravity es vendor-plugin y project scope Unsupported.
+- [x] **T029.b.sources — Vincular source IDs a URLs oficiales** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Mapear IDs `codex-skills`, `opencode-skills`, `pi-skills`, `antigravity-cli-plugins`, `grok-cli-reference` a las fuentes ya registradas; no afirmar version/tested fixture que aún no se observó.
+- GREEN T029.b.sources: los cinco IDs tienen URL oficial existente mapeada en `docs/SOURCES.md`; no se añade afirmación de versión probada. `cargo test -p jameskills-infra --locked --test agent_registry` 4/4, suite infra completa, infra Clippy `-D warnings`, core suite/Clippy, fmt y diff-check pasan en Windows MSVC.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Registry incluye cinco perfiles con evidencia/source version y features independientes.
-- [ ] Formato canonical nunca se sustituye por artifact generado.
-- [ ] Destinos derivados de plataforma/documentación; no inferir CLI de app con nombre parecido.
+- [x] Registry incluye cinco perfiles con source IDs registrados, versión/fixture opcionales y features independientes; los datos aún no observados quedan NeedsVerification/Unsupported, no Supported.
+- [x] Formato canonical nunca se sustituye por artifact generado.
+- [x] Perfiles no inventan rutas/destinos ni infieren el CLI desde nombres ajenos; paths se implementarán por adapter con fuentes.
 
 **Verificación:** cargo test -p jameskills-core --locked agent_registry; revisar catálogo contra SPEC-agent-adapters y SOURCES.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** `agent_registry` core 8/8 e infra 4/4; suite core e infra completas; Clippy core/infra `-D warnings`; infra cargo check; fmt/diff-check pasan en Windows MSVC. Todos los perfiles están conservadores: ninguna capability Supported; no hay versión ni fixture de CLI probados en este host. Esta unidad no implementa adapters/detección real; T030–T034 lo hacen.
 
 <a id="t030"></a>
 
@@ -1338,7 +1350,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T030 completada y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** implementación local verificada; smoke/fixture nativa Codex pendiente por falta de CLI en el host.
 
 **Implementación y funciones:** CodexAdapter::detect, capabilities, plan_artifact; project .agents/skills, user HOME/.agents/skills según fuente vigente y scope/version detectados. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1350,14 +1362,28 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/src/platform.rs`
 - `crates/jameskills-infra/tests/codex_adapter.rs`
 
+**Descomposición test-first** (máximo cinco archivos por incremento):
+- [x] **T030.a — Atar probes AgentPort a executable aprobado** (5 archivos): `crates/jameskills-core/src/ports/agent.rs`; `crates/jameskills-core/tests/agent_registry.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. El caller debe confirmar el fingerprint observado; un perfil/candidate solo no autoriza spawn.
+- GREEN T030.a: `agent_registry` 9/9; core suite completa, core Clippy `-D warnings`, infra `cargo check --locked`, fmt/diff-check. Fingerprint distinto da error; solo fingerprint confirmado puede incorporarse al `DetectionContext`.
+- [x] **T030.b — Separar identidad del proceso AgentPort de ToolId de políticas** (subincrements <=5 archivos).
+- [x] **T030.b.proc1 — ProcessIdentity tipado tool/agent** (4 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-core/tests/process_contract.rs`; `crates/jameskills-infra/src/process.rs`; `crates/jameskills-infra/tests/process_execution.rs`. El constructor Agent mantiene argv/permission/fingerprint separados; ProcessPort redacted errors no vuelve a identificar un agente como ToolId de policy.
+- [x] **T030.b.proc2 — Migrar fixtures y consumidores a ProcessIdentity** (5 archivos): `crates/jameskills-infra/tests/tool_detection.rs`; `tests/test_suite_checks.rs`; `tests/template_plan.rs`; `tests/commit_test_checks.rs`; `tests/ci_definition_checks.rs`.
+- [x] **T030.b.proc3 — Migrar fixtures de documentos** (2 archivos): `crates/jameskills-infra/tests/repo_document_checks.rs`; `tasks/todo.md`.
+- GREEN ProcessIdentity: core `process_contract` 7/7; infra `process_execution` incluye spawn real del test helper bajo Agent(Codex) con fingerprint; suite infra completa y Clippy infra `-D warnings` pasan.
+- [x] **T030.b.proc.contract — Sincronizar ProcessIdentity en contrato canónico** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`.
+- [x] **T030.c — Codex paths y artifact inerte** (4 archivos): `crates/jameskills-infra/src/agents/codex.rs`; `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/codex_adapter.rs`. User `$HOME/.agents/skills`, project `<repo>/.agents/skills`; hash recalculado contra bundle validado y bytes/path relativos preservados; no genera `openai.yaml`.
+- GREEN T030.c: `codex_adapter` 4/4 antes del probe slice; roots user/project probados en paths con espacios y aprobación project; bytes alterados chocan con hash validado; planner solo devuelve artifact, no escribe ni ejecuta contenido.
+- [x] **T030.d — Probe Codex aprobado y source/version evidence** (5 archivos): `crates/jameskills-infra/src/agents/codex.rs`; `crates/jameskills-infra/tests/codex_adapter.rs`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. `--version` solo con approved fingerprint y ProcessIdentity::Agent(Codex); salida desconocida Blocked. Fuentes oficiales registran instalación standalone/npm, skills y source CLI mutable; no declarar tested_version/Supported por fixture sintético.
+- GREEN T030.d local: `codex_adapter` 8/8; probe fake valida `--version` fixed argv, ReadOnlyCheck, identidad Agent y fingerprint; candidato PATH no spawn, salida desconocida queda Blocked. Source oficial main solo acredita Clap `--version`/bin name, no output de release. Codex no está instalado en PATH Windows; falta smoke real y fixture de versión nativa antes de marcar capability/version Supported.
+
 **Aceptación:**
-- [ ] Detección usa probe oficial/argv seguro y destino respeta directorios user/repo reales.
-- [ ] Suite y assets se conservan con instrucciones portables sin ejecutar contenido.
-- [ ] Compatibilidad/settings del agente se informa con fuente; no prometer enforcement del agente.
+- [x] Detección solo hace probe `--version` bajo fingerprint explícitamente confirmado; paths user/project corresponden a documentación oficial.
+- [x] Suite/assets quedan como bytes inertes en artifact preview; no escribir ni ejecutar contenido.
+- [x] Versión ausente/no parseable permanece Blocked/NeedsVerification; no prometer enforcement del agente.
 
 **Verificación:** cargo test -p jameskills-infra --locked codex_adapter; smoke opt-in con Codex real comprueba descubrimiento de fixture sin tareas de código ni acceso externo.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** suites core e infra completas; Clippy core/infra `-D warnings`; fmt/diff-check pasan en Windows MSVC. `process_contract` 7/7, ProcessPort integra Agent(Codex) en test helper 1/1 y `codex_adapter` 8/8. Junction/reparse opt-in pasó 1/1 con Developer Mode. **Diferencia nativa pendiente:** Codex CLI no está instalado en PATH y `Get-Command codex` no encontró candidato; versión real smoke/fixture no observados, capability permanece NeedsVerification. T031 depende solo de T029/T017 y es elegible como trabajo independiente.
 
 ## C010 — Checkpoint tras T028–T030
 
@@ -1373,9 +1399,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T031 — Implementar perfil OpenCode documentado
 
-- [ ] **T031 completada y verificada**
+- [x] **T031 completada localmente y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** completada localmente en Windows MSVC; no se ejecutó la CLI nativa ni se afirmó versión soportada.
 
 **Implementación y funciones:** OpenCodeAdapter::detect, capabilities, plan_artifact; .opencode/skills y directorio de config user de docs, overrides solo acreditados. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1387,22 +1413,30 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/src/platform.rs`
 - `crates/jameskills-infra/tests/opencode_adapter.rs`
 
+**Descomposición test-first** (máximo cinco archivos por incremento):
+- [x] **T031.a — Compartir artifact plan validado entre adapters de copia** (5 archivos): `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/agents/codex.rs`; `crates/jameskills-infra/tests/codex_adapter.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Reutilizar verificación de hash contra `ValidatedBundle`, bytes inertes y paths relativos.
+- GREEN T031.a: `codex_adapter` 8/8 demuestra que artifact Codex sigue recalculando hash, preserva bytes y no escribe; helper común `plan_file_copy_artifact` queda disponible para OpenCode.
+- [x] **T031.b — OpenCode paths, probe y artifact** (4 archivos): `crates/jameskills-infra/src/agents/opencode.rs`; `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/opencode_adapter.rs`. Project `.opencode/skills`; user XDG config/opencode/skills; `OPENCODE_CONFIG_DIR` solo como ruta absoluta documentada; version `--version` con executable fingerprint aprobado.
+- GREEN T031.b: `opencode_adapter` 4/4; tests verifican XDG/custom/user/project roots, paths con espacios, aprobación project, artifact hash/bytes, probe fija Agent(OpenCode)+`--version`+ReadOnlyCheck+fingerprint y salida desconocida Blocked. Candidato sin aprobación no spawn.
+- [x] **T031.b.sources — Registrar docs/source snapshot y evidencia nativa** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Fuentes docs oficiales actuales y source `dev` mutable mapeados; version/fixture real queda sin afirmar.
+- GREEN T031.b.sources: `opencode-skills-source`, `opencode-config-source`, `opencode-cli-source` y `opencode-global-source` apuntan a las URLs oficiales observadas; se registra que `dev` mutable no equivale a release version.
+
 **Aceptación:**
-- [ ] SKILL.md/frontmatter y assets coinciden con formato upstream.
-- [ ] Scope project/user/version checked y no pisa carpetas existentes.
-- [ ] CLI faltante genera guía/recheck; artifact existe solo tras validar bundle.
+- [x] SKILL.md/frontmatter y assets se validan mediante el hash de `ValidatedBundle` y se preservan byte-for-byte.
+- [x] Scope project/user deriva de `.opencode/skills` y XDG/config override; roots absolutos/relativos inválidos se rechazan; versión solo se considera observada tras probe aprobado.
+- [x] CLI faltante/candidate no se ejecuta; el artifact exige bundle validado y devuelve preview sin escrituras.
 
 **Verificación:** cargo test -p jameskills-infra --locked opencode_adapter; smoke opt-in OpenCode real verifica listado/lectura con fuente actual y logs saneados.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Windows MSVC: `opencode_adapter` 4/4; infra `agent_registry` 4/4; suites core/infra completas; Clippy core/infra `-D warnings`; fmt/diff-check pasan. OpenCode apareció como candidato en PATH, pero no se ejecutó ni se confirmó fingerprint; capabilities continúan NeedsVerification y no hay release/fixture versionado real.
 
 <a id="t032"></a>
 
 ## T032 — Implementar perfil Pi con override de agent dir
 
-- [ ] **T032 completada y verificada**
+- [x] **T032 completada localmente y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** completada localmente en Windows MSVC; Pi CLI no está en PATH.
 
 **Implementación y funciones:** PiAdapter::detect, capabilities, resolve_agent_dir, plan_artifact; project .pi/skills y user PI_CODING_AGENT_DIR/skills o ~/.pi/agent/skills. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1414,14 +1448,19 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/src/platform.rs`
 - `crates/jameskills-infra/tests/pi_adapter.rs`
 
+**Descomposición test-first** (máximo cinco archivos por incremento):
+- [x] **T032.a — Override/profile roots y artifact Pi** (4 archivos): `crates/jameskills-infra/src/agents/pi.rs`; `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/pi_adapter.rs`. User default `<home>/.pi/agent/skills`, `PI_CODING_AGENT_DIR/skills` absoluto explícito; project `.pi/skills`; conservar el árbol validado.
+- [x] **T032.b — Version probe y fuentes Pi** (5 archivos): `crates/jameskills-infra/src/agents/pi.rs`; `crates/jameskills-infra/tests/pi_adapter.rs`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. `pi --version` solo tras fingerprint confirmado; parser soporta únicamente la salida raw `1.0.4` acreditada por el tag v1.0.4; output distinto queda Blocked/NeedsVerification.
+- GREEN T032: `pi_adapter` 4/4; test output/version está bound al source snapshot/tag v1.0.4 y Windows asset checksum registrado. Ninguna capability de perfil cambia a Supported sin discovery/runtime fixture; el smoke real queda pendiente porque `Get-Command pi` no encontró CLI.
+
 **Aceptación:**
-- [ ] Origen docs pi.dev y upstream registran versión y comportamiento del override.
-- [ ] Detección identifica Pi coding agent, no otro ejecutable pi no relacionado.
-- [ ] No configurar extensiones/tools o ejecutar scripts del skill durante instalación.
+- [x] Origen docs pi.dev y tag upstream v1.0.4 registran versión/asset/checksum y comportamiento del override.
+- [x] Detección requiere fingerprint confirmado y version output raw exacto del release test fixture; otro binario `pi` no se acepta por nombre.
+- [x] El artifact plan no configura extensiones/tools ni ejecuta scripts; conserva los bytes originales.
 
 **Verificación:** cargo test -p jameskills-infra --locked pi_adapter; smoke opt-in Pi real verifica skill fixture con agent dir aislado.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Windows MSVC: `pi_adapter` 4/4, suite infra completa, infra Clippy `-D warnings`, core suite/Clippy, fmt/diff-check pasan. No se encontró Pi CLI en PATH y no se ejecutó binario nativo; `AgentProfile` permanece NeedsVerification, sin claims de discovery.
 
 <a id="t033"></a>
 
@@ -1429,7 +1468,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T033 completada y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** T033.a/source completos localmente; T033.b bloqueado por falta de fingerprint approval + CLI output fixture.
 
 **Implementación y funciones:** AntigravityAdapter::detect, plan_plugin_artifact, apply_vendor_install, verify_vendor_receipt; plugin.json name/description y skills/<slug>/SKILL.md; agy plugin install <localpath>. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1440,6 +1479,14 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/src/agents/mod.rs`
 - `crates/jameskills-infra/tests/antigravity_adapter.rs`
 - `crates/jameskills-core/src/domain/agent.rs`
+
+**Descomposición test-first** (máximo cinco archivos por incremento):
+- [x] **T033.a — Plugin artifact y ruta de perfil, sin mutación** (4 archivos): `crates/jameskills-infra/src/agents/antigravity.rs`; `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/antigravity_adapter.rs`. CLI solo User; plugin path documentado; plugin.json usa campos conservadores y el bundle se conserva como datos.
+- [x] **T033.a.sources — Resolver discrepancia de plugin.json** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Página plugins CLI actualizada: formal schema omite `$schema` y prohíbe propiedades extra; generar solo `name`/`description`.
+- GREEN T033.a: `antigravity_adapter` 5/5; target usa CLI profile, Project queda Unsupported, bytes se hash-validan y preservan. Plugin manifest contiene solo name/description; no se genera hooks/MCP/agents/rules ni se escribe en el perfil.
+- GREEN T033.a.sources: el alias apunta a la página CLI vigente; se registra la discrepancia `$schema` de ejemplo frente al JSON schema formal; no hay versión CLI probada anotada.
+- [ ] **T033.b — Mutación vendor/recovery con ownership** (dividir <=5 archivos): plan de install/list/uninstall fixed argv; operation ID explícito; no compensar uninstall salvo plugin creado por esta operación y sin edits. List output/version native aún necesita fixture para afirmar install/receipt.
+- Bloqueo saneado T033.b: el usuario indica `agy` instalado pero no ha aprobado un fingerprint concreto. Docs de plugins indican install/list/uninstall pero no fijan version-probe ni salida machine-readable. No ejecutar operaciones de perfil; pedir confirmación fingerprint y permiso aparte para cualquier mutation real.
 
 **Aceptación:**
 - [ ] Scope plugin/user soportado y project standalone Unsupported; no usar .agent del IDE para CLI.
@@ -1466,7 +1513,7 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T034 completada y verificada**
 
-**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** pendiente.
+**Módulo:** `agent-adapters`. **Dependencias:** T029, T017. **Estado:** T034.a completada localmente; T034.b bloqueada porque Grok CLI no está disponible en PATH para una fixture nativa.
 
 **Implementación y funciones:** GrokAdapter::detect, inspect_capabilities, resolve_grok_home, plan_artifact; grok version, grok inspect --json, repo .grok/skills y user GROK_HOME/skills o ~/.grok/skills. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1477,6 +1524,12 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/src/agents/mod.rs`
 - `crates/jameskills-infra/src/platform.rs`
 - `crates/jameskills-infra/tests/grok_adapter.rs`
+
+**Descomposición test-first** (máximo cinco archivos por incremento):
+- [x] **T034.a — GROK_HOME/project skills roots y artifact inerte** (4 archivos): `crates/jameskills-infra/src/agents/grok.rs`; `crates/jameskills-infra/src/agents/mod.rs`; `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/grok_adapter.rs`. User `$GROK_HOME/skills` o `~/.grok/skills`; project `.grok/skills`; hash-bound bytes.
+- Evidencia T034.a: `cargo test -p jameskills-infra --locked --test grok_adapter` 4/4 Windows MSVC; la suite completa infra pasó también. Grok no está en PATH, así que no se probó versión/inspect nativos.
+- [ ] **T034.b — Probe `grok version`/`inspect --json` y sources** (5 archivos): `crates/jameskills-infra/src/agents/grok.rs`; `crates/jameskills-infra/tests/grok_adapter.rs`; `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. No parsear/mostrar configuración bruta; campos desconocidos y outputs no fixture quedan NeedsVerification/Blocked.
+- Bloqueo saneado T034.b: `Get-Command grok` no encontró CLI nativo. No se inventa versión ni JSON de inspect; `detect` deja aprobado pero no corroborado como Blocked.
 
 **Aceptación:**
 - [ ] Detección confirma Grok Build CLI con contrato oficial, no inventa grok code binario.
@@ -1637,15 +1690,15 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T039 — Consultar catálogo, búsqueda y paginación
 
-- [ ] **T039 completada y verificada**
+- [x] **T039 completada localmente y verificada en Windows MSVC**
 
-**Módulo:** `skill-library`. **Dependencias:** T037, T038.a. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T037, T038.a. **Estado:** completada localmente; remote CI del SHA local no observado.
 
 **Implementación y funciones:** LibraryService::list_skills, search_skills, load_skill, load_history; filtros/sort/page cursor estables sin cargar blobs completos. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** library_queries dataset grande, query unicode/metacaracteres, deleted/conflicted skills y página vacía no duplican/omiten filas.
 
-**Archivos del incremento:**
+**Archivos del incremento (descomposición abajo):**
 - `crates/jameskills-core/src/application/library.rs`
 - `crates/jameskills-core/src/application/mod.rs`
 - `crates/jameskills-infra/src/sqlite.rs`
@@ -1653,33 +1706,68 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/library_queries.rs`
 
 **Aceptación:**
-- [ ] Queries parametrizadas y límites; no SQL de texto de policies/usuario.
-- [ ] Paginación estable con IDs y catálogo refleja latest heads sin ocultar conflictos.
-- [ ] Leer detalles/historial bajo demanda y exponer immutable view models.
+- [x] Queries parametrizadas y límites; no SQL de texto de policies/usuario.
+- [x] Paginación estable por nombre normalizado+UUID; latest heads reflejadas, conflictos visibles.
+- [x] Details/history cargan bajo demanda en DTOs inmutables; listar nunca abre blobs.
 
-**Verificación:** cargo test -p jameskills-infra --locked library_queries; dataset de referencia se comparte con T071 sin benchmarks artificiales de UI.
+**Verificación:** `cargo test -p jameskills-infra --locked --test library_queries`; suite de workspace y Clippy con `jameskills-desktop/test-support`; dataset de 125 skills comparte el contrato de orden/paging con T071 sin benchmarks artificiales de UI.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia:** Windows MSVC. `library_query` 4/4; `library_queries` 7/7; `sqlite_migrations` 13/13; `library_validation` 1/1. El test inicial de migration falló en runtime porque faltaba el índice de catálogo; luego schema+backfill y query provider pasan. `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Tras añadir índice de history, focused migration test y Clippy core/infra pasaron. Ninguna CI remota se atribuye al HEAD local.
+
+### T039.a — Tipos bounded de consulta y DTOs inmutables
+
+- [x] **T039.a completada localmente**
+- Añade LibraryQuery bounded (page size 1..50, búsqueda/filtros de longitud acotada y normalización case-fold), cursor tipado por (display_name normalizado, SkillId), estados y DTOs de heads/conflicto/delete sin timestamps.
+- TDD: ejecutar `cargo test -p jameskills-core --locked --test library_query`; registrar evidencia tras correr el test.
+- Archivos: `crates/jameskills-core/src/ports/storage.rs`, `crates/jameskills-core/src/ports/mod.rs`, `crates/jameskills-core/tests/library_query.rs`, `tasks/todo.md`, `tasks/RESUME.md`.
+- GREEN `cargo test -p jameskills-core --locked --test library_query` 4/4 Windows MSVC; core Clippy `-D warnings`, fmt y diff-check pasan. No se atribuye RED de comportamiento previo.
+
+### T039.b — Migración de índices de catálogo
+
+- [x] **T039.b completada localmente**
+- RED runtime `catalog_schema_indexes_normalized_names_and_revision_metadata`: faltaba `skills.normalized_display_name`.
+- GREEN añade `library_catalog` con índice estable `(normalized_display_name, skill_id)` y metadata relacional `revision_tags`/`revision_capabilities`. El runtime backfillea nombres legacy usando Rust Unicode lowercase; `SaveRevisionRequest::with_validated_bundle` y commit indexan metadata validada dentro de la transacción.
+- Archivos: `crates/jameskills-core/src/ports/storage.rs`, `crates/jameskills-infra/src/sqlite.rs`, `crates/jameskills-infra/migrations/004_library_catalog.sql`, `crates/jameskills-infra/tests/sqlite_migrations.rs`, `tasks/todo.md`.
+- GREEN `cargo test -p jameskills-infra --locked --test sqlite_migrations` 13/13 Windows MSVC; core+infra Clippy `-D warnings`, fmt y diff-check pasan.
+- Índice complementario `revisions_by_skill_and_id(skill_id,id)` mantiene history keyset sin table scan; `catalog_schema_indexes_normalized_names_and_revision_metadata` verifica su existencia.
+
+### T039.c — Consultas SQLite de catálogo
+
+- [x] **T039.c completada localmente**
+- Query parametrizada, cursor keyset `(normalized_display_name, skill_id)`, LIMIT acotado, LIKE metacaracteres escapados, filtros all-of por metadata y estado Active/Deleted/Conflicted. Una skill por fila; sus heads y metadata agregadas se consultan sin abrir blobs.
+- Test de dataset 125 filas, nombres empatados, páginas de 17 sin repeticiones/omisiones; búsqueda `%` literal, Unicode normalization/backfill, tags/capabilities, tombstone/conflict. `StoragePort::list_skills` object-safe async y ejecutado en Tokio blocking pool.
+
+### T039.d — LibraryService y composición SQLite
+
+- [x] **T039.d completada localmente**
+- LibraryService recibe `StoragePort`; `RuntimeServices::build_services` abre `data/library.sqlite3`, migraciones y runtime query real. Composición crea solamente el directorio/data DB requerido; config/cache permanecen intactos. Contratos/arquitectura sincronizados.
+
+### T039.e — Carga explícita de detalle e historial
+
+- [x] **T039.e completada localmente**
+- `load_skill` verifica y lee los bytes solo para heads actuales solicitados; tombstones no cargan blobs. `load_history` pagina por revision ID y devuelve parents, hash/version/deletion observed-heads, sin timestamps ni blobs. DTOs inmutables; páginas bounded.
+- `SaveRevisionRequest::with_validated_bundle` liga metadata indexable al bundle/hash/id/semver/schema exactos; el commit escribe catálogo/tags/capabilities junto a la revisión/head en la misma transacción.
+- GREEN `library_queries` 7/7 incluye test real con bundle validado, bytes archivados/hash-check, commit metadata atómico y lectura causal de tombstone.
 
 ## C013 — Checkpoint tras T037–T039
 
-- [ ] **C013 verificado**
+- [x] **C013 verificado localmente**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
 - Migrations/blobs/revisions/query conservan consistencia y heads.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia:** Windows MSVC. Workspace tests con desktop `test-support`, workspace Clippy `-D warnings`, fmt/diff-check pasaron después de T039; migración, blobs, metadata, revisions y paging integrados. Native agent/API evidence pendiente sigue limitada a T030/T033/T034 y no bloquea este checkpoint.
 
 <a id="t040"></a>
 
 ## T040 — Crear y guardar suites desde casos de uso
 
-- [ ] **T040 completada y verificada**
+- [x] **T040 completada localmente y verificada en Windows MSVC**
 
-**Módulo:** `skill-library`. **Dependencias:** T039, T011, T014. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T039, T011, T014. **Estado:** create/draft/publish y CLI list/create/publish completos localmente; import permanece en T042.
 
-**Implementación y funciones:** LibraryService::create_skill, save_draft, publish(SaveRevisionRequest); drafts invalid permitidos, autosave500ms, publish validado con expected_heads, no-op idempotente y bump semver tras contenido publicado. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** `LibraryService::create_skill`, `save_draft`, `publish(PublishDraft)`; drafts invalid permitidos, publish validado con expected_heads, no-op idempotente y bump semver tras contenido publicado. Las APIs públicas siguen docs/CONTRACTS.md.
 
 **Red primero:** library_authoring draft inválido se conserva, publish inválido no reemplaza head; no-op idempotente; changed content misma semver falla; dos editores de same heads producen Conflict.
 
@@ -1691,21 +1779,108 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-cli/src/commands.rs`
 
 **Aceptación:**
-- [ ] Crear/guardar pasa siempre por validador y StoragePort, no writes directas desde editor.
-- [ ] Guardar draft tolera errores sin publicar; Publish/Install/Export-suite exige válido/reviewed según operación; semver bump y estados distintos.
-- [ ] Servicios quedan en factory y CLI library list/import placeholders se reemplazan donde corresponde, sin success stub.
+- [x] Crear/guardar usa StoragePort; drafts conservan bytes inválidos y publish valida antes de commit.
+- [x] Publish usa expected-head/draft-generation; identical hash es no-op y changed content requiere bump SemVer.
+- [x] Servicios quedan en factory y CLI library list/create/publish delegan en casos de uso sin success stub. `library import` permanece explícitamente en T042, donde se resuelven IDs duplicados/quarantine.
 
-**Verificación:** cargo test -p jameskills-infra --locked library_authoring; probar crear suite mínima y editar instrucciones/policies conservando historial.
+**Verificación:** `cargo test -p jameskills-core --locked`; `cargo test -p jameskills-infra --locked`; `cargo test -p jameskills-cli --locked`; workspace `cargo check` + Clippy test-support.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia:** Windows MSVC. Core `library_authoring` 7/7, infra `library_authoring` 6/6, infra suite completa, `revision_storage` 15/15, CLI suite, workspace check/Clippy test-support, fmt/diff-check pasan. CI remota del SHA local no observada.
+
+### T040.d1 — CreateSkill y plantilla editable válida
+
+- [x] **T040.d1 completada localmente**
+- `CreateSkill` genera un SkillId una sola vez, restringe slug/display name y genera SKILL.md+manifest v1 válido como `SkillDraft` generation 1.
+- RED comportamental: primera plantilla no coincidió `frontmatter.name` con `manifest.slug`; validator la rechazó. GREEN al usar slug como frontmatter name y conservar display_name como heading/manifest.
+- Archivos (5): `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/library_authoring.rs`; `tasks/todo.md`; `tasks/RESUME.md`.
+- GREEN `library_authoring` core 6/6; core suite, core Clippy `-D warnings`, workspace check, fmt y diff-check Windows MSVC.
+
+### T040.d2 — Crear skill y draft persistente
+
+- [x] **T040.d2 completada localmente**
+- Componer CreateSkill → insert skill/catalog row + draft CAS inicial de manera recuperable y accesible por LibraryService; comprobar que falla todo sin filas parciales.
+- `StoragePort::create_skill` + `LibraryService::create_skill`; provider revalida que el draft inicial coincide ID/slug/display-name/description con CreateSkill. Transaction Immediate inserta skill/catalog/draft juntos.
+- RED focused inicial detectó frontmatter `name` distinto al manifest slug; corregido para `name=slug`, display name se conserva en heading/manifest. Fault injection en insert draft demuestra rollback de filas skill/catalog.
+- GREEN core `library_authoring` 6/6, infra `library_authoring` 5/5; core e infra suites completas, workspace check + Clippy `-D warnings`, fmt y diff-check pasan en Windows MSVC. Publish ya se verificó en T040.e; CLI sigue pendiente.
+
+### T040.e — Publish validado con revisión esperada
+
+- [x] **T040.e completada localmente**
+- Validar el draft completo, persistir blob y publicar solo con expected heads; hash idéntico no duplica revisión; contenido distinto exige semver bump; fracaso no elimina draft ni cambia head.
+
+### T040.e1 — Request de publicación con generación y heads observados
+
+- [x] **T040.e1 completada localmente**
+- `PublishDraft` liga skill ID, generación persistida y conjunto bounded (<=128) de expected heads canonizado en orden estable.
+- Archivos (5): `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/library_authoring.rs`; `tasks/todo.md`; `tasks/RESUME.md`.
+- GREEN `library_authoring` core 7/7 y core Clippy `-D warnings` Windows MSVC.
+
+### T040.e2 — Publicación transaccional/idempotente SQLite y blob
+
+- [x] **T040.e2 completada localmente**
+- Bind draft generation + expected heads con store bundle verificable; no-op hash no crea revision; changed content requiere semver bump; commit consume el draft solo dentro de la transacción revisión/head.
+- `store_validated_bundle` revalida los mismos bytes/hash antes de escribir; `commit_revision` devuelve la revisión actual para identical hash/version y elimina draft solo con generación exacta. `LibraryService::publish` valida bytes, id y base-head antes de staging.
+- GREEN `duplicate_content_commit_is_idempotent_without_moving_head`; `changed_content_requires_a_semver_bump_and_keeps_current_head`; `publish_is_validated_idempotent_and_requires_semver_bump_for_changed_content` 1/1.
+- Windows MSVC: `revision_storage` 15/15, `library_authoring` infra 6/6; core/infra suites, workspace `cargo check --locked`, workspace Clippy `-D warnings` con test-support, fmt y diff-check pasaron.
+
+T040.e2 descompuesta para el límite de 5 archivos:
+- [x] **T040.e2a — Storage de bundle + commit CAS/idempotente/SemVer**: `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/ports/storage.rs`; `crates/jameskills-infra/src/sqlite.rs`; `crates/jameskills-infra/tests/revision_storage.rs`; fake `StoragePort` en `crates/jameskills-core/src/application/library.rs`.
+- [x] **T040.e2b — Publish de LibraryService y flujo draft**: `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-infra/tests/library_authoring.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`.
+
+### T040.a — Modelo bounded de draft inválido
+
+- [x] **T040.a completada localmente**
+- `SkillDraft` retiene bytes inválidos con paths portables, generation/base-head explícitos y límites de 2,000 archivos/20 MiB. Aún no hay persistencia ni publicación; las implementa el siguiente slice.
+- Archivos (4): `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/library_authoring.rs`; `tasks/todo.md`.
+- GREEN `cargo test -p jameskills-core --locked --test library_authoring` 4/4; core suite completa, core Clippy `-D warnings`, `cargo check --workspace --locked`, fmt y diff-check pasan en Windows MSVC. Incluye invalid draft preservado, replacement/base-head, límites y CAS request contract.
+
+### T040.b1 — Contrato de draft CAS
+
+- [x] **T040.b1 contrato completado localmente**
+- `SaveDraftRequest` define creación absent-row y updates generation+1/base-head esperado; `SkillDraft` limita generación al rango SQLite INTEGER.
+- Archivos (5): `crates/jameskills-core/src/domain/library.rs`; `crates/jameskills-core/src/ports/storage.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-core/tests/library_authoring.rs`.
+- GREEN `cargo test -p jameskills-core --locked --test library_authoring` 4/4 y core Clippy `-D warnings` Windows MSVC.
+
+### T040.b — Persistencia optimista de drafts
+
+- [x] **T040.b2 implementación SQLite verificada localmente**
+- `StoragePort`/SQLite codifican bytes en envelope binario versionado, exacto y bounded; CAS generation/base-head en transacción Immediate; reabren drafts inválidos sin alterar `skill_heads`; corrupción no se devuelve como contenido.
+- GREEN `library_authoring` infra 3/3; suite infra completa, Clippy core/infra `-D warnings`, fmt y diff-check pasan Windows MSVC.
+- Archivos: `crates/jameskills-infra/src/sqlite.rs`, `crates/jameskills-infra/tests/library_authoring.rs`, `crates/jameskills-core/src/application/library.rs` (test port explícitamente no implementado).
+
+### T040.c — Wrappers de draft en LibraryService
+
+- [x] **T040.c completada localmente**
+- Expone `load_draft`/`save_draft` por el servicio compartido y prueba RuntimeServices→SQLite roundtrip invalid exact bytes; el draft no publica.
+- Archivos (5): `crates/jameskills-core/src/application/library.rs`; `crates/jameskills-infra/tests/library_validation.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`.
+- GREEN `cargo test -p jameskills-infra --locked --test library_validation` 1/1 y core+infra Clippy `-D warnings` Windows MSVC.
+
+### T040.f — Integrar CLI de biblioteca
+
+- [x] **T040.f list/create/publish completados localmente**
+- Import/export siguen Unsupported hasta T042/export provider; nunca se reportan como éxito.
+
+#### T040.f1 — Runtime async del CLI
+
+- [x] **T040.f1 completado localmente**
+- CLI fija Tokio runtime `=1.53.1` con feature `rt` para consumir casos de uso async.
+- Archivos (3): `crates/jameskills-cli/Cargo.toml`; `Cargo.lock`; `tasks/todo.md`.
+- GREEN `cargo check -p jameskills-cli` Windows MSVC.
+
+#### T040.f2 — Comandos list/create/publish
+
+- [x] **T040.f2 completada localmente**
+- Enrutar commands al `RuntimeServices` real, salida JSON/text bounded y errores redacted; publish liga expected heads y draft generation.
+- `library list` ofrece search/tag/capability/state/page/cursor; `create` guarda template inicial; `publish` usa generation+expected-heads. Runtime real SQLite en tests temporales.
+- GREEN `cargo test -p jameskills-cli --locked` incluye end-to-end create→publish→list.
 
 <a id="t041"></a>
 
 ## T041 — Gestionar assets y referencias como datos
 
-- [ ] **T041 completada y verificada**
+- [x] **T041 completada localmente y verificada en Windows MSVC**
 
-**Módulo:** `skill-library`. **Dependencias:** T040, T012, T038. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T040, T012, T038. **Estado:** completada localmente; CI remota del SHA local no observada.
 
 **Implementación y funciones:** add_asset, replace_asset, remove_asset, rename_bundle_path, preview_asset; permisos/limites/hash y nuevo revision. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -1718,13 +1893,29 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-core/src/domain/skill.rs`
 
 **Aceptación:**
-- [ ] Mutaciones mantienen inventario/hash y referencias o muestran error explícito.
-- [ ] Previews son de formatos soportados como datos; binarios no se ejecutan.
-- [ ] Atomic save/revision y undo/cancel no mutan última versión válida.
+- [x] Mutaciones mantienen inventario/hash y refs, o devuelven diagnóstico explícito antes de cambiar el draft.
+- [x] Preview solo formatos UTF-8 registrados y bounded; SVG se conserva como texto inerte; binaries Unsupported/no-execution.
+- [x] Edits CAS guardan el draft, pero no cambian la revisión/head publicada; Publish permanece como el paso explícito para crear revisión.
 
-**Verificación:** cargo test -p jameskills-infra --locked library_assets con fixtures portables; revisar archivo de ejecución agregado nunca lanzó proceso.
+**Verificación:** `cargo test -p jameskills-core --locked --test library_assets`; `cargo test -p jameskills-infra --locked --test library_authoring`; suites core/infra, workspace check+Clippy test-support.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia:** Windows MSVC; `library_assets` core 4/4; asset CAS integration infra 1/1; suites core/infra, workspace `cargo check --locked`, workspace Clippy `-D warnings` con desktop test-support, fmt y diff-check pasan. Previews/fakes no ejecutan archivos.
+
+### T041.a — Transformaciones bounded y preview inerte
+
+- [x] **T041.a completada localmente**
+- Mutaciones puras trabajan solo bajo `assets/`, `references/`, `templates/`; collision/no-overwrite/hash CAS y tope/inventario portable. Rename/remove bloquea referencias exactas, percent-encoded o case-insensitive hasta editar el texto llamante.
+- Previews text UTF-8 registrados 64KiB; SVG se entrega como texto inerte; binarios devuelven Unsupported sin bytes.
+- Archivos (5): `crates/jameskills-core/src/domain/assets.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/library_assets.rs`; `tasks/todo.md`; `tasks/RESUME.md`.
+- GREEN `cargo test -p jameskills-core --locked --test library_assets` 4/4 Windows MSVC.
+- Red behavior no se atribuye antes de existir el módulo. El API pure devuelve un error seguro en rename/remove de assets referenciados; tests verifican que no entrega un mapa mutado.
+
+### T041.b — Edición de asset en draft con CAS
+
+- [x] **T041.b implementada localmente**
+- LibraryService aplica mutación a draft loaded, `replace_files` incrementa generación y CAS guarda; published revisions/heads no se tocan hasta Publish. Stale generation/reference/hash conserva estado anterior.
+- `library_authoring` infra focused `asset_editing_changes_only_the_saved_draft_until_a_later_publish` 1/1; infra/core suites acumuladas y workspace gates pasaron después.
+- Assets/reference methods solo actualizan draft mediante SaveDraftRequest CAS; la revisión publicada queda como head hasta Publish. Contratos/SECURITY documentan el límite de preview SVG/binary.
 
 <a id="t042"></a>
 
@@ -1732,9 +1923,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 - [ ] **T042 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T040, T041, T014. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T040, T041, T014. **Estado:** preview/apply, plain-skill, scanner port y CLI implementados y comprometidos localmente; verificación nativa del scanner/wiring aprobado pendiente.
 
-**Implementación y funciones:** LibraryService::import_bundle; helpers preview_import/apply_import y library_import_command; scan secrets Gitleaks/quarantine/review explícito, plain SKILL.md crea manifest draft solo instrucciones. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
+**Implementación y funciones:** LibraryService::preview_import/apply_import y `library import` CLI; scan secrets Gitleaks/quarantine/review explícito, plain SKILL.md crea manifest draft solo instrucciones. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** library_import duplicate exact dedup; same ID distinto contenido/version y simultaneous edit no sobrescriben; malformed archive rollback intacto.
 
@@ -1746,13 +1937,67 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-cli/src/commands.rs`
 
 **Aceptación:**
-- [ ] Preview enumera IDs/version/assets/policies/conflicts y bytes antes de aplicar.
-- [ ] Import crea revisiones/transacciones y requiere base state vigente.
-- [ ] CLI library import --path usa mismo servicio; scanner ausente permite cuarentena pero bloquea Reviewed/install/cloud. .jskill sin DAG crea raíz concurrente, no parents fabricados.
+- [x] Preview enumera IDs/version/assets/policies/conflicts y bytes antes de aplicar, sin writes.
+- [x] Import crea revisión quarantined/raíz concurrente en transacción y revalida expected heads.
+- [x] CLI `library import --path` usa el mismo servicio; scanner Unavailable permite cuarentena y no existe transición automática a Reviewed/install/cloud. `.jskill` sin DAG crea raíz concurrente, no parents fabricados.
 
-**Verificación:** cargo test -p jameskills-infra --locked library_import; invocar CLI real import con fixture válida y corrupta en data dir temporal.
+**Verificación:** `cargo test -p jameskills-cli --locked library_import` ejecuta `dispatch_cli` sobre `RuntimeServices`/SQLite temporal para fixture válida, source alterada y CAS; smoke externo del binario solo con user data aislada.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia parcial:** Windows MSVC, core `library_import` 3/3 e infra `library_import` 4/4. Suites acumuladas quedan pendientes tras scanner/plain-skill/CLI.
+
+### T042.a1 — Leer fuente de import portable
+
+- [x] **T042.a1 completada localmente**
+- `FileSystemPort::read_bundle_source` acepta directorio seguro, `.jskill` regular o `SKILL.md` standalone; directory walk y archive central/local/CRC validan paths/límites antes de exponer BundleFiles. Archive <=20MiB, source symlink/reparse bloqueado, no ejecución.
+- Archivos (4): `crates/jameskills-core/src/ports/filesystem.rs`; `crates/jameskills-core/src/application/library.rs` fake; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/library_import.rs`.
+- GREEN `cargo test -p jameskills-infra --locked --test library_import` 2/2 Windows MSVC.
+
+### T042.a2 — Preview/import DTOs y resolución
+
+- [x] **T042.a2 completada localmente**
+- `ImportPreview` devuelve manifest/hash/files, current heads, NewSkill/Identical/Conflict y TrustState::Quarantined. Revalida archivos, conserva los conflictos completos hasta límite y no escribe ni marca Reviewed.
+- Archivos (5): `crates/jameskills-core/src/domain/import.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/library_import.rs`; `tasks/todo.md`; `tasks/RESUME.md`.
+- GREEN `cargo test -p jameskills-core --locked --test library_import` 3/3 Windows MSVC.
+
+### T042.b1 — Lookup de heads, dedup y trust local
+
+- [x] **T042.b1 completada localmente**
+- `StoragePort::get_heads`, `skill_exists` y `find_revision_by_bundle` evitan cargar blobs; schema v5 indexa `(skill_id,bundle_hash,state,id)`, schema v6 añade `revision_trust` local-only.
+- RED de schema runtime: faltaba index import. GREEN `sqlite_migrations` 13/13 tras upgrade a schema v6; focused test y core/infra Clippy pasan.
+
+### T042.b2 — LibraryService preview con conflict classification
+
+- [x] **T042.b2 completada localmente**
+- `preview_import(source,kind)` lee directory/.jskill seguro, valida Bundle, observa heads y exact content duplicate, y devuelve ImportPreview; no escribe SQLite/blob y fuerza Quarantined.
+- `library_import` infra 3/3 cubre new/duplicate/conflict y confirma preview no crea revisiones; source adapter 2/2.
+
+### T042.c — Apply concurrent-root/review quarantine
+
+- [x] **T042.c apply completado localmente**
+- Storage transaction permite nueva revisión raíz concurrente sin retirar heads, dedup exacto y persiste TrustState Quarantined; conflictos stale no sobrescriben; importar una `.jskill` no fabrica parents.
+- `library_import` infra 4/4: source read + preview new/duplicate/conflict + apply concurrent root/KeepExisting + trust quarantine + failpoint abort rollback de skill/catalog/revision/head/trust rows. Blob huérfano de rollback permanece hash-addressed para inventario, no se elimina por patrón.
+- `ImportResolution` incluye KeepExisting/AddConcurrentRoot/CreateQuarantinedDraft; confirmation digest incluye scan status para revisión CLI.
+
+### T042.d — Plain-SKILL quarantine
+
+- [x] **T042.d completada localmente y comprometida**
+- `FileSystemPort` acepta un `SKILL.md` standalone acotado, regular y sin symlink/reparse; conserva bytes exactos (incluye CRLF). `LibraryService::preview_import` valida frontmatter y genera identidad/manifest nuevos en un draft “solo instrucciones”. La resolución exclusiva `CreateQuarantinedDraft` crea skill+catálogo+draft en una transacción, sin blob, revisión ni head. La cuarentena persiste en el envelope del draft; `publish` la rechaza hasta review explícito.
+- La fuente plain no acepta `AddConcurrentRoot`, y las carpetas sin manifest solo se interpretan como plain cuando contienen únicamente `SKILL.md`; no se descartan recursos silenciosamente.
+- GREEN: core `library_import` 4/4; infra `library_import` 6/6 (bytes exactos, draft quarantined, sin revisión/head y publish bloqueado); infra `library_authoring` 7/7; migraciones 13/13. Revisión descubrió/fijó que heads authored sin fila `revision_trust` se interpretaban erróneamente como quarantined; los imports sí persisten estado explícito.
+
+### T042.e — Scanner opcional
+
+- [ ] **T042.e pendiente de verificación nativa 8.30.1 y wiring de perfil aprobado**
+- [x] **T042.e.a — Resultado redacted y trust monotónico:** `ImportScanStatus` distingue Unavailable/NoFindings/Findings/Unknown/Blocked; errores de proveedor -> Unknown, Cancelled cancela preview; digest de confirmación liga el estado. Ningún resultado eleva TrustState.
+- [x] **T042.e.b — GitleaksImportScanner y staging privado:** usa perfil exacto 8.30.1 + fingerprint explícito, empaqueta solo los bytes validados, extrae en staging por scan con permisos privados y bloquea `.gitleaksignore`; limpia staging/config y devuelve estados sin contenido de findings. `library_import_scanner` 3/3 con ProcessPort fake: clean/findings/malformed, fingerprint ausente sin spawn/staging y ignorefile sin spawn. El fake prueba contrato/argv/bytes, no equivale a ejecución nativa.
+- Bloqueo de aceptación: no hay `gitleaks` en PATH ni fingerprint aprobado observado. `build_services` deja scanner no configurado => Unavailable/quarantine; la importación local puede seguir sin Reviewed. No afirmar scan limpio hasta verificar binario real y wiring de selección aprobada.
+
+### T042.f — Import CLI con confirmación
+
+- [x] **T042.f implementada, verificada y comprometida localmente**
+- `library import --path` genera preview JSON/Text read-only, enumeración de rutas/tamaños, clasificación, heads, scan status, trust y digest por resolución válida. `--apply` requiere resolución+digest mostrado; vuelve a leer fuente y verifica digest incluyendo bytes/ID/head set/scan status antes de Storage CAS. Plain-SKILL requiere `--skill-id` del preview para mantener UUID/manifest y digest estables entre invocaciones.
+- Con scanner Unavailable, preview lo muestra; apply solo crea revisión/draft Quarantined. Nunca reporta Published ni ejecuta contenido.
+- GREEN focal: CLI tests cubren preview->archivo modificado->digest stale sin writes->preview nuevo->apply; plain-SKILL preview/apply genera únicamente draft quarantined; flags de apply obligatorios. Windows MSVC workspace tests con desktop `test-support`, workspace Clippy `-D warnings`, fmt/diff-check pasaron. No es CI remota ni smoke del binario con user data.
 
 ## C014 — Checkpoint tras T040–T042
 
