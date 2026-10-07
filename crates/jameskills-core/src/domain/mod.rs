@@ -3,6 +3,7 @@ pub mod guidance;
 mod ids;
 pub mod library;
 pub mod policy;
+pub mod repo_change;
 mod scope;
 pub mod skill;
 
@@ -26,6 +27,7 @@ pub use policy::{
     Check, Enforcement, Phase, Policy, Requirement, Severity, ToolId, ToolOperation,
     ToolRequirement, parse_policy,
 };
+pub use repo_change::{ApprovedRepoChange, RepoChangePlan, RepoTemplateId};
 pub use scope::Scope;
 pub use skill::{
     CapabilityDeclaration, SkillFrontmatter, SkillManifest, ValidatedBundle, canonical_inventory,

@@ -531,7 +531,8 @@ Funciones públicas previstas:
 | domain/guidance | next_step(plan, facts, evidence)->GuidanceDecision; validate_guidance_graph(plan)->Result |
 | domain/sync | validate_snapshot(payload)->Result; merge_heads(local, remote, graph)->MergePlan; resolve_heads(choice)->RevisionRecord |
 | application/library | create_skill(CreateSkill); save_draft(SaveDraft); publish(SaveRevisionRequest); import_bundle(ImportRequest); export_bundle(ExportRequest); delete_skill(DeleteRequest); list_skills(LibraryQuery) |
-| application/policy | PolicyService::check(CheckRequest)->AppResult<CheckReport> (async); plan_repo_changes(RepoPolicyRequest)->RepoChangePlan; apply_repo_changes(ApprovedRepoChange)->ApplyResult |
+| application/policy | PolicyService::check(CheckRequest)->AppResult<CheckReport> (async) |
+| application/repo_change | RepositoryChangeService::plan_repo_changes(RepoPolicyRequest)->AppResult<RepoChangePlan>; apply_repo_changes(ApprovedRepoChange)->AppResult<ApplyResult> (async) |
 | application/install | detect_agents(DetectionContext); plan_install(InstallRequest)->InstallPlan; apply_install(ApprovedInstall)->InstallReceipt; remove_installation(RemoveRequest)->RemovalResult |
 | application/guidance | start_guidance(Arc<ValidatedBundle>, plan_id)->GuidanceProgress; advance(session_id, UserAnswer)->GuidanceProgress; recheck(session_id)->GuidanceProgress; close_session(session_id) |
 | application/sync | plan_remote_reset(ResetRequest)->RemoteResetPlan; apply_remote_reset(ApprovedReset)->ResetResult; connect(ConnectRequest); disconnect(DisconnectRequest); unlock(UnlockRequest); sync_once(SyncRequest)->SyncResult; preview_restore(RestoreRequest)->RestorePlan; apply_restore(ApprovedRestore)->RestoreResult |
@@ -553,6 +554,50 @@ answers no son evidence ni alteran status; al cambiar el environment fingerprint
 se limpian answers y resultados dependientes. Las sesiones de este slice son
 acotadas y process-local; no se afirma persistencia durable en `guidance_sessions`
 hasta conectar un StoragePort de sesión.
+
+### Cambios aprobados de repositorio
+
+`RepositoryChangeService::plan_repo_changes(RepoPolicyRequest) -> RepoChangePlan`
+y `apply_repo_changes(ApprovedRepoChange) -> ApplyResult` pertenecen a un
+servicio de aplicación dedicado, no a `GuidanceService` ni al check-only
+`PolicyService`. El request acepta solo
+un `RepoTemplateId` app-owned (nunca bytes, rutas o comandos del bundle) y queda
+vinculado al `ApprovedRoot`, `RepositoryHead` y `ApprovedRepoGit` seleccionado;
+este último conserva executable fingerprint y environment allowlisted. Preview
+verifica versión Git con argv registrado y observa `rev-parse HEAD` mediante
+`ProcessPort`/`ReadOnlyCheck`; nunca ejecuta shell. Apply repite esa revalidación
+antes de mutar. El plan expone targets portables, diff bounded, hash
+anterior/ausencia esperada, hash del
+contenido nuevo y digest de confirmación sobre root/head/target/estados. La
+confirmación es un DTO no deserializable ligado al plan y su `OperationId`.
+
+Apply revalida root, HEAD y estado/hash previo inmediatamente antes de escribir;
+un conflicto deja intacto el destino. Stage vive en el mismo filesystem del
+target, y un journal durable en `operations/` registra fases/hashes sin contenido
+privado. Recovery solo limpia o restaura staging/backup cuando owner y hashes
+siguen siendo los registrados; cambios concurrentes quedan visibles como
+conflicto, nunca se sobrescriben. Commit no hace git add/commit/push, no ejecuta
+templates ni instala/activa hooks. Hooks, si se añade un template local, son
+opcionales y eludibles. Contenido importado es dato inerte: no puede ampliar el
+registry de templates/actions ni generar argv.
+
+Filesystem apply se implementa con `cap_std::fs::Dir` abierto una vez sobre el
+root seleccionado; las operaciones siguientes usan paths relativos a handles,
+no `starts_with` sobre paths absolutos. Cada componente del destino se inspecciona
+sin seguir links/reparse points. Stage y target son siblings; el commit usa un
+create-only hard link (nunca `rename` que reemplace destino). Si el filesystem no
+soporta hard links, el apply queda Blocked sin fallback de overwrite.
+
+Journal states siguen `Planned -> Approved -> Staged -> CommitPending ->
+NewMoved -> Verified -> Committed`; `Failed` solo es terminal antes del stage,
+y cualquier fallo posterior entra a `RollbackPending` hasta `Recovered` o queda
+como conflicto pendiente. `CommitPending` se persiste antes del hard link para
+que restart distinga un intento sin mutación de un posible link ya creado.
+Recovery solo elimina un staging sibling cuando su SHA-256 es el propuesto; si
+target/stage coinciden en file identity + hash puede completar el commit. Un
+target editado, dueño ambiguo o metadata no accesible permanece intacto y produce
+Conflict visible; recovery nunca elimina el target. Si el OS no permite probar
+file identity entre los dos handles, el resultado permanece Conflict/Pending.
 
 No olvidar expected_heads/revision en Publish, ApplyInstall, RepoChange, ResolveConflict y Restore. Mutable operations tienen OperationId y journal.
 

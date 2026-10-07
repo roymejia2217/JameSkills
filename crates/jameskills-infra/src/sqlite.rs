@@ -1,14 +1,17 @@
 use crate::fs::{list_blob_hashes, verify_blob_bytes};
 use chrono::{SecondsFormat, Utc};
 use jameskills_core::{
-    AppError, AppResult,
+    AppError, AppResult, OperationId, PortablePath,
     domain::{
         ContentHash, RevisionId, RevisionKind, RevisionRecord, SaveRevisionRequest,
-        SaveRevisionResult, SkillId,
+        SaveRevisionResult, SkillId, policy::RepositoryHead,
     },
-    ports::{CURRENT_SCHEMA_VERSION, StoragePort},
+    ports::{
+        CURRENT_SCHEMA_VERSION, OperationJournalPort, RepoChangeJournal, RepoChangeJournalState,
+        StoragePort, process::ApprovedRoot,
+    },
 };
-use rusqlite::{Connection, OpenFlags, Transaction};
+use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension, Transaction};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -395,6 +398,231 @@ impl StoragePort for SqliteStore {
 
     fn check_integrity(&self) -> AppResult<()> {
         SqliteStore::check_integrity(self)
+    }
+}
+
+const MAX_PENDING_REPO_CHANGE_JOURNALS: usize = 256;
+const MAX_REPO_CHANGE_JOURNAL_BYTES: usize = 16 * 1024;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRepoChangeJournal {
+    schema_version: u8,
+    operation_id: String,
+    root_path: String,
+    root_fingerprint: String,
+    expected_head: String,
+    target: String,
+    staging_target: String,
+    previous_hash: Option<String>,
+    proposed_hash: String,
+}
+
+fn encode_repo_change_journal(journal: &RepoChangeJournal) -> AppResult<Vec<u8>> {
+    let root_path = journal
+        .root()
+        .path()
+        .to_str()
+        .ok_or_else(|| storage_error("storage.operation_journal.root.invalid"))?;
+    let stored = StoredRepoChangeJournal {
+        schema_version: 1,
+        operation_id: journal.operation_id().as_uuid().to_string(),
+        root_path: root_path.to_owned(),
+        root_fingerprint: journal.root_fingerprint().as_str().to_owned(),
+        expected_head: journal.expected_head().as_str().to_owned(),
+        target: journal.target().as_str().to_owned(),
+        staging_target: journal.staging_target().as_str().to_owned(),
+        previous_hash: journal.previous_hash().map(|hash| hash.as_str().to_owned()),
+        proposed_hash: journal.proposed_hash().as_str().to_owned(),
+    };
+    let payload = serde_json::to_vec(&stored)
+        .map_err(|_| storage_error("storage.operation_journal.encode.failed"))?;
+    if payload.len() > MAX_REPO_CHANGE_JOURNAL_BYTES {
+        return Err(storage_error("storage.operation_journal.limit"));
+    }
+    Ok(payload)
+}
+
+impl OperationJournalPort for SqliteStore {
+    fn record_operation(&self, journal: &RepoChangeJournal) -> AppResult<()> {
+        if journal.state() != RepoChangeJournalState::Planned {
+            return Err(AppError::Validation(vec![
+                jameskills_core::Diagnostic::error(
+                    "repo.change.journal.state.invalid",
+                    "A new repository change journal must begin in Planned state.",
+                ),
+            ]));
+        }
+        let payload = encode_repo_change_journal(journal)?;
+        let operation_id = journal.operation_id().as_uuid().to_string();
+        let state = journal.state().as_str();
+        let updated_at = journal.updated_at();
+        self.with_transaction(|transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO operations(id,kind,state,journal_json,updated_at) VALUES(?1,'repo-change',?2,?3,?4)",
+                    rusqlite::params![operation_id, state, payload, updated_at],
+                )
+                .map_err(map_journal_insert_error)?;
+            Ok(())
+        })
+    }
+
+    fn load_operation(&self, operation_id: OperationId) -> AppResult<Option<RepoChangeJournal>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let row = connection
+            .query_row(
+                "SELECT state,updated_at,journal_json FROM operations WHERE id=?1 AND kind='repo-change'",
+                [operation_id.as_uuid().to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| storage_error("storage.operation_journal.read.failed"))?;
+        row.map(|(state, updated_at, payload)| {
+            decode_repo_change_journal(operation_id, &state, &updated_at, &payload)
+        })
+        .transpose()
+    }
+
+    fn transition_operation(
+        &self,
+        operation_id: OperationId,
+        expected: RepoChangeJournalState,
+        next: RepoChangeJournalState,
+        updated_at: &str,
+    ) -> AppResult<()> {
+        if !expected.allows_transition(next)
+            || updated_at.is_empty()
+            || updated_at.len() > 64
+            || updated_at.chars().any(char::is_control)
+        {
+            return Err(AppError::Validation(vec![
+                jameskills_core::Diagnostic::error(
+                    "repo.change.journal.transition.invalid",
+                    "Repository change journal transition is invalid.",
+                ),
+            ]));
+        }
+        self.with_transaction(|transaction| {
+            let changed = transaction
+                .execute(
+                    "UPDATE operations SET state=?1,updated_at=?2 WHERE id=?3 AND kind='repo-change' AND state=?4",
+                    rusqlite::params![
+                        next.as_str(),
+                        updated_at,
+                        operation_id.as_uuid().to_string(),
+                        expected.as_str(),
+                    ],
+                )
+                .map_err(|_| storage_error("storage.operation_journal.write.failed"))?;
+            if changed != 1 {
+                return Err(AppError::Conflict { current: vec![] });
+            }
+            Ok(())
+        })
+    }
+
+    fn pending_operations(&self) -> AppResult<Vec<RepoChangeJournal>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id,state,updated_at,journal_json FROM operations WHERE kind='repo-change' AND state NOT IN ('committed','failed','recovered') ORDER BY updated_at,id LIMIT ?1",
+            )
+            .map_err(|_| storage_error("storage.operation_journal.read.failed"))?;
+        let rows = statement
+            .query_map([MAX_PENDING_REPO_CHANGE_JOURNALS as i64 + 1], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            })
+            .map_err(|_| storage_error("storage.operation_journal.read.failed"))?;
+        let rows = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| storage_error("storage.operation_journal.read.failed"))?;
+        if rows.len() > MAX_PENDING_REPO_CHANGE_JOURNALS {
+            return Err(storage_error("storage.operation_journal.limit"));
+        }
+        rows.into_iter()
+            .map(|(id, state, updated_at, payload)| {
+                let operation_id =
+                    OperationId::parse(&id).map_err(|_| storage_error("storage.data.corrupt"))?;
+                decode_repo_change_journal(operation_id, &state, &updated_at, &payload)
+            })
+            .collect()
+    }
+}
+
+fn decode_repo_change_journal(
+    operation_id: OperationId,
+    state: &str,
+    updated_at: &str,
+    payload: &[u8],
+) -> AppResult<RepoChangeJournal> {
+    if payload.len() > MAX_REPO_CHANGE_JOURNAL_BYTES {
+        return Err(storage_error("storage.data.corrupt"));
+    }
+    let state = RepoChangeJournalState::parse(state)
+        .ok_or_else(|| storage_error("storage.data.corrupt"))?;
+    let stored = serde_json::from_slice::<StoredRepoChangeJournal>(payload)
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    if stored.schema_version != 1
+        || OperationId::parse(&stored.operation_id).ok() != Some(operation_id)
+    {
+        return Err(storage_error("storage.data.corrupt"));
+    }
+    let root = ApprovedRoot::from_absolute_path(PathBuf::from(stored.root_path))
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    let root_fingerprint = ContentHash::parse_hex(&stored.root_fingerprint)
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    let expected_head = RepositoryHead::parse(&stored.expected_head)
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    let target =
+        PortablePath::new(stored.target).map_err(|_| storage_error("storage.data.corrupt"))?;
+    let staging_target = PortablePath::new(stored.staging_target)
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    let previous_hash = stored
+        .previous_hash
+        .map(|value| ContentHash::parse_hex(&value))
+        .transpose()
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    let proposed_hash = ContentHash::parse_hex(&stored.proposed_hash)
+        .map_err(|_| storage_error("storage.data.corrupt"))?;
+    RepoChangeJournal::from_storage_parts(
+        operation_id,
+        state,
+        root,
+        root_fingerprint,
+        expected_head,
+        target,
+        staging_target,
+        previous_hash,
+        proposed_hash,
+        updated_at,
+    )
+    .map_err(|_| storage_error("storage.data.corrupt"))
+}
+
+fn map_journal_insert_error(error: rusqlite::Error) -> AppError {
+    match error {
+        rusqlite::Error::SqliteFailure(code, _) if code.code == ErrorCode::ConstraintViolation => {
+            AppError::Conflict { current: vec![] }
+        }
+        _ => storage_error("storage.operation_journal.write.failed"),
     }
 }
 
