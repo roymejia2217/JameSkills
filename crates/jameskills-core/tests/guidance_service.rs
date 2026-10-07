@@ -6,7 +6,7 @@ use jameskills_core::{
         policy::{PolicyCheckProvider, PolicyService},
     },
     domain::{
-        GuidanceFacts, GuidanceProgressStatus, PortablePath,
+        GuidanceAction, GuidanceFacts, GuidanceProgressStatus, PortablePath,
         policy::{CheckObservation, CheckStatus},
         skill::validate_bundle,
     },
@@ -25,6 +25,8 @@ const POLICY: &str =
     include_str!("../../../docs/examples/repository-foundation/policies/repository.toml");
 const GUIDANCE: &str =
     include_str!("../../../docs/examples/repository-foundation/guidance/repository.toml");
+const APPLICATION_GUIDANCE: &str =
+    include_str!("../../../examples/repository-foundation/guidance/repository.toml");
 const ENVIRONMENT: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -178,6 +180,29 @@ fn start_guidance_selects_the_validated_step_and_keeps_unknown_check_visible() {
     assert_eq!(
         progress.decision().steps()[0].verification_status(),
         CheckStatus::Unknown
+    );
+}
+
+#[test]
+fn application_ci_guidance_keeps_template_review_manual_and_non_mutating() {
+    let (service, _, _) = service();
+    let progress = block_on(service.start_guidance(
+        validated_bundle_with_guidance(APPLICATION_GUIDANCE),
+        "ci-setup",
+    ))
+    .unwrap();
+    let step = progress.decision().next_step().unwrap();
+
+    assert_eq!(step.id(), "pipeline");
+    assert!(matches!(step.action(), GuidanceAction::ManualInstruction));
+    assert!(
+        step.prompt_es()
+            .contains("revisa manualmente el contenido y el diff")
+    );
+    assert!(step.prompt_es().contains("no la aplica ni activa hooks"));
+    assert_eq!(
+        progress.decision().status(),
+        GuidanceProgressStatus::AwaitingEvidence
     );
 }
 
