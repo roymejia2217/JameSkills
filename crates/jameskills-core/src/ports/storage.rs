@@ -1,8 +1,12 @@
 use crate::{
     AppResult, Diagnostic,
-    domain::{ContentHash, RevisionId, SkillId},
+    domain::{
+        ContentHash, CreateSkill, ImportPreview, ImportResolution, ImportResult, RevisionId,
+        SaveRevisionRequest, SaveRevisionResult, SkillDraft, SkillId, ValidatedBundle,
+    },
     ports::filesystem::BundleFiles,
 };
+
 pub const MAX_LIBRARY_PAGE_SIZE: usize = 50;
 const MAX_LIBRARY_SEARCH_BYTES: usize = 256;
 const MAX_LIBRARY_FILTERS: usize = 64;
@@ -361,10 +365,49 @@ fn query_error(code: &'static str) -> crate::AppError {
     )])
 }
 
+/// Optimistic draft write. `expected_generation = None` means no draft row
+/// may exist; updates require the current generation and stored base-head.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveDraftRequest {
+    draft: SkillDraft,
+    expected_generation: Option<u64>,
+    expected_base_head: Option<RevisionId>,
+}
+
+impl SaveDraftRequest {
+    pub fn new(
+        draft: SkillDraft,
+        expected_generation: Option<u64>,
+        expected_base_head: Option<RevisionId>,
+    ) -> AppResult<Self> {
+        let valid_generation = match expected_generation {
+            None => draft.generation() == 1 && expected_base_head.is_none(),
+            Some(expected) => expected.checked_add(1) == Some(draft.generation()),
+        };
+        if !valid_generation {
+            return Err(query_error("library.draft.generation.conflict"));
+        }
+        Ok(Self {
+            draft,
+            expected_generation,
+            expected_base_head,
+        })
+    }
+
+    pub fn draft(&self) -> &SkillDraft {
+        &self.draft
+    }
+    pub fn expected_generation(&self) -> Option<u64> {
+        self.expected_generation
+    }
+    pub fn expected_base_head(&self) -> Option<&RevisionId> {
+        self.expected_base_head.as_ref()
+    }
+}
 
 /// Schema version applied by the storage actor. Migration files map one to
 /// one onto versions: 001_library.sql is version 1, and so on.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 /// Persistent library storage seam. Only the operations the storage actor
 /// implements today are exposed; snapshot merge and the remaining DTOs
@@ -377,4 +420,38 @@ pub trait StoragePort: Send + Sync {
     fn check_integrity(&self) -> AppResult<()>;
     /// Reads one bounded page of catalog metadata; adapters must not load blobs.
     async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage>;
+    /// Explicitly loads selected current-head content; list operations remain metadata-only.
+    async fn load_skill(&self, skill_id: SkillId) -> AppResult<Option<LibrarySkillDetail>>;
+    /// Reads a bounded causal-history page without loading revision blobs.
+    async fn load_history(&self, query: LibraryHistoryQuery) -> AppResult<LibraryHistoryPage>;
+    /// Reads the current local draft without validating its semantic content.
+    async fn load_draft(&self, skill_id: SkillId) -> AppResult<Option<SkillDraft>>;
+    /// Persists exact draft bytes with generation/base-head compare-and-swap.
+    async fn save_draft(&self, request: SaveDraftRequest) -> AppResult<()>;
+    /// Atomically creates the skill row, catalog key and initial editable draft.
+    async fn create_skill(&self, create: CreateSkill, draft: SkillDraft) -> AppResult<()>;
+    /// Reads the current causal head set without opening head blobs.
+    async fn get_heads(&self, skill_id: SkillId) -> AppResult<Vec<RevisionId>>;
+    /// Distinguishes an absent identity from an existing draft-only skill.
+    async fn skill_exists(&self, skill_id: SkillId) -> AppResult<bool>;
+    /// Looks up a content revision by skill identity and canonical bundle hash.
+    async fn find_revision_by_bundle(
+        &self,
+        skill_id: SkillId,
+        content_hash: ContentHash,
+    ) -> AppResult<Option<RevisionId>>;
+    /// Applies an explicit import choice against the previewed head set.
+    async fn apply_import(
+        &self,
+        preview: ImportPreview,
+        resolution: ImportResolution,
+    ) -> AppResult<ImportResult>;
+    /// Stores canonical archive bytes before a revision references their hash.
+    async fn store_validated_bundle(
+        &self,
+        bundle: ValidatedBundle,
+        files: BundleFiles,
+    ) -> AppResult<()>;
+    /// Commits revision/head and optionally removes the exact published draft generation.
+    async fn commit_revision(&self, request: SaveRevisionRequest) -> AppResult<SaveRevisionResult>;
 }

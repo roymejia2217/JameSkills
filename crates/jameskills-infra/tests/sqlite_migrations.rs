@@ -6,7 +6,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-const MIGRATIONS: [&str; 3] = ["001_library.sql", "002_operations.sql", "003_sync.sql"];
+const MIGRATIONS: [&str; 6] = [
+    "001_library.sql",
+    "002_operations.sql",
+    "003_sync.sql",
+    "004_library_catalog.sql",
+    "005_import_lookup.sql",
+    "006_revision_trust.sql",
+];
 
 fn migrations_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations")
@@ -89,9 +96,13 @@ fn fresh_db_applies_all_migrations_with_exact_tables() {
             "drafts",
             "guidance_sessions",
             "installations",
+            "library_catalog",
             "operations",
             "remote_files",
+            "revision_capabilities",
             "revision_parents",
+            "revision_tags",
+            "revision_trust",
             "revisions",
             "skill_heads",
             "skills",
@@ -108,7 +119,7 @@ fn migrations_apply_twice_without_error() {
             connection.execute_batch(&migration_sql(name)).unwrap();
         }
     }
-    assert_eq!(tables(&connection).len(), 11);
+    assert_eq!(tables(&connection).len(), 15);
 }
 
 #[test]
@@ -218,6 +229,36 @@ fn revisions_schema_matches_architecture() {
     );
 }
 
+#[test]
+fn catalog_schema_indexes_normalized_names_and_revision_metadata() {
+    let connection = migrated_memory_db();
+    assert_eq!(
+        columns(&connection, "library_catalog"),
+        vec!["skill_id", "normalized_display_name"]
+    );
+    let tables = tables(&connection);
+    assert!(tables.contains(&"revision_tags".to_owned()));
+    assert!(tables.contains(&"revision_capabilities".to_owned()));
+    assert!(tables.contains(&"revision_trust".to_owned()));
+
+    let mut statement = connection.prepare("PRAGMA index_list(revisions)").unwrap();
+    let indexes = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .map(|name| name.unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        indexes
+            .iter()
+            .any(|name| name == "revisions_by_skill_and_id")
+    );
+    assert!(
+        indexes
+            .iter()
+            .any(|name| name == "revisions_by_skill_and_bundle")
+    );
+}
+
 fn pragma(connection: &Connection, statement: &str) -> String {
     connection
         .query_row(statement, [], |row| row.get::<_, String>(0))
@@ -235,7 +276,7 @@ fn fresh_open_applies_schema_and_storage_pragmas() {
     let path = fresh_db_file();
     let store = SqliteStore::open(&path).unwrap();
     let port: &dyn StoragePort = &store;
-    assert_eq!(port.schema_version().unwrap(), 3);
+    assert_eq!(port.schema_version().unwrap(), 6);
     assert!(!store.is_read_only());
     assert!(port.check_integrity().is_ok());
     let connection = Connection::open(&path).unwrap();
@@ -266,8 +307,8 @@ fn upgrade_from_v1_backs_up_then_migrates_with_data_kept() {
         setup.execute_batch("PRAGMA user_version = 1").unwrap();
     }
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 3);
-    assert_eq!(tables(&Connection::open(&path).unwrap()).len(), 11);
+    assert_eq!(store.schema_version().unwrap(), 6);
+    assert_eq!(tables(&Connection::open(&path).unwrap()).len(), 15);
     let kept: String = Connection::open(&path)
         .unwrap()
         .query_row("SELECT slug FROM skills WHERE id = 'skill-1'", [], |row| {
