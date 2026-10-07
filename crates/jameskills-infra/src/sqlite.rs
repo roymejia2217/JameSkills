@@ -371,6 +371,39 @@ impl SqliteStore {
                 ),
             )
             .map_err(|_| storage_error("storage.revision.rejected"))?;
+        if matches!(request.kind(), RevisionKind::Content) {
+            let display_name: String = transaction
+                .query_row(
+                    "SELECT display_name FROM skills WHERE id = ?1",
+                    [request.skill_id().as_uuid().to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(|_| storage_error("storage.revision.rejected"))?;
+            let normalized_name: String =
+                display_name.chars().flat_map(char::to_lowercase).collect();
+            transaction
+                .execute(
+                    "INSERT INTO library_catalog(skill_id, normalized_display_name) VALUES (?1, ?2) ON CONFLICT(skill_id) DO UPDATE SET normalized_display_name = excluded.normalized_display_name",
+                    (request.skill_id().as_uuid().to_string(), normalized_name),
+                )
+                .map_err(|_| storage_error("storage.revision.rejected"))?;
+            for tag in request.catalog_tags() {
+                transaction
+                    .execute(
+                        "INSERT INTO revision_tags(revision_id, tag) VALUES (?1, ?2)",
+                        (record.id().as_str(), tag),
+                    )
+                    .map_err(|_| storage_error("storage.revision.rejected"))?;
+            }
+            for capability in request.catalog_capabilities() {
+                transaction
+                    .execute(
+                        "INSERT INTO revision_capabilities(revision_id, capability) VALUES (?1, ?2)",
+                        (record.id().as_str(), capability),
+                    )
+                    .map_err(|_| storage_error("storage.revision.rejected"))?;
+            }
+        }
         for parent in record.parents() {
             transaction
                 .execute(
