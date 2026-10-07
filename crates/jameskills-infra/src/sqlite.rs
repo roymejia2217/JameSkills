@@ -21,6 +21,7 @@ const MIGRATIONS: [(u32, &str); 3] = [
     (1, include_str!("../migrations/001_library.sql")),
     (2, include_str!("../migrations/002_operations.sql")),
     (3, include_str!("../migrations/003_sync.sql")),
+    (4, include_str!("../migrations/004_library_catalog.sql")),
 ];
 
 fn storage_error(code: &'static str) -> AppError {
@@ -89,6 +90,9 @@ impl SqliteStore {
             blob_root,
             read_only: false,
         };
+        if version < 4 {
+            store.refresh_normalized_catalog_names()?;
+        }
         store.verify_referenced_blobs()?;
         Ok(store)
     }
@@ -119,6 +123,39 @@ impl SqliteStore {
 
     pub fn is_read_only(&self) -> bool {
         self.read_only
+    }
+    fn refresh_normalized_catalog_names(&self) -> AppResult<()> {
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let rows = {
+            let mut statement = guard
+                .prepare("SELECT id, display_name FROM skills ORDER BY id")
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|_| storage_error("storage.data.corrupt"))?
+        };
+        let transaction = guard
+            .transaction()
+            .map_err(|_| storage_error("storage.transaction.failed"))?;
+        for (skill_id, display_name) in rows {
+            let normalized: String = display_name.chars().flat_map(char::to_lowercase).collect();
+            transaction
+                .execute(
+                    "INSERT INTO library_catalog(skill_id, normalized_display_name) VALUES (?1, ?2) ON CONFLICT(skill_id) DO UPDATE SET normalized_display_name = excluded.normalized_display_name WHERE library_catalog.normalized_display_name <> excluded.normalized_display_name",
+                    (skill_id, normalized),
+                )
+                .map_err(|_| storage_error("storage.data.corrupt"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|_| storage_error("storage.transaction.failed"))
     }
 
     pub fn schema_version(&self) -> AppResult<u32> {

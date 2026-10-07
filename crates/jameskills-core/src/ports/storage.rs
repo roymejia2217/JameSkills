@@ -364,7 +364,7 @@ fn query_error(code: &'static str) -> crate::AppError {
 
 /// Schema version applied by the storage actor. Migration files map one to
 /// one onto versions: 001_library.sql is version 1, and so on.
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 /// Persistent library storage seam. Only the operations the storage actor
 /// implements today are exposed; snapshot merge and the remaining DTOs
