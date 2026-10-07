@@ -1215,6 +1215,7 @@ fn tool_operation_name(operation: super::policy::ToolOperation) -> &'static str 
         ToolOperation::ScanTracked => "scan-tracked",
         ToolOperation::LintMessage => "lint-message",
         ToolOperation::BranchRules => "branch-rules",
+        ToolOperation::RepositoryRead => "repository-read",
         ToolOperation::CheckRuns => "check-runs",
         ToolOperation::QualitySuite => "quality-suite",
         ToolOperation::Version => "version",

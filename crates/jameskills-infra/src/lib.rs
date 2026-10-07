@@ -7,6 +7,7 @@
 
 pub mod composition;
 pub mod fs;
+pub mod github;
 pub mod platform;
 pub mod process;
 pub mod sqlite;

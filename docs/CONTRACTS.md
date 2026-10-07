@@ -154,9 +154,10 @@ y un `Check` tipado. `ApplicabilityFact` es `Os | Architecture | Stack | Host |
 Context | Capability`; cada fact solo admite los valores registrados por el
 parser y `Unknown` nunca satisface una condición. Check v1
 admite git-repository, gitignore-patterns, tracked-secrets, readme-sections,
-conventional-commit, protected-main-local, github-branch-policy, ci-contract,
-ci-evidence, release-contract y toolchain-version. Los tool requirements usan
-`ToolId` y `ToolOperation` de registry cerrado, con `semver::VersionReq`; no
+conventional-commit, github-access, protected-main-local, github-branch-policy,
+ci-contract, ci-evidence, release-contract y toolchain-version. Los tool
+requirements usan `ToolId` y `ToolOperation` de registry cerrado (incluido
+GitHub `repository-read`), con `semver::VersionReq`; no
 existe campo argv o shell en datos importados. El parser limita bytes/cantidades,
 rechaza schema/campos/enums desconocidos, IDs duplicados, referencias de
 dependencia ausentes/cíclicas, rangos inválidos y operaciones no autorizadas.
@@ -180,9 +181,12 @@ protection/ruleset ni check-runs para SHA actual. `CiEvidence` permanece Unknown
 hasta que exista el provider host/SHA exacto correspondiente.
 
 `CheckEvidence` lleva source_id, RFC3339 UTC, revision opcional, fingerprint
-`sha256:` y resumen app-authored acotado; su expiry monotónica es válida solo en
-el proceso que la observó. CheckObservation sin evidencia nunca produce Pass;
-evidencia expirada convierte el resultado en Unknown.
+`sha256:` y resumen app-authored `String` acotado a 256 bytes; se permite
+contenido dinámico saneado para ligar una observación remota a repository/ref/check.
+El driver no copia valores crudos de proveedor, URLs, identidad ni secretos. Su
+expiry monotónica es válida solo en el proceso que la observó. CheckObservation
+sin evidencia nunca produce Pass; evidencia expirada convierte el resultado
+en Unknown.
 
 ~~~rust
 pub enum CheckStatus { Pass, Fail, Blocked, Unknown, Unsupported, NotApplicable }
@@ -441,7 +445,9 @@ no constituye por sí solo trust/consent del repositorio: el driver de suites
 debe exigir la aprobación tipada explícita y construir argv desde registry antes
 de solicitar `ExplicitMutation`. Ningún policy inspection solicita esa acción.
 `ApprovedEnv` es mínimo y acepta las rutas `PATH`, `HOME`/`USERPROFILE` por
-driver e idioma fijo cuando el parser lo requiere. Para toolchain MSVC también
+driver e idioma fijo cuando el parser lo requiere. En Windows se puede aprobar
+`APPDATA` para que el `gh` fijado lea su configuración/auth propios; no se
+propagan `GH_HOST`, `GH_TOKEN` ni `GITHUB_TOKEN`. Para toolchain MSVC también
 puede conservar `INCLUDE`, `LIB`, `LIBPATH`, `VCINSTALLDIR`, `VCToolsInstallDir`,
 `WindowsSdkDir`, `WindowsSDKVersion`, `UniversalCRTSdkDir` y `UCRTVersion`, que
 ubican compilador, headers y bibliotecas del SDK. Estos nombres se allowlistean

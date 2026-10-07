@@ -207,6 +207,133 @@ The T021 local workflow parser will use the already locked [`serde-saphyr` 1.3.0
 
 T021 host discrimination uses Git's [`remote -v` documentation](https://git-scm.com/docs/git-remote), which reports remote names and configured fetch/push URLs. This is local configuration only (no network request); URLs may contain credentials and must stay in bounded process memory, never evidence/log output. A GitHub Actions YAML file without an observed supported GitHub remote remains Unknown, not RequiredCi.
 
+T022 GitHub CLI/API evidence is pinned to the installed, fingerprinted `gh` tool
+profile (the current host was observed as `gh 2.102.0`; this is not a claim
+about other releases). General tool discovery remains `>=2.0.0,<3.0.0`, while
+the GitHub repository-evidence driver itself accepts only `2.102.0` until a
+new release receives source/fixture review. The official [`gh auth status` manual](https://cli.github.com/manual/gh_auth_status)
+documents `--hostname`, `--active`, and JSON `hosts`; importantly JSON mode
+returns exit 0 even when auth is unhealthy. Never pass `--show-token`: it emits
+the credential in text and JSON. The tagged [`v2.102.0 auth status source`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/auth/status/status.go)
+shows host entries expose state, active, login, tokenSource and scopes, with
+token omitted unless explicitly requested. Parse only the fields required for
+an app-owned auth observation; do not persist the login, token source, raw
+error, scopes string, or raw command output. Scope labels are not a general
+permission inventory: GitHub documents fine-grained permissions separately and
+per endpoint.
+
+The official [`gh` environment manual](https://cli.github.com/manual/gh_help_environment)
+documents the Windows default auth/config location as `$AppData/GitHub CLI`
+unless `GH_CONFIG_DIR` is set. JameSkills therefore allowlists only the
+platform-provided `APPDATA` path on Windows; it does not pass `GH_CONFIG_DIR`
+or auth/host override variables to the child.
+
+The official [`gh api` manual](https://cli.github.com/manual/gh_api) documents
+that requests are authenticated, that `--hostname` selects the host, and that
+adding fields/input can change the default method to POST. The tagged
+[`v2.102.0 api source`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/api/api.go)
+confirms these semantics and that `GH_HOST` can select a different host.
+Therefore the driver must use an app-built fixed argv with explicit `--method
+GET`, explicit `--hostname github.com`, registered API paths, no arbitrary
+fields/input/pagination/verbose/cache, and an environment that excludes
+`GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN`, enterprise-token overrides, and user
+arguments. Repository owner/name are accepted only after parsing the approved
+Git remote and validating bounded path components; they never supply scheme,
+host, endpoint path, or flags. `gh` follows REST redirects; its tagged
+[`AddAuthTokenHeader` source](https://github.com/cli/cli/blob/v2.102.0/api/http_client.go)
+only adds the configured token on the original hostname, and explicitly omits
+it if a redirect changes hostname. JameSkills does not consume redirect URLs
+as subsequent endpoints and still validates the final typed repository
+identity before reporting `repo-read`.
+
+For identity, GitHub REST [`GET /repos/{owner}/{repo}`](https://docs.github.com/en/rest/repos/repos#get-a-repository)
+returns repository `full_name`, `owner.login` and `name`; the driver should
+compare those typed fields with the selected remote and discard unrelated
+response fields (including URLs, descriptions and permission metadata). REST
+authentication docs describe 401 invalid credentials and 403/404 for missing
+permissions/private resources; therefore 404 cannot safely prove nonexistence.
+Fine-grained permissions are endpoint-specific and may be reported in
+`X-Accepted-GitHub-Permissions`; OAuth scope headers do not enumerate
+fine-grained grants. Record only the response category and explicitly observed
+capability, not inferred permissions from account identity or a token scope
+string.
+
+REST [`rate limits`](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
+document primary 403/429 and `Retry-After`/`X-RateLimit-Remaining`/`Reset`
+handling; secondary limits may also return 403/429. A read-only evidence driver
+must perform a small serial request set with bounded output/time and no
+automatic pagination. It may expose a bounded retry hint, but exhaustion,
+malformed/missing rate headers or ambiguous 403 remains Blocked/Unknown, never
+Pass. GitHub's [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+also note that 404 can mask inaccessible private resources and that redirects
+exist; this reinforces binding requests to the approved GitHub API host and
+avoiding retry loops.
+
+T024 release evidence (GitHub REST docs current on 2026-10-05):
+- [`GET /repos/{owner}/{repo}/releases`](https://docs.github.com/en/rest/releases/releases#list-releases)
+  returns releases, not unassociated Git tags. Public published releases are
+  visible; drafts are listed only to users with push access. Entries expose
+  `tag_name`, `draft`, `prerelease`, and assets with nullable `digest`; response
+  sizes are bounded and the checker does not paginate. A full 100-entry page is
+  treated as possibly truncated. The digest is GitHub-reported SHA-256 metadata;
+  the checker does not download or independently hash asset bytes.
+- [`GET /repos/{owner}/{repo}/releases/tags/{tag}`](https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name)
+  retrieves a published release by tag, not a bare Git ref. Therefore a tag
+  existing without a release cannot satisfy a release requirement. 403/404 do
+  not independently prove absence or permission; only a complete successful
+  release listing can establish that a required published version is absent.
+- GitHub [Git references](https://docs.github.com/en/rest/git/refs#get-a-reference)
+  resolve `refs/tags/<tag>` to an object and identify lightweight versus
+  annotated tags. The [Get a tag endpoint](https://docs.github.com/en/rest/git/tags#get-a-tag)
+  accepts an annotated tag-object SHA and reports GitHub signature verification
+  metadata (`verification.verified`/`reason`). Signature/payload bytes and
+  identities are not retained. Signed-tag requirements must remain Unknown for
+  inaccessible or unsupported objects and Fail for known unsigned/unverified
+  tags.
+- Cargo's [workspace package fields](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-workspacepackage-table)
+  allow a workspace root to declare the shared project version; npm's
+  [`package.json` version field](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#version)
+  declares a Node project's package version. T024 uses bounded, no-follow local
+  manifests as project-version evidence, never `SkillManifest.semantic_version`.
+  If both Rust and Node version fields are present they must agree; a valid
+  manifest without a version field is not itself a version source. If neither
+  source declares a version, or a declared value is malformed/ambiguous, the
+  result remains Unknown.
+
+T023 protection/evidence API contract (GitHub REST docs version current on
+2026-10-05):
+- [`GET /repos/{owner}/{repo}/rules/branches/{branch}`](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch)
+  returns active effective rules from repository and parent scopes, excluding
+  `evaluate` and `disabled` rulesets. It has a branch path parameter (no wildcard)
+  and paging up to 100; this driver will not paginate unboundedly.
+- [`GET /repos/{owner}/{repo}/rulesets`](https://docs.github.com/en/rest/repos/rules#list-repository-rulesets)
+  accepts `includes_parents=true` and branch `targets`, and exposes source,
+  enforcement and bypass metadata when authorized. GitHub's ruleset GET docs
+  state that `bypass_actors` is withheld unless the caller has write access to
+  that ruleset. A missing bypass field cannot establish absence of bypass;
+  `current_user_can_bypass` describes only the current actor, not all actors.
+- Classic [`GET /repos/{owner}/{repo}/branches/{branch}/protection`](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection)
+  returns required status checks, PR review requirements, admin enforcement,
+  and PR bypass allowances; availability depends on plan and access. A 404 is
+  not sufficient alone to infer no protection because private-resource access
+  may be hidden. Combine classic and active effective rules, or return Unknown.
+- [`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+  supports a specific ref/SHA and returns each run's `head_sha`, `name`,
+  `status`, and `conclusion`; only exact-SHA `completed/success` evidence passes.
+  Use per-page 100 without `--paginate`; if `total_count` indicates truncation,
+  Unknown. Legacy statuses are separate via [`GET /repos/{owner}/{repo}/commits/{ref}/status`](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference),
+  where GitHub defines combined state `success` only when every latest context
+  succeeds. Check-run access on private repos depends on token type/permission;
+  any 401/403/404 or unlisted fine-grained permission stays Blocked/Unknown.
+
+The [fine-grained token permission matrix](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+lists effective `rules/branches` and ruleset reads under repository Metadata
+read, and classic branch protection endpoints under Administration read.
+`X-Accepted-GitHub-Permissions` is a response hint for the endpoint, not proof
+that the active identity has that permission. HostRule can pass only if the
+required data—including bypass visibility when requested—is actually returned;
+RequiredCi additionally needs the active host rule and current-SHA checks.
+
 T020.c.c npm suite driver uses the installed npm CLI `11.16.0`, verified on
 the Windows host together with Node `24.18.0`. The tagged
 [`package.json`](https://github.com/npm/cli/blob/v11.16.0/package.json) declares

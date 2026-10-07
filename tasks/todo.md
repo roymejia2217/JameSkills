@@ -966,9 +966,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T021 — Validar definición de CI y checks requeridos
 
-- [ ] **T021 completada y verificada**
+- [x] **T021 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T020. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T018, T020. **Estado:** completada.
 
 **Implementación y funciones:** check_ci_definition, inspect_workflow_requirements; separar archivo existente, jobs declarados y evidencia de ejecución/remoto. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -985,8 +985,8 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - RED/GREEN T021.b: RED `cargo test -p jameskills-core --locked --test bundle_manifest runtime_guidance_references_known_requirements_and_registered_actions` detectó divergencia entre `docs/examples` canónico y `examples` runtime, y el prompt no distinguía YAML local de reglas host/SHA. GREEN: `cargo test -p jameskills-core --locked --test bundle_manifest` pasa 23/23; ambas guías declaran dos pasos (contrato local y permisos/action refs) y una solicitud manual de admin/checks SHA. Evidencia remota sigue manual/recheck hasta T022/T023.
 - [x] **T021.a2.src — Fuente para reconocer hosting sin red** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. La observación usa Git `remote -v` read-only; URLs/credenciales se procesan bounded en memoria y jamás se registran en logs/evidence.
 - Evidencia T021.a2.src: WebFetch manual oficial `git-remote` confirma `--verbose` muestra nombres/URLs configuradas; no consulta el servicio remoto ni prueba reglas de protección. CI workflow por sí mismo no identifica el host.
-- [ ] **T021.a2 — Discriminar GitHub-hosted repo read-only** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/ci_definition_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git aprobado/native+version compatible; `remote -v` fixed argv, timeout/output bounded, parse host de URLs sin persistir secretos. Sin remote, host diferente/mixed o shape no soportado => Unknown; no inferir existencia/configuración real del host.
-- RED/GREEN T021.a2 Windows: RED `non_github_or_missing_remote_keeps_workflow_unknown` falla al tratar todo workflow como GitHub (GitLab/no remote entregan Pass). GREEN focused `ci_definition_checks`: 23 pasan y la opt-in real Git 2.55 + remote de este repo también pasa con LocalCheck; suite infra completa pasa. Fakes prueban GitHub con credenciales ocultas, GitLab, GitHub Enterprise y remotes mixtos/ausentes; argv read-only/fingerprint. Clippy `-D warnings`, fmt y diff-check pasan; falta pre-push acumulado y CI remota.
+- [x] **T021.a2 — Discriminar GitHub-hosted repo read-only** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/ci_definition_checks.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Git aprobado/native+version compatible; `remote -v` fixed argv, timeout/output bounded, parse host de URLs sin persistir secretos. Sin remote, host diferente/mixed o shape no soportado => Unknown; no inferir existencia/configuración real del host.
+- RED/GREEN T021.a2 Windows: RED `non_github_or_missing_remote_keeps_workflow_unknown` falla al tratar todo workflow como GitHub (GitLab/no remote entregan Pass). GREEN `ci_definition_checks` 23/23 ordinarias y suite infra completa; opt-in real Git 2.55 + remote del repo pasa y conserva LocalCheck. Fakes cubren GitHub con credenciales ocultas, GitLab, GitHub Enterprise y remotes mixtos/ausentes; argv read-only/fingerprint. Clippy `-D warnings`, fmt y diff-check pasan. CI run `37328599512` para SHA `c976f02` pasó quality/tests/builds Linux/Windows/README/Required CI y Governance run `37328595359` pasó.
 
 **Archivos del incremento:**
 - `crates/jameskills-core/src/application/policy.rs`
@@ -995,13 +995,13 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/ci_definition_checks.rs`
 
 **Aceptación:**
-- [ ] Parser no ejecuta YAML y valida solo proveedores/versiones soportados.
-- [ ] Workflow válido prueba definición local; RequiredCi exige host required rule y ejecución para SHA EXACTO, no pasar enum requerido de la suite como observado.
-- [ ] Guía declara tools/jobs/permissions pendientes y prepara requests de evidencia remota.
+- [x] Parser no ejecuta YAML y valida solo el workflow GitHub subset registrado/versionado; formatos fuera de ese subset quedan Unknown.
+- [x] Workflow válido prueba definición local como LocalCheck; `ci-evidence` permanece Unknown sin proveedor, y no puede observarse RequiredCi sin rule del host más check-run para el SHA EXACTO.
+- [x] Guía declara jobs/triggers/permisos/action refs y prepara solicitud manual de regla host y ejecución exacta; render/selección no son evidencia.
 
 **Verificación:** cargo test -p jameskills-infra --locked ci_definition_checks; comparar ejemplos buenos/malos y limitaciones documented.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** RED ci-contract desconocido antes del dispatch; RED host mismatch dio falso Pass al no discriminar remote; GREEN infra Windows `cargo test -p jameskills-infra --locked` y 23 ci-definition tests, opt-in `real_git_remote_and_checked_in_workflow_produce_localcheck_only` pasa 1/1, Clippy infra `-D warnings`; workspace pre-push pasa desde VS Developer. CI `37328599512` en SHA `c976f02`: tests Linux, builds Linux/Windows, Clippy, fmt, README Policy, validate-commit-messages y Required CI SUCCESS; Governance `37328595359` SUCCESS. El producto aún no observa reglas reales de branch protection ni check-runs para SHA requerido: `ci-evidence` permanece Unknown sin T022/T023 y nunca se copia `RequiredCi` desde el manifest.
 
 ## C007 — Checkpoint tras T019–T021
 
@@ -1017,83 +1017,108 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T022 — Obtener auth y evidencia de GitHub con mínimos permisos
 
-- [ ] **T022 completada y verificada**
+- [x] **T022 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T016. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T018, T016. **Estado:** completada.
 
 **Implementación y funciones:** GitHubEvidenceDriver, inspect_host_auth, identify_repository_host; gh auth status y gh api read-only aprobado con JSON bounds/typed observations, sin extraer token del CLI. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** github_evidence gh exit/JSON 401/403/404/429 y provider no GitHub distinguen reauth/permission/unknown/retry; remote malicioso no provoca request arbitraria.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/policy.rs`
-- `crates/jameskills-infra/src/github.rs`
-- `crates/jameskills-infra/src/lib.rs`
-- `crates/jameskills-infra/src/process.rs`
-- `crates/jameskills-infra/tests/github_evidence.rs`
+**Descomposición por investigación y límites:**
+- [x] **T022.src — Verificar contrato oficial de gh/auth/API** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Revisar manual `gh auth status`/`gh api`, fuente `cli/cli` tag 2.102.0 y REST auth/repository/rate-limit docs antes de diseñar pruebas o código.
+- Evidencia T022.src: `gh auth status --json hosts` sale 0 aun con auth inválida; `--show-token` imprime secretos y queda prohibido. JSON lleva campos host/state/active/login/tokenSource/scopes, así que parsear whitelisted, no serializar salida cruda ni identidad/tokenSource. `gh api` acepta `--hostname` y por defecto puede cambiar a POST con fields/input; `GH_HOST` y variables de token alteran destino/credencial. Driver futuro usa host/GET/paths fijos, entorno allowlisted y componentes owner/repo solo del remote validado. GET repository confirma la identidad seleccionada por `full_name`; 404 puede ocultar acceso privado, 403 puede ser permisos o rate-limit y 429/headers requieren tratamiento bounded. Fuentes oficiales y límites incorporados a `docs/SOURCES.md`.
+
+- [x] **T022.a — Permitir resumen dinámico acotado de evidencia** (4 archivos): `crates/jameskills-core/src/domain/policy.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. `CheckEvidence` debe poder ligar observaciones remotas a repo/ref/check sin exceder 256 bytes ni transportar valores crudos/secrets; tests inline de resumen dinámico y límite.
+- Evidencia T022.a: la firma anterior aceptaba solo `&'static str`, insuficiente para anotar repo/ref dinámicos. Se amplió el campo interno a `String`, el constructor a `impl Into<String>` y el getter a `&str`, manteniendo validación actual de longitud/control characters. `cargo test -p jameskills-core --locked --lib evidence_tests`: 2/2. La RED no se capturó antes del cambio; no se atribuye resultado rojo retrospectivo.
+- [x] **T022.registry — Registrar lectura de repositorio GitHub**
+  - [x] **T022.registry.a — Modelo, parser y profile** (5 archivos): `crates/jameskills-core/src/domain/policy.rs`; `crates/jameskills-core/tests/policy_schema.rs`; `profiles/tools.toml`; `docs/CONTRACTS.md`; `tasks/todo.md`. Añadidos check `github-access` y operación semántica `gh repository-read`; no se recicló branch-rules/check-runs.
+  - [x] **T022.registry.b — Wiring del nombre de operación portable** (3 archivos): `crates/jameskills-core/src/domain/skill.rs`; `tasks/todo.md`; `tasks/RESUME.md`. La operación se serializa como ID estable `repository-read`.
+  - [x] **T022.registry.c — Permitir operación en el loader runtime de perfiles** (3 archivos): `crates/jameskills-infra/src/platform.rs`; `tasks/todo.md`; `tasks/RESUME.md`. El parser de `profiles/tools.toml` reconoce `repository-read` solo para `gh`; mantener rechazadas combinaciones cruzadas.
+- Evidencia T022.registry: RED `cargo test -p jameskills-core --locked --test policy_schema github_access_policy_check_is_a_closed_read_only_kind` expuso que faltaba la variante `GithubAccess`; tras implementar modelo/parser el siguiente compile expuso el mapping exhaustivo ausente en `tool_operation_name`. GREEN focused 1/1, full core suite y `cargo clippy -p jameskills-core --all-targets --locked -- -D warnings` pasan.
+- Evidencia T022.registry.c: el workflow provider fake reveló que el loader de perfiles rechazaba `repository-read` antes de invocar Git; GREEN `cargo test -p jameskills-infra --locked --lib platform::tests::github_profile_registers_read_only_repository_identity_operation` 1/1. El registry mantiene descubrimiento general `>=2,<3`; el driver comprueba runtime real y solo acepta `2.102.0` hasta revisar otra release.
+
+- [x] **T022.provider.a — Conectar check GitHub access read-only** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/github_evidence.rs`; `tasks/todo.md`. El provider consulta después de validar Git nativo/versionado, remotes configurados consistentes, repo coords y HEAD; `gh` comprueba runtime 2.102.0, auth y REST repo identity con host/path/GET fijos.
+- Evidencia T022.provider.a: RED fake del provider devolvía Unknown/AppError porque la operación de perfil no estaba en loader runtime; el mapping de T022.registry.c habilitó GREEN. `github_evidence` fake cubre remote+HEAD→version/auth→GET, argv fijo, token/login no persistidos, versión no revisada sin auth/API, auth inválida sin GET, remotes mixtos sin request GitHub, 404 Unknown, 401/403/429 conservadores. Opt-in real read-only del repo seleccionado pasó 1/1; sin identidad/token en output ni credencial almacenada.
+- [x] **T022.windows-env — Resolver config gh en Windows sin abrir overrides** (5 archivos): `crates/jameskills-core/src/ports/process.rs`; `crates/jameskills-core/tests/process_contract.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. Permitir solo `APPDATA` como ruta Windows del perfil aprobado; seguir rechazando `GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN`.
+- Evidencia T022.windows-env: RED focused falló porque `ApprovedEnv` rechazaba `APPDATA`; GREEN `cargo test -p jameskills-core --locked --test process_contract github_cli_can_resolve_windows_user_config_without_host_or_token_overrides` 1/1. Los tres overrides GH_HOST/GH_TOKEN/GITHUB_TOKEN siguen rechazados.
+
+**Archivos por incremento:** las subtareas T022.src, T022.a, T022.registry.* y T022.provider.* mantienen cada corte dentro de cinco archivos; no se considera el blueprint inicial como un único lote. `process.rs` existente conserva argv separados, environment allowlisted, fingerprint y output/timeout bounded; no se le añadió una API alternativa.
 
 **Aceptación:**
-- [ ] Remote host Git validada y API host permitido; ningún cambio remoto durante checks.
-- [ ] Evidencia incluye repo/ref/check/source y permisos disponibles mediante gh aprobado; nunca auth tokens en argv/log/DB.
-- [ ] Tokens no se copian del CLI al bundle/DB; rate limit/red limitada no convierte check en pass.
+- [x] Remote host Git validada y API host permitido; ningún cambio remoto durante checks.
+- [x] Evidencia liga repo/SHA/check/source y solo afirma la capacidad `repo-read` observada; no infiere scopes/permisos adicionales. Nunca tokens en argv/log/DB.
+- [x] Tokens no se copian del CLI al bundle/DB; rate limit/red limitada no convierte check en pass.
 
 **Verificación:** cargo test -p jameskills-infra --locked github_evidence con ProcessPort fake y fixtures JSON/argv gh; integración opt-in read-only en repo de prueba autorizado sin almacenar token propio.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** `cargo test --workspace --locked --features jameskills-desktop/test-support` pasa en Windows MSVC; incluye core/CLI/desktop headless/infra suites y deja los opt-in no relacionados ignorados. Workspace Clippy `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt y diff-check pasan. `github_evidence` fakes 5/5; opt-in real `cargo test -p jameskills-infra --locked --test github_evidence real_github_access_verifies_the_checked_out_repository_without_exporting_auth_data -- --ignored --exact` pasa 1/1, repo actual, `gh 2.102.0`, solo auth status+REST GET. CI remoto del SHA final pendiente; `ci-evidence`/RequiredCi son T023.
+
+T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repository access`. El run remoto `37328599512` solo cubre `c976f02`; no se presenta como CI de `8d14689`. La validación T022 se completa con workspace tests, Clippy, fuentes y opt-in read-only; T023 observa rulesets/check-runs por separado.
 
 <a id="t023"></a>
 
 ## T023 — Validar rulesets, PR y estado CI de main
 
-- [ ] **T023 completada y verificada**
+- [x] **T023 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T021, T022. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T021, T022. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** check_main_protection, check_pull_request_policy, check_required_status_checks; interpretar branch protection/rulesets y effective ref según API oficial. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** host_protection_checks PR requirement ausente, bypass actor, required check faltante, permiso insuficiente y ref distinta no pasan protección. RequiredCi solo pasa con rule host mandatory+currentSHA successful; valid workflow sin rule falla autoridad exigida.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/policy.rs`
-- `crates/jameskills-infra/src/github.rs`
-- `crates/jameskills-infra/tests/host_protection_checks.rs`
-- `docs/POLICY-LIMITS.md`
+**Descomposición previa al código:**
+- [x] **T023.src — Verificar semántica REST efectiva y permisos visibles** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Consultar rules/branches efectivos, reglasets con padres/bypass, classic branch protection, check-runs exactos y statuses; decidir Unknown cuando bypass o permisos no sean visibles y limitar paginación.
+- Evidencia T023.src: los endpoints efectivos listan solo enforcement active (no evaluate/disabled); repo rulesets admiten includes_parents; bypass_actors puede estar oculto sin write access, y `current_user_can_bypass` no revela a todos los actores. Classic protection puede dar 404 por ausencia o acceso/plan. Check runs deben tener exact head_sha y conclusion success; status combinado es endpoint distinto. Implementación debe dejar desconocido bypass invisible, 403/404 ambiguos y check-run truncado; fuentes/límites registrados en `docs/SOURCES.md`.
+- [x] **T023.a — Leer reglas efectivas y classic protection** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Compara PR rule y required check contexts de la lista efectiva y classic endpoint; 404/403/truncamiento Unknown/Blocked.
+- Evidencia T023.a: RED `cargo test -p jameskills-infra --locked --test host_protection_checks explicit_empty_effective_rules_and_classic_protection_fail_main_policy -- --exact` devolvió Unknown porque el provider no manejaba `github-branch-policy`. GREEN enfocado host_protection_checks 4/4: regla ausente explícitamente observada falla; PR + required context efectivos visibles pasan como `HostRule`; ruleset activo puede demostrar reglas positivas aunque classic protection 404 deje bypass Unknown.
+- [x] **T023.b — Evaluar bypass actor y visibilidad de privilegios** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Con parents efectivos, classic enforce_admins/PR allowances y ruleset bypass_actors; campo oculto siempre Unknown cuando require_no_bypass.
+- Evidencia T023.b: unit `bypass_data_is_tri_state_and_branch_scoped` 1/1, host contract tests 4/4. No-bypass con visibilidad completa permite HostRule Pass; actor visible o admin bypass falla sin revelar identidad; bypassee ausente/wildcard/default-branch irresoluble produce Unknown. La evidencia informa none-visible/present/unknown sin exponer actors.
+- [x] **T023.c — Comprobar required checks para el HEAD exacto** (5 archivos): `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/tests/host_protection_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. GitHub `check-runs` y commit statuses para SHA exacto; rule host mandatory + completions successful para RequiredCi.
+- Evidencia T023.c: RED `ci_evidence_requires_active_host_rule_and_successful_check_for_exact_head_sha` daba Unknown porque `ci-evidence` no estaba dispatch; GREEN fixtures verifican regla activa, SHA exacto, check terminal success y `app_id` cuando el host lo vincula. SHA obsoleto/app incorrecta/sin regla Fail; pending Blocked; status legacy solo para SHA exacto y context sin app binding. `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; host_protection_checks 11/11 (+ 1 opt-in ignored), Clippy workspace `-D warnings`, fmt y diff-check pasaron. Opt-in real read-only pasó 1/1 y comprueba la evidencia ligada al SHA observado del checkout; no afirma Pass de CI para SHA sin resultados publicados.
+
+**Archivos por incremento:** T023.src/a/b/c detallan cortes de <=5 archivos; los slices a/b comparten cinco paths y quedan agrupados en un commit local; el primer slice no modifica domain/core signatures.
 
 **Aceptación:**
-- [ ] Separar autoridad exigida/observada: RequiredCi requiere host regla mandatory y check actualSHA; HostRule exige configuración efectiva incluyendo classic+rulesets+bypass.
-- [ ] Excepciones/bypass y privilegios se exponen sin afirmar main absolutamente inaccesible.
-- [ ] Proveedor unsupported ofrece guía documentada; cambios remotos no se aplican sin acción y autorización explícitas.
+- [x] Separar autoridad exigida/observada: RequiredCi requiere host regla mandatory y check actualSHA; HostRule exige configuración efectiva incluyendo classic+rulesets+bypass.
+- [x] Excepciones/bypass y privilegios se exponen sin afirmar main absolutamente inaccesible.
+- [x] Proveedor unsupported ofrece guía documentada; cambios remotos no se aplican sin acción y autorización explícitas.
 
 **Verificación:** cargo test -p jameskills-infra --locked host_protection_checks con fixtures classic branch protection+rulesets vía gh api; integración read-only opt-in fecha/SHA/permisos saneados.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** slices T023.src/a/b/c documentados arriba. Gates acumulados/workspace pasan localmente en Windows MSVC; implementación `0989248`, cleanup de aserción heredada `d49940c`. No atribuir CI remoto posterior a `c976f02` hasta existir un run asociado al SHA final.
 
 <a id="t024"></a>
 
 ## T024 — Validar versiones, tags y releases
 
-- [ ] **T024 completada y verificada**
+- [x] **T024 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T018, T022. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T018, T022. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** check_version_consistency, check_release_artifacts, check_release_policy; semver/tag/changelog/artifacts/signature metadata según requisito. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** release_checks tag incorrecto, prerelease, release ausente/permiso desconocido y asset checksum faltante tienen resultados distintos.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/policy.rs`
-- `crates/jameskills-core/src/domain/policy.rs`
-- `crates/jameskills-infra/src/github.rs`
-- `crates/jameskills-infra/tests/release_checks.rs`
+**Descomposición por fuente y límite de archivos:**
+- [x] **T024.src — Verificar contrato de releases y tags** (3 archivos): `docs/SOURCES.md`; `tasks/todo.md`; `tasks/RESUME.md`. Diferenciar release publicada de Git ref/tag, fuente de versión de proyecto, digest de asset y metadata de firma.
+- Evidencia T024.src: GitHub release-list no incluye tags sin release y los drafts pueden depender de push; página llena de 100 es potencialmente truncada. `assets[].digest` nullable es metadata SHA-256 reportada, no verificación local del contenido. Release-by-tag sólo devuelve publicación; 403/404 quedan ambiguos. GET git ref separa lightweight/annotated; GET annotated tag expone `verification.verified/reason`. La versión se lee de Cargo workspace/package y/o Node package.json, nunca de la versión de skill; fuentes registradas en `docs/SOURCES.md`.
+- [x] **T024.a — Conectar validación versionada y evidencia read-only** (5 archivos): `crates/jameskills-infra/src/fs.rs`; `crates/jameskills-infra/src/github.rs`; `crates/jameskills-infra/tests/release_checks.rs`; `docs/POLICY-LIMITS.md`; `tasks/todo.md`. Reutiliza los flags tipados ya existentes de `Check::ReleaseContract`; el slice no requiere cambiar el contrato público de core/application.
+- RED T024.a: `cargo test -p jameskills-infra --locked --test release_checks current_project_version_requires_a_published_matching_release_with_asset_digest -- --exact` compiló y falló por comportamiento ausente: `Unknown` en lugar de Pass porque el provider aún no dispatchaba `ReleaseContract`.
+- GREEN T024.a: `cargo test -p jameskills-infra --locked --test release_checks`: 12 passed, 1 opt-in ignored. Fakes cubren tag mismatch, draft/prerelease, release ausente vs 403/404, página de 100 sin paginación, digest nulo/ausente, version mismatch, manifest JSON duplicado, changelog vacío/incorrecto, tag verificado/unsigned/lightweight y flags de artefacto desactivados. La prueba inicial real tuvo root equivocado (cwd del binario del test); el opt-in se corrigió a la raíz del workspace (`CARGO_MANIFEST_DIR/../..`) y el GET read-only de release pasó 1/1 sin exigir que exista una release publicada.
+- Verificación acumulada: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `--all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, fmt y diff-check pasaron. Release evidence local queda `LocalCheck`, nunca afirma trusted signer ni bytes re-hasheados.
+
+**Semántica acotada prevista para T024.a:** versión fuente es el paquete/proyecto del root aprobado (Cargo workspace/package y package.json); si coexisten deben coincidir. Aceptar tag SemVer exacta con o sin prefijo `v`; no inspeccionar `SkillManifest.semantic_version`. Consultar releases publicadas con páginas limitadas; un tag suelto no prueba publicación. Verificar sólo SHA-256 digest reportado para cada asset (sin descargar/re-hashear), y tag anotado GitHub-verificado sólo cuando `require_signature=true`. Pasos se exponen por guidance del requirement; nunca crear/taggear/publicar.
 
 **Aceptación:**
-- [ ] Versionado de skill y release de repo no se confunden.
-- [ ] Solo pedir criterios declarados por perfil; presencia de tag no prueba publicación.
-- [ ] Explicar pasos de release sin crear tags/publicar durante check.
+- [x] Versionado de skill y release de repo no se confunden.
+- [x] Solo pedir criterios declarados por perfil; presencia de tag no prueba publicación.
+- [x] Explicar pasos de release sin crear tags/publicar durante check.
 
 **Verificación:** cargo test -p jameskills-infra --locked release_checks; Git local y gh API JSON fake cubren casos; host real solo read-only autorizado.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** fuentes T024.src y RED/GREEN T024.a arriba. Gates pasan en Windows MSVC. Implementación/commit pendiente; integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
 
 ## C008 — Checkpoint tras T022–T024
 

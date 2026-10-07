@@ -1,29 +1,32 @@
 # Reanudación JameSkills
 
-Fecha UTC: 2026-10-04
-Rama / HEAD: `feat/t020-commit-test-checks` / `HEAD` (base de slice `caa9a23`; T020.a `1cd44fc`, T020.b1 `d304f64`).
+Fecha UTC: 2026-10-05
+Rama / HEAD: `feat/t020-commit-test-checks` / `fba6d49`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
-PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, commitlint, README Policy y Required CI finalizaron SUCCESS.
+PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
-## Checkpoint T020 cerrado; T021 iniciado
+## Checkpoint T020–T023 cerrado; T024.a en marcha
 
-- Estado comprobado 2026-10-05: rama `feat/t020-commit-test-checks`, HEAD local `31b6fa9` sobre la base publicada `c3c763f`; PR draft #22. T021.a2 code remains in working tree.
-- CI run `37308536795` para SHA `c8d76bb` terminó SUCCESS en fmt, Clippy, tests Linux, builds Linux/Windows, validate-commit-messages, README Policy y Required CI. PR Governance run `37308533712` también SUCCESS.
-- T020.c está cerrada localmente; T020.b3.src registra fuentes oficiales y workflows live consultados vía WebFetch. Commitlint/Husky recomiendan hook local para feedback, pero documentan CI remota para enforcement; Git permite `--no-verify`, Husky `HUSKY=0`.
-- El workflow observado de `nodejs/node` valida el primer mensaje del PR con versión y action fijadas; sus workflows de plataforma están separados. `microsoft/vscode` separa Linux/Windows/macOS y `rust-lang/rust` enumera OS/arquitecturas explícitamente. No se generaliza que cada proyecto aplique idénticas reglas.
-- T020.b3.src committed/pushed as `849d6ed docs(policy-engine): cite local hook and CI authority`; implementación + test en `dc033f5`, corrección de fixture Unix en `c8d76bb`. No se cambió el hook gestionado.
-- El primer pre-push en PowerShell plano falló por `STATUS_DLL_INIT_FAILED (0xc0000142)` sin entorno MSVC. VsDevCmd después encontró que Git Bash resolvía `C:\Program Files\Git\usr\bin\link.exe` antes que el linker MSVC. Push+gate pasaron al inicializar VS 2026 Developer environment y fijar explícitamente `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` al `link.exe` de VS; no se omitió ningún gate.
-- T020.b3 completada: provider consulta `git rev-parse --git-path hooks/commit-msg` con Git aprobado/read-only, rechaza targets externos/symlinks/no-regulares/over-limit, y compara SHA-256 de dos lecturas bounded. El check agrega evidencia sin paths/hashes ni contenido y conserva `LocalCheck`; inspección no prueba argv, identidad del driver ni invocación.
-- RED focal observado antes de la implementación: faltaba evidencia `repo.commit-hook`; GREEN pasó en Windows. El opt-in Node24.18/Commitlint21.2.2 con Git real verificó que el hook instalado se lee, sin ejecutarlo.
-- CI run `37307758381` en `dc033f5` detectó fixture Unix sin modo ejecutable; `c8d76bb` lo corrige con permisos `0755` bajo `cfg(unix)` sin ejecutar el hook. CI `37308536795` completa confirma GREEN en Linux y Windows.
-- T020 y subtareas verificadas cerradas. No se atribuye `LocalHook`; no se verificó aún una regla host que exija checks en `main` (eso corresponde a T022/T023).
-- T021.src/T021.dep completadas; dependency commit local/pushed `2c6a75f`. RED observada: `cargo check -p jameskills-infra --locked --offline` rechazó lock desactualizado; GREEN offline actualizó Cargo.lock y checks locked pasaron.
-- T021.a completada en `4d4d1ae`: parser bounded/inert, 21 pruebas focused + suite infra en Windows y Clippy `-D warnings`. CI run `37317369713` para SHA `4d4d1ae` pasó pruebas Linux, Clippy, fmt, builds Linux/Windows, README Policy, Commitlint y Required CI; PR Governance run `37317365655` pasó.
-- El contrato solo ofrece `LocalCheck` para definición local. `ci-evidence` y reglas host no se infieren de YAML ni del status de este proceso; su proveedor remoto depende de T022/T023.
-- T021.b committed in `c3c763f`; canonical/runtime guidance matches and `cargo test -p jameskills-core --locked --test bundle_manifest` passes 23/23.
-- T021.a2.src committed locally as `31b6fa9`: official `git-remote` docs state `remote -v` lists configured remotes only; it makes no network request and proves no host branch rules.
-- T021.a2 code in working tree: requires approved native Git/version; read-only `remote -v` fixed argv; bounded output; every configured host must be `github.com`. Mixed, absent or unparseable hosts stay Unknown; URL/credential bytes never enter evidence.
-- RED/GREEN T021.a2: RED `non_github_or_missing_remote_keeps_workflow_unknown` failed against the naive config-only pass. GREEN infra suite passes, ci_definition_checks has 23/23 ordinary tests, and explicit real-Git opt-in for this repository's GitHub remote returns only LocalCheck. Clippy/fmt/diff-check pass; full workspace pre-push and CI still pending.
+- Estado comprobado: T023 implementada y en commit `0989248`; además test cleanup `d49940c`. La rama está 7 commits por delante de `origin/feat/t020-commit-test-checks`.
+- T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: branch rules efectivas + classic protection, bypass tri-state, PR/check sources y `RequiredCi` solo con regla host activa y check/status exitoso del SHA local exacto. Se liga `integration_id`/`app_id` cuando aplica; respuesta incompleta/permisos ambiguos no promueven Pass.
+- T023 RED/GREEN: prueba ausente del dispatch en `ci_evidence_requires_active_host_rule_and_successful_check_for_exact_head_sha`; fixtures verifican regla/HEAD exactos, stale SHA, app incorrecta, pending, legacy statuses y falta de regla. `host_protection_checks`: 11 passed, 1 opt-in ignored.
+- Verificación acumulada T023 en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; todos pasaron. Opt-in real GitHub CI read-only pasó 1/1 y prueba evidencia ligada al SHA observado local; no declara CI aprobado si el host no lo acredita.
+- `T023` está cerrada localmente; no hay CI remota para `0989248`. El test cleanup separado `d49940c` eliminó una aserción obsoleta de T022 sobre `check=repo`; suite workspace verde.
+- T024.src completada en working tree: fuentes oficiales de release list/by-tag, Git refs/tag signature, Cargo workspace version y npm package version. `Check::ReleaseContract` ya expresa sus flags sin pedir cambio de API pública; T024.a conectará el provider en cinco archivos.
+- T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
+- T021.src, `.dep`, `.a`, `.b` y `.a2.src` completadas. CI contract usa YAML bounded/inerte, required job IDs, triggers push/PR, action refs pin, permissions y predicados conservadores; su resultado local solo es `LocalCheck`. T023 implementa por separado `CiEvidence`/`RequiredCi` de host+SHA exacto.
+- T021.a2 RED/GREEN: test host mismatch fallaba si se asumía GitHub por la mera presencia de workflow; ahora exige Git native/fingerprinted, versión registrada y todos los URLs configurados de `git remote -v` en github.com. GitLab/GHES/no remote/mixed => Unknown. No hace request de red ni prueba existencia del repositorio, branch rule o CI SHA; URLs no entran en logs/evidence.
+- Verificación local T021.a2: infra suite completa, 23 ci_definition_checks + un ignored test, Clippy infra `-D warnings`, fmt y diff-check pasan. Opt-in `real_git_remote_and_checked_in_workflow_produce_localcheck_only` ejecutado con Git 2.55 en el repo real y pasó 1/1.
+- T022 implementación, aceptación y verificación local completas en `8d14689`; al cerrar T022, `CiEvidence`/RequiredCi seguían Unknown hasta completar T023. El último run remoto reportado sigue siendo para el SHA previo `c976f02` y no se atribuye a los commits locales posteriores.
+- T022.src completada documentalmente en `8d14689`: manuales oficiales de gh auth/api, fuente upstream tag `v2.102.0`, REST `GET /repos/{owner}/{repo}`, autenticación y rate limits registrados en `docs/SOURCES.md`. JSON auth status puede salir 0 incluso fallando; se omite `--show-token`; no se registran identidades, errores crudos ni scopes; host/GET/path quedan fijos. REST 404 puede ocultar recurso privado; 403/429 se clasifican conservadoramente.
+- T022.a completada: `CheckEvidence` ahora permite resumen dinámico bounded; `evidence_tests` 2/2. La RED previa no se capturó y no se inventa retrospectivamente.
+- Driver/provider de T022 en `8d14689`: comprueba versión real `gh 2.102.0`; auth JSON sin `--show-token`; REST GET con host/argv/path fijos y salida bounded. `RepositoryPolicyCheckProvider` obtiene remote consistente y HEAD de Git aprobado antes de llamar a gh. Evidencia limita afirmación a repo/SHA/check/source + `repo-read`; 404 Unknown, auth/permission/rate Blocked y nunca eleva a RequiredCi. Fakes verifican auth fallida y remotes mixtos sin API.
+- T022.registry.a/b/c cerradas: `github-access`, `gh repository-read`, nombre portable y loader runtime; profile general gh detecta v2 pero driver T022 solo acepta runtime exacto 2.102.0.
+- T022.windows-env cerrada: RED focused falló por `APPDATA` no allowlisted; GREEN focused 1/1 al allowlistear la ruta de configuración Windows. `GH_HOST`, `GH_TOKEN`, `GITHUB_TOKEN` continúan rechazados.
+- Gates finales: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Opt-in real GitHub read-only pasó 1/1 en este repo; comprobó Git remote/HEAD, gh auth y GET repo. No almacena token ni muestra identidad.
+- T023.src committed as `bd78191 docs(policy-engine): cite GitHub protection API contracts`: fuentes oficiales establecen reglas efectivas active-only, bypass metadata posiblemente oculta, classic 404 ambiguo y checks exact-SHA con límites de 100/paginación.
+- T023.a/b committed as `db5df25 feat(policy-engine): inspect active GitHub branch rules`: provider dispatches `github-branch-policy`, fixed GET effective rules + classic protection, compares PR/check contexts y registra bypass tri-state sin actor details. `host_protection_checks` pasa 4/4; parser unit bypass tri-state 1/1; Clippy infra `-D warnings`, fmt/diff-check pass. `require_no_bypass=true` permanece Unknown cuando bypass actors no son visibles, Fail cuando hay bypass, Pass HostRule solo con visibilidad completa y lista vacía.
+- T024.a activo: RED `current_project_version_requires_a_published_matching_release_with_asset_digest` compila y falla Unknown vs Pass porque no existe dispatch. Preservar lectura read-only, versión de manifests del proyecto y Unknown ante datos/permisos ambiguos.
 
 ## Estado real
 
@@ -83,10 +86,9 @@ PR / CI remota previa: PR #21 fusionada; CI Linux/Windows, tests, fmt, Clippy, c
 
 ## Próxima acción exacta
 
-1. Repetir tests/fmt/Clippy infra local, `scripts/check-workspace.sh` en Developer environment, diff-check y Commitlint; crear un commit de corrección específico.
-2. Push de la corrección al PR #22 autorizado y verificar el nuevo run CI una vez; no marcar Clippy como verde hasta verlo.
-3. Después continuar T020.b3 para la evidencia LocalHook, manteniendo T020/T021 abiertas hasta pasar acceptance.
-4. C006/C005 y T019 conservan sus bloqueos independientes.
+1. Implementar lectura bounded/no-follow de versiones/changelog y endpoints GitHub GET para releases/tag signature, con fixtures adversariales y estados ambiguos.
+2. Ejecutar tests focales, suite infra, workspace tests/Clippy/fmt/diff-check; opt-in real sólo GET/read-only y sin afirmar que este checkout está publicado.
+3. Registrar evidencia y commit convencional; luego comprobar la siguiente tarea elegible y completar C008 cuando corresponda.
 
 ## T020.b2.a completado
 

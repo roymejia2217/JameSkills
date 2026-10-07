@@ -405,6 +405,7 @@ fn approved_env_key(key: &OsStr) -> bool {
         "PATH",
         "HOME",
         "USERPROFILE",
+        "APPDATA",
         "SYSTEMROOT",
         "WINDIR",
         "LANG",

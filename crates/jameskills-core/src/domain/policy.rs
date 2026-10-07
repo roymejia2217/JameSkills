@@ -96,6 +96,7 @@ pub enum ToolOperation {
     ScanTracked,
     LintMessage,
     BranchRules,
+    RepositoryRead,
     CheckRuns,
     QualitySuite,
     Version,
@@ -211,6 +212,7 @@ pub enum Check {
         headings: Vec<String>,
     },
     ConventionalCommit,
+    GithubAccess,
     ProtectedMainLocal {
         branch: String,
     },
@@ -395,7 +397,7 @@ pub struct CheckEvidence {
     observed_at: String,
     revision: Option<RevisionId>,
     environment_fingerprint: String,
-    summary: &'static str,
+    summary: String,
     expires_at_monotonic_ms: Option<u64>,
 }
 
@@ -406,9 +408,10 @@ impl CheckEvidence {
         observed_at: &str,
         revision: Option<RevisionId>,
         environment_fingerprint: &str,
-        summary: &'static str,
+        summary: impl Into<String>,
         expires_at_monotonic_ms: Option<u64>,
     ) -> Result<Self, Vec<Diagnostic>> {
+        let summary = summary.into();
         if !valid_evidence_source(source_id)
             || !valid_evidence_timestamp(observed_at)
             || !valid_environment_fingerprint(environment_fingerprint)
@@ -447,8 +450,8 @@ impl CheckEvidence {
         &self.environment_fingerprint
     }
 
-    pub fn summary(&self) -> &'static str {
-        self.summary
+    pub fn summary(&self) -> &str {
+        &self.summary
     }
 
     pub fn expires_at_monotonic_ms(&self) -> Option<u64> {
@@ -458,6 +461,43 @@ impl CheckEvidence {
     pub(crate) fn is_expired_at(&self, now_monotonic_ms: u64) -> bool {
         self.expires_at_monotonic_ms
             .is_some_and(|expires| now_monotonic_ms >= expires)
+    }
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::CheckEvidence;
+
+    #[test]
+    fn evidence_can_bind_a_bounded_repository_and_revision_summary() {
+        let repository = "owner/repo";
+        let revision = "a".repeat(40);
+        let summary = format!("Repository {repository}; ref {revision}; check runs observed.");
+        let evidence = CheckEvidence::new(
+            "github.ci-evidence",
+            "2026-10-05T12:00:00Z",
+            None,
+            &format!("sha256:{}", "0".repeat(64)),
+            summary.clone(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(evidence.summary(), summary);
+    }
+
+    #[test]
+    fn evidence_rejects_oversized_dynamic_summaries() {
+        let result = CheckEvidence::new(
+            "github.ci-evidence",
+            "2026-10-05T12:00:00Z",
+            None,
+            &format!("sha256:{}", "0".repeat(64)),
+            "x".repeat(257),
+            None,
+        );
+
+        assert!(result.is_err());
     }
 }
 
@@ -781,6 +821,7 @@ enum RawCheck {
         headings: Vec<String>,
     },
     ConventionalCommit,
+    GithubAccess,
     ProtectedMainLocal {
         branch: String,
     },
@@ -1053,6 +1094,7 @@ fn parse_tool_operation(value: &str) -> Result<ToolOperation, Vec<Diagnostic>> {
         "scan-tracked" => Ok(ToolOperation::ScanTracked),
         "lint-message" => Ok(ToolOperation::LintMessage),
         "branch-rules" => Ok(ToolOperation::BranchRules),
+        "repository-read" => Ok(ToolOperation::RepositoryRead),
         "check-runs" => Ok(ToolOperation::CheckRuns),
         "quality-suite" => Ok(ToolOperation::QualitySuite),
         "version" => Ok(ToolOperation::Version),
@@ -1075,7 +1117,9 @@ fn operation_allowed(tool: ToolId, operation: ToolOperation) -> bool {
             | (ToolId::Commitlint, ToolOperation::LintMessage)
             | (
                 ToolId::Gh,
-                ToolOperation::BranchRules | ToolOperation::CheckRuns
+                ToolOperation::BranchRules
+                    | ToolOperation::RepositoryRead
+                    | ToolOperation::CheckRuns
             )
             | (ToolId::Cargo | ToolId::Npm, ToolOperation::QualitySuite)
             | (
@@ -1111,6 +1155,7 @@ fn parse_check(raw: RawCheck) -> Result<Check, Vec<Diagnostic>> {
             Ok(Check::ReadmeSections { path, headings })
         }
         RawCheck::ConventionalCommit => Ok(Check::ConventionalCommit),
+        RawCheck::GithubAccess => Ok(Check::GithubAccess),
         RawCheck::ProtectedMainLocal { branch } => {
             validate_text(&branch, 128, "policy.check.invalid")?;
             Ok(Check::ProtectedMainLocal { branch })
@@ -1242,6 +1287,7 @@ fn validate_registered_tools(
             Check::GitignorePatterns { .. } => &[ToolOperation::IgnoreCheck],
             Check::TrackedSecrets { .. } => &[ToolOperation::ScanTracked],
             Check::ConventionalCommit => &[ToolOperation::LintMessage],
+            Check::GithubAccess => &[ToolOperation::RepositoryRead],
             Check::GithubBranchPolicy { .. } => &[ToolOperation::BranchRules],
             Check::CiEvidence { .. } => &[ToolOperation::CheckRuns],
             Check::ToolchainVersion { tool_id, .. } => {
@@ -1260,7 +1306,9 @@ fn validate_registered_tools(
                 ToolOperation::RepositoryRoot | ToolOperation::IgnoreCheck => ToolId::Git,
                 ToolOperation::ScanTracked => ToolId::Gitleaks,
                 ToolOperation::LintMessage => ToolId::Commitlint,
-                ToolOperation::BranchRules | ToolOperation::CheckRuns => ToolId::Gh,
+                ToolOperation::BranchRules
+                | ToolOperation::RepositoryRead
+                | ToolOperation::CheckRuns => ToolId::Gh,
                 ToolOperation::QualitySuite => ToolId::Cargo,
                 ToolOperation::Version | ToolOperation::Audit | ToolOperation::Deny => {
                     return Err(vec![diagnostic(
