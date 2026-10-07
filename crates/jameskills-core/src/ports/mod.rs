@@ -1,3 +1,4 @@
+pub mod agent;
 mod clock;
 pub mod filesystem;
 pub mod operation_journal;
@@ -5,6 +6,7 @@ pub mod process;
 pub mod repo_change;
 mod storage;
 
+pub use agent::{AgentAvailability, AgentDetection, AgentPort, DetectionContext};
 pub use clock::ClockPort;
 pub use filesystem::{
     BundleFiles, bundle_entry_from_path, extract_archive_files, validate_archive_entries,
