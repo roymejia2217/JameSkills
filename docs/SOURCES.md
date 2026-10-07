@@ -111,17 +111,60 @@ Licencias: software y ejemplos Kit Apache-2.0; prosa/ilustraciones originales de
 | Fuente | Contrato observado |
 |---|---|
 | https://agentskills.io/specification | SKILL.md YAML + Markdown; name 1–64, minúsculas/dígitos/guiones sin extremos ni dobles; descripción 1–1024; metadata string map; carpetas libres |
-| https://developers.openai.com/codex/skills | Repo .agents/skills entre cwd y root; usuario ~/.agents/skills; agents/openai.yaml opcional; carga progresiva |
+| https://developers.openai.com/codex/build-skills | Repo `.agents/skills` desde CWD hasta el repo root; user `$HOME/.agents/skills`; `agents/openai.yaml` opcional; Codex CLI sigue symlinks al descubrir skills |
+| https://developers.openai.com/codex/cli | Standalone installer Windows/macOS/Linux; `npm install -g @openai/codex` como alternativa; no fija una versión CLI en esta página |
+| https://github.com/openai/codex/blob/main/codex-rs/cli/src/main.rs | Source mutable `main` declara Clap `version` y `bin_name="codex"`; respalda existencia del flag `--version`, no fija formato/versión de un release |
 | https://opencode.ai/docs/skills/ | Repo .opencode/skills; usuario ~/.config/opencode/skills; reconoce .agents; permisos pueden impedir carga |
+| https://opencode.ai/docs/config/ | Global config `~/.config/opencode`; documenta `OPENCODE_CONFIG_DIR` como custom directory |
+| https://opencode.ai/docs/cli/ | Global `--version`/`-v`; referencia de comandos y env vars |
+| https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/config/paths.ts | Source `dev` mutable: `OPENCODE_CONFIG_DIR` y `.opencode` directories entran en `Config.directories` |
+| https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/skill/index.ts | Source `dev` mutable: busca `skills/**/SKILL.md` en config dirs y ancestros del worktree; upstream sigue symlinks |
+| https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/index.ts | Source `dev` mutable: yargs define `--version` usando `InstallationVersion` |
+| https://github.com/anomalyco/opencode/blob/dev/packages/core/src/global.ts | Source `dev` mutable: config root usa `xdg-basedir`; `OPENCODE_CONFIG_DIR` puede sustituir `Global.Path.config` |
 | https://pi.dev/docs/latest/skills | Directorio SKILL.md portable; .pi/skills y .agents; /skill:name y /reload |
 | https://pi.dev/docs/latest/configuration | PI_CODING_AGENT_DIR cambia ~/.pi/agent; skill-dir <agent-dir>/skills |
-| https://antigravity.google/docs/cli/plugins | CLI agy plugin install/list/uninstall; plugin.json y skills/<name>/SKILL.md; perfil ~/.gemini/antigravity-cli/plugins |
+| https://pi.dev/docs/latest/cli | `pi --version` muestra la versión; CLI documenta `--version` y `-v` |
+| https://pi.dev/docs/latest/environment-variables | `PI_CODING_AGENT_DIR` override del config dir; variables process-level |
+| https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/src/config.ts | Tag v1.0.4: `PI_CODING_AGENT_DIR`, default `.pi/agent`, `VERSION` desde package.json |
+| https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/src/main.ts | Tag v1.0.4: `pi --version` imprime `VERSION` raw antes de iniciar sesión |
+| https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/package.json | Tag v1.0.4: package `@earendil-works/pi-coding-agent`, version 1.0.4, bin `pi`, Node >=22.19 |
+| https://github.com/earendil-works/pi/releases/tag/v1.0.4 | Release estable publicada 2026-10-05; incluye `pi-windows-x64.zip` con SHA-256 reportado por GitHub API `6bdbfb7bac252eea36a0095e4b741c9d5784d5ba99146e2d76e9246dee409b58` |
+| https://antigravity.google/docs/plugins?tab=cli | CLI `agy plugin install/list/uninstall`; `plugin.json` + `skills/<name>/SKILL.md`; CLI profile `~/.gemini/antigravity-cli/plugins/<name>`; schema example uses `$schema` but formal schema omits it while closing `additionalProperties` |
 | https://antigravity.google/docs/cli/install | Ejecutable agy; Windows user-local AppData/Local/agy/bin; Linux ~/.local/bin |
 | https://docs.x.ai/build/cli/reference | grok version y grok inspect --json; no asumir --version |
 | https://docs.x.ai/build/features/skills-plugins-marketplaces | .grok/skills, ~/.grok/skills y plugins; SKILL.md |
 | https://docs.x.ai/build/settings | GROK_HOME cambia perfil; Windows usa USERPROFILE/.grok |
 
-Versiones de agentes no fijadas aquí: no hay CLIs instaladas para confirmar un rango. Cada perfil debe registrar versión observada, fixture de discovery y fuentes; instalación se habilita al superar contrato local. La existencia de docs confirma producto/formato, no cualquier versión futura ni cualquier hook. Grok Code del brief se identifica con el CLI oficial Grok Build; no confundir un modelo xAI con un ejecutable alternativo de terceros.
+No hay rangos de versión CLI ni fixture de discovery ejecutados en este host. Cada perfil debe observar el executable seleccionado y probar discovery antes de marcar una capability Supported. Pi tiene un source fixture pinned v1.0.4 cuyo `--version` imprime `1.0.4`; eso no acredita que la CLI instalada en este host sea Pi. La página actual de Codex no fija su CLI version; el source upstream consultado pertenece a `main` mutable. El usuario informa que OpenCode y `agy` están instalados, pero sus versiones no se han observado en esta sesión. Grok Code del brief se identifica con el CLI oficial Grok Build; no confundir un modelo xAI con un ejecutable alternativo de terceros.
+
+En Windows, el instalador standalone de Codex es el camino preferido para un executable nativo aprobado. La instalación npm también es oficial, pero puede exponer `codex.cmd`; JameSkills lo clasifica Candidate y no ejecuta shims hasta resolver un Node/entrypoint con identidad verificada.
+
+### IDs de evidencia del registry de agentes
+
+Estos IDs son aliases estables hacia las URLs de la tabla anterior; no significan que se haya probado una versión de CLI. La fecha en `CapabilityEvidence` registra la revisión local del perfil; mientras `tested_version`/fixture estén ausentes, la capability permanece `NeedsVerification` o `Unsupported`.
+
+| Source ID | URL oficial asociada |
+|---|---|
+| `codex-skills` | https://developers.openai.com/codex/build-skills |
+| `codex-cli-install` | https://developers.openai.com/codex/cli |
+| `codex-cli-source` | https://github.com/openai/codex/blob/main/codex-rs/cli/src/main.rs |
+| `opencode-skills` | https://opencode.ai/docs/skills/ |
+| `opencode-cli-docs` | https://opencode.ai/docs/cli/ |
+| `opencode-config-docs` | https://opencode.ai/docs/config/ |
+| `opencode-config-source` | https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/config/paths.ts |
+| `opencode-skills-source` | https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/skill/index.ts |
+| `opencode-cli-source` | https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/index.ts |
+| `opencode-global-source` | https://github.com/anomalyco/opencode/blob/dev/packages/core/src/global.ts |
+| `pi-skills` | https://pi.dev/docs/latest/skills |
+| `pi-cli-docs` | https://pi.dev/docs/latest/cli |
+| `pi-agent-dir` | https://pi.dev/docs/latest/environment-variables |
+| `pi-cli-source` | https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/src/main.ts |
+| `pi-cli-package-v1.0.4` | https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/package.json |
+| `pi-cli-release-v1.0.4` | https://github.com/earendil-works/pi/releases/tag/v1.0.4 |
+| `antigravity-cli-plugins` | https://antigravity.google/docs/plugins?tab=cli |
+| `antigravity-plugin-schema` | https://antigravity.google/docs/plugins?tab=cli |
+| `antigravity-cli-install` | https://antigravity.google/docs/cli/install |
+| `grok-cli-reference` | https://docs.x.ai/build/cli/reference |
 
 ## Drive, recuperación y autenticación
 
