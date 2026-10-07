@@ -326,7 +326,8 @@ fn runtime_ci_template_is_pinned_read_only_and_svg_asset_has_no_active_content()
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/repository-foundation");
     let ci_template = std::fs::read_to_string(root.join("templates/ci-rust.yml"))
-        .expect("canonical CI template must exist");
+        .expect("canonical CI template must exist")
+        .replace("\r\n", "\n");
     assert!(ci_template.contains("on:\n  push:\n  pull_request:"));
     assert!(ci_template.contains("permissions:\n  contents: read"));
     assert!(ci_template.contains("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"));
