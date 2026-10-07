@@ -224,27 +224,49 @@ fn stale_expected_heads_conflict_and_keep_previous_head() {
 }
 
 #[test]
-fn duplicate_content_commit_fails_without_moving_head() {
+fn duplicate_content_commit_is_idempotent_without_moving_head() {
     let case = setup_case();
     let (_archive, hash) = stage(&case, &files_v1());
+    let request = request(Some(hash), vec![], RevisionKind::Content, "0.1.0", vec![]);
+    let first = case.store.commit_revision(&request).unwrap();
+    let again = case.store.commit_revision(&request).unwrap();
+    assert_eq!(again.revision().id(), first.revision().id());
+    assert_eq!(again.new_heads(), first.new_heads());
+    assert!(again.is_no_op());
+    assert!(!first.is_no_op());
+    assert_eq!(
+        heads(&case),
+        vec![first.revision().id().as_str().to_owned()]
+    );
+}
+
+#[test]
+fn changed_content_requires_a_semver_bump_and_keeps_current_head() {
+    let case = setup_case();
+    let (_archive, first_hash) = stage(&case, &files_v1());
     let first = case
         .store
         .commit_revision(&request(
-            Some(hash.clone()),
+            Some(first_hash),
             vec![],
             RevisionKind::Content,
             "0.1.0",
             vec![],
         ))
         .unwrap();
-    let again = case.store.commit_revision(&request(
-        Some(hash),
-        vec![],
+    let (_archive, changed_hash) = stage(&case, &files_v2());
+    let result = case.store.commit_revision(&request(
+        Some(changed_hash),
+        vec![first.revision().id().clone()],
         RevisionKind::Content,
         "0.1.0",
         vec![first.revision().id().clone()],
     ));
-    assert!(again.is_err());
+    assert!(matches!(
+        result,
+        Err(jameskills_core::AppError::Validation(ref diagnostics))
+            if diagnostics[0].code() == "revision.version.bump_required"
+    ));
     assert_eq!(
         heads(&case),
         vec![first.revision().id().as_str().to_owned()]

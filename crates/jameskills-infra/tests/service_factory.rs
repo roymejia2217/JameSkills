@@ -13,23 +13,26 @@ fn directories(root: PathBuf) -> UserDirectories {
     }
 }
 
-fn accepts_runtime(_: RuntimeServices) {}
+fn accepts_runtime(_: &RuntimeServices) {}
 
 #[test]
-fn factory_builds_shared_runtime_facts_dirs_and_clock_without_creating_dirs() {
+fn factory_builds_shared_runtime_and_opens_the_catalog_database() {
     let root = std::env::temp_dir().join(format!("jameskills-factory-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
     let dirs = directories(root);
     let expected = dirs.clone();
     let runtime = build_services(dirs).unwrap();
 
     assert!(runtime.directories() == &expected);
     assert!(!expected.config.exists());
-    assert!(!expected.data.exists());
+    assert!(expected.data.join("library.sqlite3").is_file());
     assert!(!expected.cache.exists());
     assert!(!runtime.facts().architecture.is_empty());
     assert!(DateTime::parse_from_rfc3339(&runtime.clock().now_utc()).is_ok());
     assert!(runtime.clock().monotonic_ms() <= runtime.clock().monotonic_ms());
-    accepts_runtime(runtime);
+    accepts_runtime(&runtime);
+    drop(runtime);
+    std::fs::remove_dir_all(expected.data.parent().unwrap()).unwrap();
 }
 
 #[test]

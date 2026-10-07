@@ -75,7 +75,7 @@ id = "ci-setup"
 requirement_ids = ["ci-contract"]
 [[plans.steps]]
 id = "pipeline"
-prompt_es = "Usa el stack detectado para definir workflow_paths y los IDs exactos de required_jobs; incluye push y pull_request sin filtros de paths que omitan cambios. Este LocalCheck prueba configuración local, no reglas del host ni CI del SHA actual."
+prompt_es = "Usa el stack detectado para definir workflow_paths y los IDs exactos de required_jobs; incluye push y pull_request sin filtros de paths que omitan cambios. Si usas la plantilla .github/workflows/jameskills-ci.yml, revisa manualmente el contenido y el diff antes de crear el archivo; esta guía no la aplica ni activa hooks. Este LocalCheck prueba configuración local, no reglas del host ni CI del SHA actual."
 requires = []
 verification_requirement_ids = ["ci-contract"]
 [plans.steps.action]

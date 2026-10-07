@@ -15,6 +15,8 @@ pub type BundleFiles = BTreeMap<PortablePath, Vec<u8>>;
 /// limits; domain validation runs only after this returns.
 pub trait FileSystemPort: Send + Sync {
     fn read_bundle_directory(&self, root: &Path) -> Result<BundleFiles, Vec<Diagnostic>>;
+    /// Reads either a portable directory bundle or a bounded `.jskill` file.
+    fn read_bundle_source(&self, source: &Path) -> Result<BundleFiles, Vec<Diagnostic>>;
 }
 
 const LOCAL_HEADER_SIG: u32 = 0x0403_4b50;
