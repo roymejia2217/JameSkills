@@ -1987,10 +1987,11 @@ T040.e2 descompuesta para el límite de 5 archivos:
 
 ### T042.e — Scanner opcional
 
-- [ ] **T042.e pendiente de verificación nativa 8.30.1 y wiring de perfil aprobado**
+- [ ] **T042.e pendiente de wiring de selección aprobada en el runtime**
 - [x] **T042.e.a — Resultado redacted y trust monotónico:** `ImportScanStatus` distingue Unavailable/NoFindings/Findings/Unknown/Blocked; errores de proveedor -> Unknown, Cancelled cancela preview; digest de confirmación liga el estado. Ningún resultado eleva TrustState.
 - [x] **T042.e.b — GitleaksImportScanner y staging privado:** usa perfil exacto 8.30.1 + fingerprint explícito, empaqueta solo los bytes validados, extrae en staging por scan con permisos privados y bloquea `.gitleaksignore`; limpia staging/config y devuelve estados sin contenido de findings. `library_import_scanner` 3/3 con ProcessPort fake: clean/findings/malformed, fingerprint ausente sin spawn/staging y ignorefile sin spawn. El fake prueba contrato/argv/bytes, no equivale a ejecución nativa.
-- Bloqueo de aceptación: no hay `gitleaks` en PATH ni fingerprint aprobado observado. `build_services` deja scanner no configurado => Unavailable/quarantine; la importación local puede seguir sin Reviewed. No afirmar scan limpio hasta verificar binario real y wiring de selección aprobada.
+- [x] **T042.e.c — Verificación nativa aislada de Gitleaks 8.30.1:** Winget reporta `Gitleaks.Gitleaks 8.30.1`; se aprobó el binario con SHA-256 `17157e2ee8b76fc8b1d8bee607a250e34b8a8023c8bc81822d4b5ee4d78fcb7c`. El test opt-in `real_gitleaks_scans_validated_fixture_and_cleans_private_staging` ejecutó `version` y el scanner por `SystemProcessPort` sobre el fixture canónico en staging privado; resultado redacted `NoFindings` y staging vacío al terminar. No se inspeccionó ni registró stdout/stderr del escaneo.
+- Bloqueo restante de aceptación: `build_services` todavía no selecciona/inyecta un scanner aprobado; en el runtime del producto el estado sigue `Unavailable` y las importaciones continúan `Quarantined`. La verificación nativa cubre solamente el fixture aprobado, no otros imports ni el escaneo automático del repositorio.
 
 ### T042.f — Import CLI con confirmación
 

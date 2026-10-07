@@ -1546,7 +1546,12 @@ impl LocalFileSystem {
             }
             Err(error) => return Err(error),
         };
-        let report_status = parse_gitleaks_report(output.stdout());
+        let report_status =
+            if output.exit_code() == Some(scan.clean_exit_code()) && output.stdout().is_empty() {
+                GitleaksReportStatus::NoFindings
+            } else {
+                parse_gitleaks_report(output.stdout())
+            };
         let (status, summary) = match (output.exit_code(), report_status) {
             (Some(code), GitleaksReportStatus::NoFindings) if code == scan.clean_exit_code() => (
                 CheckStatus::Pass,
