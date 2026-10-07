@@ -14,8 +14,8 @@ use jameskills_core::{
         },
     },
     domain::{
-        ApprovedRepoChange, BundleEntry, Check, ContentHash, EntryKind, PortablePath,
-        RepoChangePlan, RepoTemplateId, Requirement, ToolId, ValidatedInventory,
+        ApprovedRepoChange, BundleEntry, Check, ContentHash, EntryKind, ImportScanStatus,
+        PortablePath, RepoChangePlan, RepoTemplateId, Requirement, ToolId, ValidatedInventory,
         guidance::{ToolAvailability, ToolVersionStatus},
         hash_bundle,
         policy::{
@@ -24,6 +24,7 @@ use jameskills_core::{
         },
         validate_bundle_inventory,
     },
+    ports::ImportScanPort,
     ports::filesystem::{
         BundleFiles, FileSystemPort, bundle_entry_from_path, extract_archive_files,
         validate_archive_entries,
@@ -391,6 +392,204 @@ pub fn parse_gitleaks_report(output: &[u8]) -> GitleaksReportStatus {
 /// Local filesystem adapter: validation, explicit staging, and content-addressed
 /// blob IO live here so core never touches the disk. Writes follow validation.
 pub struct LocalFileSystem;
+
+/// Optional Gitleaks provider for validated import bytes. Input is extracted
+/// into a private, per-scan directory and removed before the outcome returns.
+pub struct GitleaksImportScanner {
+    profile: ToolProfile,
+    candidate: ToolCandidate,
+    approved_fingerprint: Option<ExecutableFingerprint>,
+    environment: BTreeMap<OsString, OsString>,
+    process: Arc<dyn ProcessPort>,
+    staging_root: PathBuf,
+}
+
+impl GitleaksImportScanner {
+    pub fn new(
+        profile: ToolProfile,
+        candidate: ToolCandidate,
+        approved_fingerprint: Option<ExecutableFingerprint>,
+        environment: &ApprovedEnv,
+        process: Arc<dyn ProcessPort>,
+        staging_root: PathBuf,
+    ) -> Self {
+        Self {
+            profile,
+            candidate,
+            approved_fingerprint,
+            environment: environment.entries().clone(),
+            process,
+            staging_root,
+        }
+    }
+}
+
+#[async_trait]
+impl ImportScanPort for GitleaksImportScanner {
+    async fn scan(&self, files: &BundleFiles) -> AppResult<ImportScanStatus> {
+        let Some(approved_fingerprint) = self.approved_fingerprint else {
+            return Ok(ImportScanStatus::Blocked);
+        };
+        if self.profile.tool_id() != ToolId::Gitleaks
+            || self.candidate.tool_id() != ToolId::Gitleaks
+            || self.candidate.kind() != ToolCandidateKind::NativeExecutable
+        {
+            return Ok(ImportScanStatus::Blocked);
+        }
+        let archive = match jameskills_core::ports::write_bundle_archive(files) {
+            Ok(archive) => archive,
+            Err(_) => return Ok(ImportScanStatus::Unknown),
+        };
+        let staging = match PrivateImportScanStage::create(&self.staging_root, &archive) {
+            Ok(staging) => staging,
+            Err(_) => return Ok(ImportScanStatus::Unknown),
+        };
+        let root = match ApprovedRoot::from_absolute_path(staging.content_root.clone()) {
+            Ok(root) => root,
+            Err(_) => {
+                let _ = staging.cleanup();
+                return Ok(ImportScanStatus::Unknown);
+            }
+        };
+        let environment = match ApprovedEnv::new(self.environment.clone()) {
+            Ok(environment) => environment,
+            Err(_) => {
+                let _ = staging.cleanup();
+                return Ok(ImportScanStatus::Blocked);
+            }
+        };
+        let observed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let environment_fingerprint =
+            import_scan_environment_fingerprint(approved_fingerprint, &self.environment);
+        let observation = LocalFileSystem
+            .check_tracked_secrets(
+                &root,
+                &self.profile,
+                &self.candidate,
+                Some(approved_fingerprint),
+                false,
+                &environment,
+                self.process.as_ref(),
+                &observed_at,
+                &environment_fingerprint,
+            )
+            .await;
+        let cleanup_succeeded = staging.cleanup();
+        if !cleanup_succeeded {
+            return Ok(ImportScanStatus::Unknown);
+        }
+        match observation {
+            Ok(observation) => Ok(match observation.status() {
+                CheckStatus::Pass => ImportScanStatus::NoFindings,
+                CheckStatus::Fail => ImportScanStatus::Findings,
+                CheckStatus::Blocked | CheckStatus::Unsupported => ImportScanStatus::Blocked,
+                CheckStatus::Unknown | CheckStatus::NotApplicable => ImportScanStatus::Unknown,
+            }),
+            Err(AppError::Cancelled) => Err(AppError::Cancelled),
+            Err(_) => Ok(ImportScanStatus::Unknown),
+        }
+    }
+}
+
+fn import_scan_environment_fingerprint(
+    executable: ExecutableFingerprint,
+    environment: &BTreeMap<OsString, OsString>,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"JAMESKILLS-IMPORT-SCAN-ENV-V1\0");
+    digest.update(executable.as_bytes());
+    for (key, value) in environment {
+        digest.update((key.len() as u64).to_be_bytes());
+        digest.update(key.to_string_lossy().as_bytes());
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.to_string_lossy().as_bytes());
+    }
+    format!("sha256:{:x}", digest.finalize())
+}
+
+struct PrivateImportScanStage {
+    root: PathBuf,
+    content_root: PathBuf,
+}
+
+impl PrivateImportScanStage {
+    fn create(staging_root: &Path, archive: &[u8]) -> Result<Self, ()> {
+        if !staging_root.is_absolute() || path_has_linked_component(staging_root) {
+            return Err(());
+        }
+        std::fs::create_dir_all(staging_root).map_err(|_| ())?;
+        if path_has_linked_component(staging_root) {
+            return Err(());
+        }
+        let metadata = std::fs::symlink_metadata(staging_root).map_err(|_| ())?;
+        if !metadata.file_type().is_dir()
+            || metadata.file_type().is_symlink()
+            || source_is_reparse(&metadata)
+        {
+            return Err(());
+        }
+        restrict_directory(staging_root).map_err(|_| ())?;
+        let root = (0..8)
+            .find_map(|_| {
+                let sequence = NEXT_IMPORT_SCAN_ID.fetch_add(1, Ordering::Relaxed);
+                let name = format!("scan-{}-{sequence}", std::process::id());
+                let path = staging_root.join(name);
+                match std::fs::create_dir(&path) {
+                    Ok(()) => Some(Ok(path)),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                    Err(_) => Some(Err(())),
+                }
+            })
+            .ok_or(())??;
+        if restrict_directory(&root).is_err() {
+            let _ = std::fs::remove_dir_all(&root);
+            return Err(());
+        }
+        let content_root = root.join("content");
+        if unpack_bundle_to_staging(archive, &content_root).is_err() {
+            let _ = std::fs::remove_dir_all(&root);
+            return Err(());
+        }
+        Ok(Self { root, content_root })
+    }
+
+    fn cleanup(&self) -> bool {
+        std::fs::remove_dir_all(&self.root).is_ok()
+    }
+}
+
+fn path_has_linked_component(path: &Path) -> bool {
+    let mut component = path;
+    loop {
+        match std::fs::symlink_metadata(component) {
+            Ok(metadata) if metadata.file_type().is_symlink() || source_is_reparse(&metadata) => {
+                return true;
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return true,
+        }
+        let Some(parent) = component.parent() else {
+            break;
+        };
+        if parent == component {
+            break;
+        }
+        component = parent;
+    }
+    false
+}
+
+impl Drop for PrivateImportScanStage {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+static NEXT_IMPORT_SCAN_ID: AtomicU64 = AtomicU64::new(0);
+
+const MAX_BUNDLE_ARCHIVE_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_PLAIN_SKILL_SOURCE_BYTES: u64 = 256 * 1024;
 
 impl LocalFileSystem {
     pub fn inspect_bundle(&self, root: &Path) -> Result<ValidatedInventory, Vec<Diagnostic>> {
@@ -4976,6 +5175,131 @@ impl FileSystemPort for LocalFileSystem {
         let inventory = self.inspect_bundle(root)?;
         read_bundle_bytes(root, &inventory)
     }
+
+    fn read_bundle_source(&self, source: &Path) -> Result<BundleFiles, Vec<Diagnostic>> {
+        let metadata = std::fs::symlink_metadata(source)
+            .map_err(|_| invalid_root("Import source is not accessible."))?;
+        if metadata.file_type().is_symlink() || source_is_reparse(&metadata) {
+            return Err(invalid_root(
+                "Import source must not be a symlink or reparse point.",
+            ));
+        }
+        if metadata.file_type().is_dir() {
+            return self.read_bundle_directory(source);
+        }
+        if !metadata.file_type().is_file() || !source_has_single_link(&metadata) {
+            return Err(invalid_root(
+                "Import source must be a regular file or directory.",
+            ));
+        }
+        if source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "SKILL.md")
+        {
+            let bytes = read_import_source_file(source, MAX_PLAIN_SKILL_SOURCE_BYTES)?;
+            return Ok([(
+                PortablePath::new("SKILL.md".to_owned())
+                    .map_err(|_| invalid_root("Plain skill path is not portable."))?,
+                bytes,
+            )]
+            .into_iter()
+            .collect());
+        }
+        if !source
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("jskill"))
+        {
+            return Err(invalid_root("Import file must have the .jskill extension."));
+        }
+        let archive = read_import_source_file(source, MAX_BUNDLE_ARCHIVE_BYTES)?;
+        read_bundle(&archive).map(|(_, files)| files)
+    }
+}
+
+fn read_import_source_file(source: &Path, max_bytes: u64) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    let metadata = std::fs::symlink_metadata(source)
+        .map_err(|_| invalid_root("Import source is not accessible."))?;
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || source_is_reparse(&metadata)
+        || !source_has_single_link(&metadata)
+    {
+        return Err(invalid_root("Import source is not a regular file."));
+    }
+    if metadata.len() > max_bytes {
+        return Err(vec![Diagnostic::error(
+            "bundle.source.size_limit",
+            "Import source exceeds its byte limit.",
+        )]);
+    }
+    let file =
+        std::fs::File::open(source).map_err(|_| invalid_root("Import source is not readable."))?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| invalid_root("Import source is not readable."))?;
+    if !opened_metadata.is_file()
+        || source_is_reparse(&opened_metadata)
+        || !source_has_single_link(&opened_metadata)
+        || opened_metadata.len() > max_bytes
+    {
+        return Err(invalid_root(
+            "Import source changed or is not a regular file.",
+        ));
+    }
+    let path_identity = same_file::Handle::from_path(source)
+        .map_err(|_| invalid_root("Import source changed while opening."))?;
+    let file_identity = same_file::Handle::from_file(
+        file.try_clone()
+            .map_err(|_| invalid_root("Import source changed while opening."))?,
+    )
+    .map_err(|_| invalid_root("Import source changed while opening."))?;
+    if path_identity != file_identity {
+        return Err(invalid_root("Import source changed while opening."));
+    }
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    use std::io::Read as _;
+    file.take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid_root("Import source is not readable."))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(vec![Diagnostic::error(
+            "bundle.source.size_limit",
+            "Import source exceeds its byte limit.",
+        )]);
+    }
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn source_has_single_link(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.nlink() == 1
+}
+
+#[cfg(windows)]
+fn source_has_single_link(_metadata: &std::fs::Metadata) -> bool {
+    // Stable Windows std metadata does not expose the file link count. The
+    // selected source is opened read-only; archive-internal hardlinks remain
+    // rejected by the ZIP inventory parser before extraction.
+    true
+}
+
+#[cfg(not(any(unix, windows)))]
+fn source_has_single_link(_metadata: &std::fs::Metadata) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn source_is_reparse(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn source_is_reparse(_metadata: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// Reads a `.jskill` archive fully before trusting it: central validation,
