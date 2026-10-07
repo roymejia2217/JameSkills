@@ -48,7 +48,10 @@ fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         return 0;
     };
 
-    if matches!(command, CliCommand::Doctor | CliCommand::Validate { .. }) {
+    if matches!(
+        command,
+        CliCommand::Doctor | CliCommand::Validate { .. } | CliCommand::Library { .. }
+    ) {
         let runtime = match resolve_user_dirs()
             .map_err(|_| AppError::CapabilityUnavailable {
                 id: "platform.user_directories".to_owned(),
@@ -58,7 +61,7 @@ fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         {
             Ok(runtime) => runtime,
             Err(error) => {
-                let response = response_for_app_error("doctor", &error);
+                let response = response_for_app_error(command.command_name(), &error);
                 let exit_code = response.exit_code as u8;
                 print_response(response, cli.json);
                 return exit_code;
