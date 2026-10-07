@@ -185,7 +185,7 @@ pub fn render_text(response: &CliResponse) -> String {
 
     if response.command == "doctor" {
         let data = response.data.as_ref();
-        return format!(
+        let mut text = format!(
             "JameSkills doctor: platform={} architecture={} display={} gpu={}",
             data.and_then(|data| data["platform"].as_str())
                 .unwrap_or("unknown"),
@@ -196,6 +196,35 @@ pub fn render_text(response: &CliResponse) -> String {
             data.and_then(|data| data["gpu_device"].as_str())
                 .unwrap_or("unknown"),
         );
+        if let Some(tools) = data.and_then(|data| data["tools"].as_array()) {
+            text.push_str("\nTools:");
+            for tool in tools {
+                text.push_str(&format!(
+                    "\n  {}: {} (version {})",
+                    tool["id"].as_str().unwrap_or("unknown"),
+                    tool["availability"].as_str().unwrap_or("unknown"),
+                    tool["version_status"].as_str().unwrap_or("unknown"),
+                ));
+            }
+        }
+        if let Some(guidance) = data.and_then(|data| data["guidance"].as_array())
+            && !guidance.is_empty()
+        {
+            text.push_str("\nNext steps:");
+            for step in guidance {
+                text.push_str(&format!(
+                    "\n  {}: {}",
+                    step["tool_id"].as_str().unwrap_or("tool"),
+                    step["prompt_es"]
+                        .as_str()
+                        .unwrap_or("Review the registered guidance."),
+                ));
+                if let Some(url) = step["action"]["url"].as_str() {
+                    text.push_str(&format!("\n    Official guide: {url}"));
+                }
+            }
+        }
+        return text;
     }
 
     format!("{} completed", response.command)

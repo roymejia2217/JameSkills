@@ -1,8 +1,14 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use jameskills_core::SkillId;
+use jameskills_core::domain::{
+    ToolId, ToolOperation,
+    guidance::{ToolAvailability, ToolCapabilitySupport, ToolDetection, ToolVersionStatus},
+};
 use jameskills_infra::{
     composition::RuntimeServices,
-    platform::{HostPlatform, Observation},
+    platform::{
+        HostPlatform, Observation, ToolCandidateKind, find_tool_candidates, load_tool_profiles,
+    },
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -224,11 +230,24 @@ pub fn dispatch_cli(cli: Cli, runtime: Option<&RuntimeServices>) -> super::outpu
                 return super::output::CliResponse::unsupported("doctor");
             };
             let facts = runtime.facts();
+            let (tools, guidance) = match doctor_tool_inventory(runtime) {
+                Ok(inventory) => inventory,
+                Err(()) => {
+                    return super::output::CliResponse::error(
+                        "doctor",
+                        "tool.registry.unavailable",
+                        "The application tool registry is unavailable.",
+                        3,
+                    );
+                }
+            };
             let data = json!({
                 "platform": platform_name(facts.platform),
                 "architecture": facts.architecture,
                 "display_environment": observation_name(facts.display_environment),
                 "gpu_device": observation_name(facts.gpu_device),
+                "tools": tools,
+                "guidance": guidance,
             });
             super::output::CliResponse::success("doctor", data)
         }
@@ -254,6 +273,172 @@ pub fn dispatch_cli(cli: Cli, runtime: Option<&RuntimeServices>) -> super::outpu
             }
         }
         command => super::output::CliResponse::unsupported(command.command_name()),
+    }
+}
+
+fn doctor_tool_inventory(
+    runtime: &RuntimeServices,
+) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), ()> {
+    let profiles = load_tool_profiles().map_err(|_| ())?;
+    let facts = runtime.facts();
+    let search_paths = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let candidates = find_tool_candidates(&profiles, &search_paths, facts.platform);
+    let observed_at = runtime.clock().now_utc();
+    let mut tools = Vec::with_capacity(profiles.len());
+    let mut guidance = Vec::new();
+
+    for (profile, candidate) in profiles.iter().zip(candidates) {
+        let (availability, summary) = match candidate.kind() {
+            ToolCandidateKind::Missing => (
+                ToolAvailability::Missing,
+                "No registered executable candidate was found.",
+            ),
+            ToolCandidateKind::NativeExecutable => (
+                ToolAvailability::Candidate,
+                "Native candidate requires an approved fingerprint before version probing.",
+            ),
+            ToolCandidateKind::CommandShim => (
+                ToolAvailability::Blocked,
+                "Command shim is not executed by the registered version probe.",
+            ),
+        };
+        let detection = ToolDetection::from_probe(
+            profile.tool_id(),
+            availability,
+            None,
+            profile.version_range(),
+            profile.operations(),
+            profile.source_id(),
+            &observed_at,
+            summary,
+        )
+        .map_err(|_| ())?;
+        let capabilities = detection
+            .capabilities()
+            .iter()
+            .map(|(operation, support)| {
+                (
+                    operation_name(*operation).to_owned(),
+                    serde_json::Value::String(capability_name(*support).to_owned()),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        let installation_guide =
+            profile
+                .install_guides()
+                .for_platform(facts.platform)
+                .map(|guide| {
+                    json!({
+                        "source_id": guide.source_id(),
+                        "url": guide.url(),
+                    })
+                });
+        let next_step = match detection.availability() {
+            ToolAvailability::Missing => Some(json!({
+                "tool_id": tool_name(detection.tool_id()),
+                "prompt_es": "No se encontró esta herramienta. Consulta la guía oficial, instala manualmente y vuelve a ejecutar doctor.",
+                "action": installation_guide.clone().map(|guide| json!({
+                    "kind": "open-official-url",
+                    "source_id": guide["source_id"],
+                    "url": guide["url"],
+                })).unwrap_or_else(|| json!({"kind":"manual-instruction"})),
+            })),
+            ToolAvailability::Candidate => Some(json!({
+                "tool_id": tool_name(detection.tool_id()),
+                "prompt_es": "Se encontró un candidato nativo; requiere aprobación explícita de su fingerprint antes de comprobar versión o capacidades.",
+                "action": {"kind":"manual-instruction"},
+            })),
+            ToolAvailability::Blocked => Some(json!({
+                "tool_id": tool_name(detection.tool_id()),
+                "prompt_es": "El candidato es un shim bloqueado; selecciona una instalación nativa desde la guía oficial.",
+                "action": installation_guide.clone().map(|guide| json!({
+                    "kind": "open-official-url",
+                    "source_id": guide["source_id"],
+                    "url": guide["url"],
+                })).unwrap_or_else(|| json!({"kind":"manual-instruction"})),
+            })),
+            ToolAvailability::Unknown => Some(json!({
+                "tool_id": tool_name(detection.tool_id()),
+                "prompt_es": "No hay evidencia suficiente para determinar la disponibilidad de esta herramienta.",
+                "action": {"kind":"manual-instruction"},
+            })),
+            ToolAvailability::Verified => None,
+        };
+        if let Some(next_step) = next_step {
+            guidance.push(next_step);
+        }
+        tools.push(json!({
+            "id": tool_name(detection.tool_id()),
+            "availability": availability_name(detection.availability()),
+            "version": detection.version().map(ToString::to_string),
+            "version_status": version_status_name(detection.version_status()),
+            "capabilities": capabilities,
+            "evidence": {
+                "source_id": detection.evidence().source_id(),
+                "summary": detection.evidence().summary(),
+            },
+        }));
+    }
+    Ok((tools, guidance))
+}
+
+fn tool_name(tool: ToolId) -> &'static str {
+    match tool {
+        ToolId::Git => "git",
+        ToolId::Gitleaks => "gitleaks",
+        ToolId::Commitlint => "commitlint",
+        ToolId::Gh => "gh",
+        ToolId::Cargo => "cargo",
+        ToolId::Npm => "npm",
+        ToolId::Node => "node",
+        ToolId::Rustc => "rustc",
+        ToolId::CargoAudit => "cargo-audit",
+        ToolId::CargoDeny => "cargo-deny",
+    }
+}
+
+fn operation_name(operation: ToolOperation) -> &'static str {
+    match operation {
+        ToolOperation::RepositoryRoot => "repository-root",
+        ToolOperation::IgnoreCheck => "ignore-check",
+        ToolOperation::ScanTracked => "scan-tracked",
+        ToolOperation::LintMessage => "lint-message",
+        ToolOperation::BranchRules => "branch-rules",
+        ToolOperation::RepositoryRead => "repository-read",
+        ToolOperation::CheckRuns => "check-runs",
+        ToolOperation::QualitySuite => "quality-suite",
+        ToolOperation::Version => "version",
+        ToolOperation::Audit => "audit",
+        ToolOperation::Deny => "deny",
+    }
+}
+
+fn availability_name(availability: ToolAvailability) -> &'static str {
+    match availability {
+        ToolAvailability::Missing => "missing",
+        ToolAvailability::Candidate => "candidate",
+        ToolAvailability::Verified => "verified",
+        ToolAvailability::Blocked => "blocked",
+        ToolAvailability::Unknown => "unknown",
+    }
+}
+
+fn version_status_name(status: ToolVersionStatus) -> &'static str {
+    match status {
+        ToolVersionStatus::Compatible => "compatible",
+        ToolVersionStatus::Incompatible => "incompatible",
+        ToolVersionStatus::Unknown => "unknown",
+        ToolVersionStatus::NotApplicable => "not-applicable",
+    }
+}
+
+fn capability_name(support: ToolCapabilitySupport) -> &'static str {
+    match support {
+        ToolCapabilitySupport::Supported => "supported",
+        ToolCapabilitySupport::NeedsVerification => "needs-verification",
+        ToolCapabilitySupport::Unsupported => "unsupported",
     }
 }
 

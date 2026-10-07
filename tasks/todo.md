@@ -1118,73 +1118,93 @@ T022 commit de implementación: `8d14689 feat(policy-engine): verify GitHub repo
 
 **Verificación:** cargo test -p jameskills-infra --locked release_checks; Git local y gh API JSON fake cubren casos; host real solo read-only autorizado.
 
-**Evidencia al ejecutar:** fuentes T024.src y RED/GREEN T024.a arriba. Gates pasan en Windows MSVC. Implementación/commit pendiente; integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
+**Evidencia al ejecutar:** fuentes T024.src en `b4419fe`/`dba65e5`; implementación `73a3f62`. Gates pasan en Windows MSVC. La integración real solo prueba lectura autenticada y evidencia saneada, no publicación del checkout. No atribuir CI remoto posterior a `c976f02` al SHA local.
 
 ## C008 — Checkpoint tras T022–T024
 
-- [ ] **C008 verificado**
+- [x] **C008 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
 - GitHub evidence/protection/PR/releases verifican privilegios y fuente; no writes no solicitados.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia C008:** en Windows MSVC pasó `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check. Incluye T022 repo identity, T023 branch protection/CI SHA y T024 releases en fakes; las integraciones GitHub T022/T023/T024 ejecutadas fueron read-only. No se hizo ningún write/publicación. CI remoto conocido solo cubre `c976f02`, no los commits locales posteriores. Próxima tarea DAG: T025; dependencias T017/T018/T023/T024/T037 completas.
 
 <a id="t025"></a>
 
 ## T025 — Generar guía dinámica desde hechos y checks
 
-- [ ] **T025 completada y verificada**
+- [x] **T025 completada y verificada localmente**
 
-**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T017, T018, T023, T024, T037. **Estado:** completada localmente; CI remota del SHA final no observada.
 
 **Implementación y funciones:** GuidanceService::start_guidance, advance, recheck; domain::next_step/validate_guidance_graph; helpers privados build_guidance_plan y environment fingerprint. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** guidance_planner misma policy en Linux/Windows o cargo/npm/missing auth produce pasos distintos; una dependencia imposible bloquea descendientes, no todos los checks.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/guidance.rs`
-- `crates/jameskills-core/src/domain/guidance.rs`
-- `crates/jameskills-core/src/application/mod.rs`
-- `crates/jameskills-core/tests/guidance_planner.rs`
-- `crates/jameskills-infra/src/composition.rs`
+**Descomposición test-first y wiring:**
+- [x] **T025.src — Fijar contrato de guidance retenida y verificada** (4 archivos): `docs/CONTRACTS.md`; `docs/SPEC-policy-engine.md`; `tasks/todo.md`; `tasks/RESUME.md`. Los bundles validados deben conservar policies/GuidancePlan tipados (no raw TOML); cada paso requiere verificación ligada a requisitos del plan.
+- Evidencia T025.src: `domain::skill::validate_guidance_file` solo devolvía `plan_id -> requirement IDs`; `ValidatedBundle` descartaba Policies/Steps después de validarlos. No existía GuidanceService/planner ni wiring en `RuntimeServices`. Contrato establece DTOs inmutables y acción cerrada con verifiers obligatorios.
+- [x] **T025.a — Retener planes y policies tipados en ValidatedBundle** (5 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/skill.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/guidance_schema.rs`; `tasks/todo.md`. Parser reutiliza validación existente y devuelve acciones/facts/steps cerrados, sin código/URL arbitrario.
+- RED T025.a: `cargo test -p jameskills-core --locked --test guidance_schema` falló en empty-verifier y cross-plan IDs: ambos bundles se aceptaban aunque debían rechazarse. Después, `validated_bundle_retains_parsed_policies_and_guidance_steps` falló porque el validador no exponía/retained los DTOs compilados.
+- GREEN T025.a: la misma suite pasa 5/5; `ValidatedBundle` conserva policies y planes/steps/actions tipados; parser rechaza verifier vacío/fuera del plan y fact value no registrado; fixtures verifican source registry y `ToolOperation` del command action.
+- Gates T025.a: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
+- [x] **T025.b.src — Contratar facts, estados y recheck** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`. GuidanceFacts llevan valores tipados + CheckEvidence/fingerprint; el planner consume CheckReports, no claims.
+- Evidencia T025.b.src: el planner deriva estado solo de applicability facts con evidence fresca, DAG de steps y CheckReport; UserAnswer no tiene autoridad para completar un step. Recheck usa GuidanceFactsProvider + PolicyService, reemplaza report y borra choices si cambia environment fingerprint. Sesiones process-local no se presentan como durables.
+- [x] **T025.b — Planificar próximo step desde facts/evidence** (4 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. Orden topológico; rama Unknown no se selecciona; step solo completa con fresh Pass de todos sus verifiers.
+- RED T025.b: `cargo test -p jameskills-core --locked --test guidance_planner` con planner conservador falló porque un verifier Pass seguía AwaitingEvidence; Unknown applicability branch y estados de paso no se calculaban.
+- GREEN T025.b: suite guidance_planner 9/9 antes de añadir el regression slice de fingerprints; incluye fresh Pass, fail/expired verifier, acknowledgement que no pasa, answer choice validado, fact mismatch/expiration, dependency blocked vs rama independiente y Missing auth Blocked.
+- Gates T025.b: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt y diff-check pasan.
+- [x] **T025.b2 — Mantener independientes los fingerprints de facts y checks** (3 archivos): `crates/jameskills-core/src/domain/guidance.rs`; `crates/jameskills-core/tests/guidance_planner.rs`; `tasks/todo.md`. La fingerprint de GuidanceFacts no sustituye la del provider en cada CheckEvidence; cada una se invalida por su propio origen/expiry.
+- RED T025.b2: `check_evidence_fingerprint_is_not_compared_to_platform_fact_fingerprint` falló Pass esperado/ AwaitingEvidence observado al exigir por error igualdad entre fingerprints de facts y CheckReport.
+- GREEN T025.b2: la prueba de fingerprints distintos pasa 1/1; freshness se evalúa por cada CheckEvidence, con fingerprint independiente por fuente.
+- [x] **T025.c — Crear servicio de sesiones y recheck real** (5 archivos): `crates/jameskills-core/src/application/guidance.rs`; `crates/jameskills-core/src/application/mod.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. Usa PolicyService + GuidanceFactsProvider; UserAnswer cerrado y nunca certifica checks.
+- RED T025.c: `cargo test -p jameskills-core --locked --test guidance_service` falló conductualmente con start Unknown en vez de exponer el step verificado y advance NotFound para una sesión recién creada.
+- GREEN T025.c: `guidance_service` pasa 6/6. Start incluye plan real y CheckReport; acknowledgement no concede status; recheck actualiza Unknown a Pass con report nuevo; fallo de recheck descarta Pass anterior; fingerprint distinto limpia choices; límite 64 y close libera capacidad.
+- Gates T025.c: `cargo test -p jameskills-core --locked`, Clippy core `-D warnings`, fmt/diff-check pasan. Live sessions son process-local; no se afirma persistencia SQLite.
+- [x] **T025.d — Cablear GuidanceService en RuntimeServices** (4 archivos): `crates/jameskills-infra/src/composition.rs`; `crates/jameskills-infra/tests/guidance_runtime.rs`; `tasks/todo.md`; `tasks/RESUME.md`. Platform facts llevan evidencia; providers no disponibles quedan Unknown.
+
+**Semántica obligatoria:** facts desconocidos nunca seleccionan rama; “lo completé” solo registra una respuesta y no produce Pass; step solo Completed con fresh Pass para todos los `verification_requirement_ids`. Cambio de fingerprint/revision invalida respuestas/evidence dependientes. Acción copiar/abrir es inerte; credenciales y texto libre secreto no entran a la sesión.
 
 **Aceptación:**
-- [ ] Cada paso tiene condición de éxito comprobable, tool/link aprobado y explicación del requisito.
-- [ ] Plan no prescribe comandos de otro OS/provider ni asegura privilegios inexistentes.
-- [ ] Recheck invalida evidence antigua y actualiza pendientes/completos mediante resultado real.
+- [x] Cada paso tiene condición de éxito comprobable, tool/link aprobado y explicación del requisito.
+- [x] Plan no prescribe comandos de otro OS/provider ni asegura privilegios inexistentes.
+- [x] Recheck invalida evidence antigua y actualiza pendientes/completos mediante resultado real.
 
 **Verificación:** cargo test -p jameskills-core --locked guidance_planner; snapshots de planes con fixtures de entornos diferentes y ciclo rechazado.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T025.a/b/b2/c/d verificados localmente. Pasó `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check en Windows MSVC. guidance_schema 5/5, guidance_planner 10/10, guidance_service 6/6, guidance_runtime 1/1. El runtime tiene hechos OS/arch con evidence fresca; el provider de policy todavía unavailable mantiene checks Unknown en vez de emitir Pass. Sesiones process-local, no durable SQLite. CI remota conocida solo corresponde a `c976f02`.
 
 <a id="t026"></a>
 
 ## T026 — Ejecutar acciones registradas y doctor
 
-- [ ] **T026 completada y verificada**
+- [x] **T026 completada y verificada localmente**
 
-**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T009, T025, T016. **Estado:** completada localmente en `3fac137` (Windows MSVC); sin push.
 
 **Implementación y funciones:** GuidanceService::advance + recheck, doctor_command; ManualInstruction/OpenOfficialUrl/CopyApprovedCommand/SelectLocalPath/AnswerChoice/Recheck. Mutaciones reales pasan por PolicyService ApprovedRepoChange, no Guidance action libre. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
 **Red primero:** guidance_actions cambio de facts entre preview/apply invalida acción; registry no ejecuta shell; doctor missing tool produce guía JSON y no instala.
 
-**Archivos del incremento:**
-- `crates/jameskills-core/src/application/guidance.rs`
-- `crates/jameskills-infra/src/process.rs`
-- `crates/jameskills-cli/src/commands.rs`
-- `crates/jameskills-infra/tests/guidance_actions.rs`
-- `crates/jameskills-cli/tests/doctor_command.rs`
+**Descomposición test-first:**
+- [x] **T026.src — Fijar boundary de doctor y acciones guiadas** (3 archivos): `docs/CONTRACTS.md`; `tasks/todo.md`; `tasks/RESUME.md`.
+- Evidencia T026.src: `GuidanceAction` ya es enum app-owned; Service `advance/recheck` no tiene ProcessPort y nunca interpreta GuidanceAction como shell. `SystemProcessPort` ya exige executable fingerprint/argv/permission. Doctor obtendrá candidates solo desde profiles + PATH; sin approved fingerprints no sondea ni ejecuta candidatos. Missing/Blocked enlaza solo install guide del registry; no instala ni revela paths.
+- [x] **T026.a — Reportar candidates y guías en doctor** (4 archivos): `crates/jameskills-cli/src/commands.rs`; `crates/jameskills-cli/src/output.rs`; `crates/jameskills-cli/tests/doctor_command.rs`; `tasks/todo.md`. Datos bounded, paths/env omitidos, tool version sin probe no se marca Verified.
+- RED T026.a: `cargo test -p jameskills-cli --locked --test doctor_command` falló 2/2 por ausencia del array `data.tools` para Missing y Candidate; no fue error de compilación. GREEN: la misma suite pasó 3/3; cubre PATH vacío y guía oficial registrada, Candidate nativo no ejecutado/no verificado y renderer text.
+- Verificación T026.a Windows MSVC: `cargo test -p jameskills-cli --locked` 19/19; `cargo clippy -p jameskills-cli --all-targets --locked -- -D warnings`; fmt/diff-check pasan. `cargo run -p jameskills-cli --locked -- doctor --json` muestra Missing/Candidate/Blocked, null version si no hay probe y URLs registradas; no incluye executable paths.
+- [x] **T026.b — Renderizar acciones solo desde registry y fijar sus límites** (5 archivos): `crates/jameskills-infra/src/platform.rs`; `crates/jameskills-infra/tests/guidance_actions.rs`; `crates/jameskills-core/tests/guidance_service.rs`; `docs/CONTRACTS.md`; `tasks/todo.md`. OpenOfficialUrl map to registro; CopyApprovedCommand solo renderer app-owned explícito; renderer ausente=Unsupported y ninguno ejecuta procesos.
+- RED T026.b: `cargo test -p jameskills-infra --locked --test guidance_actions renderer_resolves_only_registered_sources_and_exact_command_pairs` falló 0/1 por ausencia del renderer de `git-install` (no fue error de compilación). GREEN focal: `guidance_actions` 2/2 y `guidance_service` 7/7. La prueba core usa CopyApprovedCommand con check Unknown y confirma que acknowledge no lo convierte en Pass.
+- El renderer de `OpenOfficialUrl` usa cinco IDs/URLs app-owned; el único CopyApprovedCommand renderizado es `(Git, RepositoryRoot)` a texto copiable; combinación sin renderer queda `Unsupported`. No hay `ProcessPort` en la interfaz y el texto no se ejecuta.
 
 **Aceptación:**
-- [ ] La guía no ejecuta shell ni registra herramientas arbitrarias; copiar comando no cambia estado. Las acciones de repositorio tienen preview/digest y API aprobada.
-- [ ] Elevación no se obtiene automáticamente; guiar y revalidar tras acción del usuario.
-- [ ] Doctor usa las mismas capacidades/resultados que GUI y errores tienen exit codes reales.
+- [x] La guía no ejecuta shell ni registra herramientas arbitrarias; copiar comando no cambia estado. Las mutaciones de repositorio permanecen sin acción renderizada en T026; T027 introduce su API separada de preview/digest y aprobación.
+- [x] Elevación no se obtiene automáticamente: UserAnswer no cambia CheckResult, y cambios de fingerprint invalidan respuestas antes de recheck.
+- [x] Doctor usa `ToolDetection` y capabilities del domain compartidos; Missing/Blocked/Candidate no se elevan a Supported. JSON/text tiene exit codes estables. La vista GPUI aún no se conecta al servicio; su wiring es trabajo posterior, no se afirma realizado aquí.
 
-**Verificación:** cargo test -p jameskills-infra --locked guidance_actions; cargo test -p jameskills-cli --locked doctor_command; cargo run -p jameskills-cli --locked -- doctor --json.
+**Verificación T026:** `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`, `cargo fmt --all -- --check` y `git diff --check` pasan en Windows MSVC. `cargo test -p jameskills-cli --locked` pasó 19/19; `guidance_actions` 2/2, `guidance_service` 7/7. `cargo run -p jameskills-cli --locked -- doctor --json` observó Missing/Candidate/Blocked, dejó versions sin probe en null y omitió executable paths. CI remota no cubre estos commits locales.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Commits T026:** `5a378e4` source boundaries; `bde09a2` doctor inventory; `0c86855` cita Git rev-parse; `3fac137` renderers app-owned. Las dos primeras tentativas de commit fallaron por hooks (body ausente/línea >100), se reintentaron con nuevos commits válidos; no hubo commit amend.
 
 <a id="t027"></a>
 

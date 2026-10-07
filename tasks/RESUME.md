@@ -1,18 +1,31 @@
 # Reanudación JameSkills
 
 Fecha UTC: 2026-10-05
-Rama / HEAD: `feat/t020-commit-test-checks` / `fba6d49`.
+Rama / HEAD: `feat/t020-commit-test-checks` / `3fac137`.
 Base: `main`=`caa9a23`, merge squash de PR #21.
 PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance `37328595359` cubren `c976f02`, no los commits locales posteriores. No se ha hecho push.
 
-## Checkpoint T020–T023 cerrado; T024.a en marcha
+## Checkpoint T020–T026 y C008 cerrado; T027 siguiente
 
-- Estado comprobado: T023 implementada y en commit `0989248`; además test cleanup `d49940c`. La rama está 7 commits por delante de `origin/feat/t020-commit-test-checks`.
-- T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: branch rules efectivas + classic protection, bypass tri-state, PR/check sources y `RequiredCi` solo con regla host activa y check/status exitoso del SHA local exacto. Se liga `integration_id`/`app_id` cuando aplica; respuesta incompleta/permisos ambiguos no promueven Pass.
-- T023 RED/GREEN: prueba ausente del dispatch en `ci_evidence_requires_active_host_rule_and_successful_check_for_exact_head_sha`; fixtures verifican regla/HEAD exactos, stale SHA, app incorrecta, pending, legacy statuses y falta de regla. `host_protection_checks`: 11 passed, 1 opt-in ignored.
-- Verificación acumulada T023 en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`; `cargo clippy --workspace --all-targets --features jameskills-desktop/test-support --locked -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; todos pasaron. Opt-in real GitHub CI read-only pasó 1/1 y prueba evidencia ligada al SHA observado local; no declara CI aprobado si el host no lo acredita.
-- `T023` está cerrada localmente; no hay CI remota para `0989248`. El test cleanup separado `d49940c` eliminó una aserción obsoleta de T022 sobre `check=repo`; suite workspace verde.
-- T024.src completada en working tree: fuentes oficiales de release list/by-tag, Git refs/tag signature, Cargo workspace version y npm package version. `Check::ReleaseContract` ya expresa sus flags sin pedir cambio de API pública; T024.a conectará el provider en cinco archivos.
+- Estado comprobado: rama `feat/t020-commit-test-checks`, HEAD `3fac137`, 25 commits por delante de `origin/feat/t020-commit-test-checks`; estado de T026 en actualización documental local. No hay push.
+- T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
+- T023 verificada localmente: host_protection_checks 11 passed + 1 opt-in ignored; workspace tests, workspace Clippy `-D warnings`, fmt/diff-check pass. Integración GitHub CI read-only pasó 1/1, sin atribuir CI SUCCESS al SHA local.
+- T024.src committed en `b4419fe` + precisión de versión en `dba65e5`; T024.a implementada en `73a3f62`. Proyecto se versiona desde Cargo workspace/package y/o Node `package.json`, no desde `SkillManifest`; releases publicadas deben tener tag SemVer coincidente; changelog, digest y tag signature solo se exigen según flags del profile.
+- T024 RED `current_project_version_requires_a_published_matching_release_with_asset_digest`: `Unknown` porque no había dispatch para `ReleaseContract`; GREEN release_checks 12 passed + 1 opt-in ignored. Cubre conflicto de versiones, JSON duplicate key, semver/tag wrong, draft/prerelease, release ausente vs 403/404, lista de 100 sin paginar, SHA-256 asset digest, changelog con notas, firma annotated/tag lightweight y no requerir flags desactivados.
+- T024 gates Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features y `-D warnings`, `cargo fmt --all -- --check`, `git diff --check` pasan. Opt-in release read-only pasó 1/1; solo valida evidence/source/version bound, no exige que el checkout tenga release publicada ni marca el resultado Pass.
+- C008 completado localmente: T022–T024 GitHub tests usan GET/read-only, los gates acumulados pasan, no se escribieron reglas/releases/tags. CI remoto conocido `37328599512` solo cubre `c976f02`; no atribuirlo al HEAD local.
+- T025.src committed `0a0dfbf`; T025.a `f578924` conserva policies/plans tipados. `guidance_schema`: 5/5.
+- T025.b.src `3bb5636`; planner `6f91cd6`; b2 `874accf` separa facts/check fingerprints. `guidance_planner`: 10/10, incluye fresh pass/Unknown/Blocked/expired/NotApplicable/branching.
+- T025.c GuidanceService commit `4d39633`; `guidance_service`: 6/6 para start/advance/recheck, answer, fingerprint invalidation, report refresh/error, límite/close. Las sesiones son process-local, no durable SQLite.
+- T025.d runtime wiring `d70eedf`; `guidance_runtime`: 1/1. OS/arch facts llevan `CheckEvidence` fresca; el PolicyCheckProvider runtime no disponible mantiene verifiers en Unknown.
+- Gates acumulados T025 en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy con mismos features y `-D warnings`, fmt y diff-check pasan. CI remoto conocido solo cubre `c976f02`; no atribuirlo a HEAD local.
+- T026.src `5a378e4` fija boundaries conservadoras: no spawn por GuidanceAction, doctor solo registry/PATH.
+- T026.a `bde09a2` reporta todos los tools Missing/Candidate/Blocked en CLI text/JSON. 3 focused doctor tests, CLI package 19 tests; PATH vacío no revela paths ni instala; candidatos no se sondean. Manual `cargo run -p jameskills-cli --locked -- doctor --json` muestra `version: null` sin probe.
+- T026.b source `0c86855` cita Git rev-parse; implementación `3fac137` mapea cinco OfficialGuidanceSource y renderiza únicamente `(Git, RepositoryRoot)` como texto copiable; renderer ausente=Unsupported. Core conserva check Unknown tras acknowledge del copy action. RED infra renderer falló por la falta del map Git source; GREEN infra 2/2 y GuidanceService 7/7.
+- T026 gates en Windows MSVC: `cargo test --workspace --locked --features jameskills-desktop/test-support`, workspace Clippy `-D warnings`, fmt y diff-check pasan. T026 se verifica localmente; GPUI todavía no está conectada a GuidanceService y repo mutations siguen fuera de scope, con API preview/digest prevista en T027. No atribuir CI remota a commits locales.
+- Próxima tarea elegible T027 (`T014`, T025, T026 completadas): template/hook planning con preview y digest, apply validado/transaccional, journal y rollback; ningún contenido/template se ejecuta.
+
+## Historial inmediatamente anterior
 - T020 completa: Cargo/npm runners con consentimiento explícito, Commitlint local y T020.b3 hook read-only. El hook del repo existe, pero el bootstrap `npm exec` no demuestra identidad/argv del entrypoint aprobado; autoridad observada se mantiene `LocalCheck`.
 - T021.src, `.dep`, `.a`, `.b` y `.a2.src` completadas. CI contract usa YAML bounded/inerte, required job IDs, triggers push/PR, action refs pin, permissions y predicados conservadores; su resultado local solo es `LocalCheck`. T023 implementa por separado `CiEvidence`/`RequiredCi` de host+SHA exacto.
 - T021.a2 RED/GREEN: test host mismatch fallaba si se asumía GitHub por la mera presencia de workflow; ahora exige Git native/fingerprinted, versión registrada y todos los URLs configurados de `git remote -v` en github.com. GitLab/GHES/no remote/mixed => Unknown. No hace request de red ni prueba existencia del repositorio, branch rule o CI SHA; URLs no entran en logs/evidence.
@@ -26,7 +39,7 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 - Gates finales: `cargo test --workspace --locked --features jameskills-desktop/test-support` pasó; workspace Clippy `-D warnings`, fmt y diff-check pasaron. Opt-in real GitHub read-only pasó 1/1 en este repo; comprobó Git remote/HEAD, gh auth y GET repo. No almacena token ni muestra identidad.
 - T023.src committed as `bd78191 docs(policy-engine): cite GitHub protection API contracts`: fuentes oficiales establecen reglas efectivas active-only, bypass metadata posiblemente oculta, classic 404 ambiguo y checks exact-SHA con límites de 100/paginación.
 - T023.a/b committed as `db5df25 feat(policy-engine): inspect active GitHub branch rules`: provider dispatches `github-branch-policy`, fixed GET effective rules + classic protection, compares PR/check contexts y registra bypass tri-state sin actor details. `host_protection_checks` pasa 4/4; parser unit bypass tri-state 1/1; Clippy infra `-D warnings`, fmt/diff-check pass. `require_no_bypass=true` permanece Unknown cuando bypass actors no son visibles, Fail cuando hay bypass, Pass HostRule solo con visibilidad completa y lista vacía.
-- T024.a activo: RED `current_project_version_requires_a_published_matching_release_with_asset_digest` compila y falla Unknown vs Pass porque no existe dispatch. Preservar lectura read-only, versión de manifests del proyecto y Unknown ante datos/permisos ambiguos.
+- Al terminar T023, T024 estaba pendiente; el checkpoint actual arriba reemplaza ese estado.
 
 ## Estado real
 
@@ -86,9 +99,10 @@ PR / CI remota previa: PR draft #22; el run conocido `37328599512` y Governance 
 
 ## Próxima acción exacta
 
-1. Implementar lectura bounded/no-follow de versiones/changelog y endpoints GitHub GET para releases/tag signature, con fixtures adversariales y estados ambiguos.
-2. Ejecutar tests focales, suite infra, workspace tests/Clippy/fmt/diff-check; opt-in real sólo GET/read-only y sin afirmar que este checkout está publicado.
-3. Registrar evidencia y commit convencional; luego comprobar la siguiente tarea elegible y completar C008 cuando corresponda.
+1. Verificar DAG, `docs/CONTRACTS.md`, `docs/SPEC-policy-engine.md`, `docs/SECURITY.md` y `T027` completo en `tasks/todo.md` antes de editar.
+2. Capturar RED de comportamiento para modificación de template ajeno/dirty o cambio de digest entre preview/apply; no aceptar error de compilación como RED.
+3. Implementar T027 en incrementos de máximo cinco archivos, con cambios de repo solo por API aprobada, diff/preview, expected-head/hash y journal recuperable.
+4. Probar cancel/crash/rollback en repositorios temporales, ejecutar suites core/infra/CLI, Clippy, fmt/diff-check y actualizar evidencia/checkpoint.
 
 ## T020.b2.a completado
 
