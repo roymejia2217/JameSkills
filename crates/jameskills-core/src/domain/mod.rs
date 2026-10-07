@@ -1,17 +1,23 @@
 pub mod agent;
+pub mod assets;
 pub mod bundle;
 pub mod guidance;
 mod ids;
+pub mod import;
 pub mod library;
 pub mod policy;
 pub mod repo_change;
 mod scope;
 pub mod skill;
+
 pub use agent::{
     AgentCapabilities, AgentCapabilityAssessment, AgentCapabilityId, AgentId, AgentInstallMode,
     AgentProfile, CapabilityEvidence, CapabilitySupport,
 };
-
+pub use assets::{
+    AssetFiles, AssetPreview, AssetPreviewKind, add_asset, preview_asset, remove_asset,
+    rename_bundle_path, replace_asset,
+};
 pub use bundle::{
     BundleEntry, EntryKind, ValidatedFile, ValidatedInventory, validate_bundle_inventory,
 };
@@ -25,8 +31,13 @@ pub use ids::{
     ContentHash, IdValidationError, OperationId, PathValidationError, PortablePath, RevisionId,
     SkillId,
 };
+pub use import::{
+    ImportClassification, ImportFiles, ImportPreview, ImportResolution, ImportResult,
+    ImportScanStatus, ImportSourceKind, TrustState,
+};
 pub use library::{
-    RevisionKind, RevisionRecord, SaveRevisionRequest, SaveRevisionResult, compute_revision,
+    CreateSkill, RevisionKind, RevisionRecord, SaveRevisionRequest, SaveRevisionResult, SkillDraft,
+    compute_revision,
 };
 pub use policy::{
     Check, Enforcement, Phase, Policy, Requirement, Severity, ToolId, ToolOperation,

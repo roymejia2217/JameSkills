@@ -1,6 +1,8 @@
-use super::{ContentHash, RevisionId, SkillId};
+use super::import::TrustState;
+use super::{ContentHash, PortablePath, RevisionId, SkillId, ValidatedBundle};
 use crate::{AppError, AppResult, Diagnostic};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 /// Domain tag opening every revision digest (SPEC-skill-format, canonical hashing).
 const REVISION_TAG: &[u8] = b"JAMESKILLS-REVISION-V1\0";
@@ -187,6 +189,7 @@ pub struct SaveRevisionRequest {
     expected_heads: Vec<RevisionId>,
     catalog_tags: Vec<String>,
     catalog_capabilities: Vec<String>,
+    expected_draft_generation: Option<u64>,
 }
 
 impl SaveRevisionRequest {
@@ -209,7 +212,19 @@ impl SaveRevisionRequest {
             expected_heads,
             catalog_tags: Vec::new(),
             catalog_capabilities: Vec::new(),
+            expected_draft_generation: None,
         }
+    }
+
+    pub fn with_expected_draft_generation(mut self, generation: u64) -> AppResult<Self> {
+        if generation == 0 || generation > i64::MAX as u64 {
+            return Err(AppError::Validation(vec![Diagnostic::error(
+                "revision.draft_generation.invalid",
+                "Publish request must target a valid saved draft generation.",
+            )]));
+        }
+        self.expected_draft_generation = Some(generation);
+        Ok(self)
     }
 
     /// Binds catalog filters to metadata from the same validated bundle bytes
@@ -282,6 +297,254 @@ impl SaveRevisionRequest {
     pub fn catalog_capabilities(&self) -> &[String] {
         &self.catalog_capabilities
     }
+
+    pub fn expected_draft_generation(&self) -> Option<u64> {
+        self.expected_draft_generation
+    }
+}
+
+const MAX_DRAFT_FILE_COUNT: usize = 2_000;
+const MAX_DRAFT_BYTES: usize = 20 * 1024 * 1024;
+const MAX_DRAFT_GENERATION: u64 = i64::MAX as u64;
+
+/// Editable local bytes are retained even when bundle semantics are invalid;
+/// only portable file paths and hard resource bounds are required for a draft.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillDraft {
+    skill_id: SkillId,
+    base_head: Option<RevisionId>,
+    generation: u64,
+    files: BTreeMap<PortablePath, Vec<u8>>,
+    trust_state: TrustState,
+}
+
+/// Application-owned starting metadata for a new editable skill. Construction
+/// generates identity once; subsequent edits belong to its draft, not a new ID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateSkill {
+    skill_id: SkillId,
+    slug: String,
+    display_name: String,
+    description: String,
+}
+
+impl CreateSkill {
+    pub fn new(slug: String, display_name: String) -> AppResult<Self> {
+        Self::new_with_description(slug, display_name, "A new skill suite.".to_owned())
+    }
+
+    pub fn new_with_description(
+        slug: String,
+        display_name: String,
+        description: String,
+    ) -> AppResult<Self> {
+        let portable = PortablePath::new(slug.clone()).map_err(|_| {
+            AppError::Validation(vec![Diagnostic::error(
+                "library.create.slug.invalid",
+                "Skill slug must be one portable path component.",
+            )])
+        })?;
+        if portable.as_str().contains('/')
+            || display_name.trim() != display_name
+            || display_name.is_empty()
+            || display_name.len() > 128
+            || display_name.chars().any(char::is_control)
+            || description.trim() != description
+            || description.is_empty()
+            || description.len() > 1024
+            || description.chars().any(char::is_control)
+        {
+            return Err(AppError::Validation(vec![Diagnostic::error(
+                "library.create.metadata.invalid",
+                "New skill metadata is invalid.",
+            )]));
+        }
+        Ok(Self {
+            skill_id: SkillId::new(),
+            slug,
+            display_name,
+            description,
+        })
+    }
+
+    pub fn skill_id(&self) -> SkillId {
+        self.skill_id
+    }
+    pub fn slug(&self) -> &str {
+        &self.slug
+    }
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Creates a valid editable template; the user may subsequently make and
+    /// save semantically invalid edits without losing their draft.
+    pub fn initial_draft(&self) -> AppResult<SkillDraft> {
+        let quoted_slug = quote_toml_string(&self.slug);
+        let quoted_description = quote_toml_string(&self.description);
+        let skill = format!(
+            "---\nname: {quoted_slug}\ndescription: {quoted_description}\n---\n# {}\n\nDescribe this skill and its intended use.\n",
+            self.display_name,
+        );
+        self.build_draft(skill.into_bytes(), TrustState::Reviewed)
+    }
+
+    /// Turns a standard SKILL.md into an editable, quarantined instructions-only
+    /// draft. The instruction bytes are preserved exactly and never executed.
+    pub fn from_plain_skill_source(source: Vec<u8>) -> AppResult<(Self, SkillDraft)> {
+        Self::from_plain_skill_source_with_id(source, SkillId::new())
+    }
+
+    pub(crate) fn from_plain_skill_source_with_id(
+        source: Vec<u8>,
+        skill_id: SkillId,
+    ) -> AppResult<(Self, SkillDraft)> {
+        let frontmatter = super::skill::parse_frontmatter(&source).map_err(AppError::Validation)?;
+        let slug = frontmatter.name().to_owned();
+        let mut create =
+            Self::new_with_description(slug.clone(), slug, frontmatter.description().to_owned())?;
+        create.skill_id = skill_id;
+        let draft = create.build_draft(source, TrustState::Quarantined)?;
+        Ok((create, draft))
+    }
+
+    fn build_draft(&self, skill: Vec<u8>, trust_state: TrustState) -> AppResult<SkillDraft> {
+        let quoted_slug = quote_toml_string(&self.slug);
+        let quoted_name = quote_toml_string(&self.display_name);
+        let quoted_description = quote_toml_string(&self.description);
+        let manifest = format!(
+            "schema_version = 1\nid = \"{}\"\nslug = {quoted_slug}\ndisplay_name = {quoted_name}\nversion = \"0.1.0\"\ndescription = {quoted_description}\nlicense = \"UNLICENSED\"\nminimum_app_version = \"0.1.0\"\n",
+            self.skill_id.as_uuid()
+        );
+        let files = [
+            (
+                PortablePath::new("SKILL.md".to_owned())
+                    .map_err(|_| draft_error("library.create.template.invalid"))?,
+                skill,
+            ),
+            (
+                PortablePath::new("jameskills.toml".to_owned())
+                    .map_err(|_| draft_error("library.create.template.invalid"))?,
+                manifest.into_bytes(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let validated = super::validate_bundle(&files).map_err(AppError::Validation)?;
+        let draft = match trust_state {
+            TrustState::Quarantined => SkillDraft::new_quarantined(self.skill_id, None, 1, files)?,
+            TrustState::Reviewed => SkillDraft::new(self.skill_id, None, 1, files)?,
+        };
+        if validated.manifest().id() == draft.skill_id() {
+            Ok(draft)
+        } else {
+            Err(draft_error("library.create.template.invalid"))
+        }
+    }
+}
+
+fn quote_toml_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+impl SkillDraft {
+    pub fn new(
+        skill_id: SkillId,
+        base_head: Option<RevisionId>,
+        generation: u64,
+        files: BTreeMap<PortablePath, Vec<u8>>,
+    ) -> AppResult<Self> {
+        Self::new_with_trust(skill_id, base_head, generation, files, TrustState::Reviewed)
+    }
+
+    pub fn new_quarantined(
+        skill_id: SkillId,
+        base_head: Option<RevisionId>,
+        generation: u64,
+        files: BTreeMap<PortablePath, Vec<u8>>,
+    ) -> AppResult<Self> {
+        Self::new_with_trust(
+            skill_id,
+            base_head,
+            generation,
+            files,
+            TrustState::Quarantined,
+        )
+    }
+
+    fn new_with_trust(
+        skill_id: SkillId,
+        base_head: Option<RevisionId>,
+        generation: u64,
+        files: BTreeMap<PortablePath, Vec<u8>>,
+        trust_state: TrustState,
+    ) -> AppResult<Self> {
+        validate_draft_files(&files)?;
+        if generation == 0 || generation > MAX_DRAFT_GENERATION {
+            return Err(draft_error("library.draft.generation.invalid"));
+        }
+        Ok(Self {
+            skill_id,
+            base_head,
+            generation,
+            files,
+            trust_state,
+        })
+    }
+
+    pub fn replace_files(&self, files: BTreeMap<PortablePath, Vec<u8>>) -> AppResult<Self> {
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| draft_error("library.draft.generation.overflow"))?;
+        Self::new_with_trust(
+            self.skill_id,
+            self.base_head.clone(),
+            generation,
+            files,
+            self.trust_state,
+        )
+    }
+
+    pub fn skill_id(&self) -> SkillId {
+        self.skill_id
+    }
+    pub fn base_head(&self) -> Option<&RevisionId> {
+        self.base_head.as_ref()
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn files(&self) -> &BTreeMap<PortablePath, Vec<u8>> {
+        &self.files
+    }
+    pub fn trust_state(&self) -> TrustState {
+        self.trust_state
+    }
+}
+
+fn validate_draft_files(files: &BTreeMap<PortablePath, Vec<u8>>) -> AppResult<()> {
+    if files.len() > MAX_DRAFT_FILE_COUNT {
+        return Err(draft_error("library.draft.files.limit"));
+    }
+    let total_bytes = files
+        .values()
+        .try_fold(0usize, |total, bytes| total.checked_add(bytes.len()));
+    if total_bytes.is_none_or(|total| total > MAX_DRAFT_BYTES) {
+        return Err(draft_error("library.draft.bytes.limit"));
+    }
+    Ok(())
+}
+
+fn draft_error(code: &'static str) -> AppError {
+    AppError::Validation(vec![Diagnostic::error(
+        code,
+        "Skill draft is invalid or exceeds its bounded resource limits.",
+    )])
 }
 
 /// Outcome of a committed revision: the stored record plus the new head set.
@@ -289,6 +552,7 @@ impl SaveRevisionRequest {
 pub struct SaveRevisionResult {
     revision: RevisionRecord,
     new_heads: Vec<RevisionId>,
+    no_op: bool,
 }
 
 impl SaveRevisionResult {
@@ -296,6 +560,15 @@ impl SaveRevisionResult {
         Self {
             revision,
             new_heads,
+            no_op: false,
+        }
+    }
+
+    pub fn no_op(revision: RevisionRecord, heads: Vec<RevisionId>) -> Self {
+        Self {
+            revision,
+            new_heads: heads,
+            no_op: true,
         }
     }
 
@@ -305,5 +578,9 @@ impl SaveRevisionResult {
 
     pub fn new_heads(&self) -> &[RevisionId] {
         &self.new_heads
+    }
+
+    pub fn is_no_op(&self) -> bool {
+        self.no_op
     }
 }
