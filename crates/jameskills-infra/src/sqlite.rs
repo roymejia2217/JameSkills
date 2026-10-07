@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MIGRATIONS: [(u32, &str); 3] = [
+const MIGRATIONS: [(u32, &str); 4] = [
     (1, include_str!("../migrations/001_library.sql")),
     (2, include_str!("../migrations/002_operations.sql")),
     (3, include_str!("../migrations/003_sync.sql")),

@@ -369,9 +369,12 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 /// Persistent library storage seam. Only the operations the storage actor
 /// implements today are exposed; snapshot merge and the remaining DTOs
 /// arrive with their providers instead of as placeholders.
+#[async_trait::async_trait]
 pub trait StoragePort: Send + Sync {
     /// Schema version recorded in the backing store.
     fn schema_version(&self) -> AppResult<u32>;
     /// Verifies the backing store is readable and internally consistent.
     fn check_integrity(&self) -> AppResult<()>;
+    /// Reads one bounded page of catalog metadata; adapters must not load blobs.
+    async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage>;
 }
