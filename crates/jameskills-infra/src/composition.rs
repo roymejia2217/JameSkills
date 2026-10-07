@@ -1,3 +1,4 @@
+use crate::sqlite::SqliteStore;
 use crate::{
     fs::LocalFileSystem,
     platform::{PlatformFacts, UserDirectories},
@@ -11,7 +12,7 @@ use jameskills_core::{
         GuidanceFactObservation, GuidanceFacts, Requirement,
         policy::{ApplicabilityFact, CheckEvidence, CheckObservation},
     },
-    ports::ClockPort,
+    ports::{ClockPort, StoragePort},
 };
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, sync::Arc, time::Instant};
@@ -145,9 +146,12 @@ impl GuidanceFactsProvider for SystemGuidanceFactsProvider {
 }
 
 /// Build the available runtime adapters after validating caller-supplied paths.
-/// This function does not create directories or initialize unimplemented services.
+/// Opening the persistent library creates the data directory/database as needed.
 pub fn build_services(directories: UserDirectories) -> AppResult<RuntimeServices> {
     validate_directories(&directories)?;
+    let storage: Arc<dyn StoragePort> = Arc::new(SqliteStore::open(
+        &directories.data.join("library.sqlite3"),
+    )?);
     let facts = PlatformFacts::detect();
     let clock = Arc::new(SystemClock::new());
     let policy_clock: Arc<dyn ClockPort> = clock.clone();
@@ -168,7 +172,7 @@ pub fn build_services(directories: UserDirectories) -> AppResult<RuntimeServices
         facts,
         directories,
         clock: clock.clone(),
-        library: Arc::new(LibraryService::new(Arc::new(LocalFileSystem))),
+        library: Arc::new(LibraryService::new(Arc::new(LocalFileSystem)).with_storage(storage)),
         policy,
         guidance,
     })

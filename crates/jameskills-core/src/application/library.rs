@@ -10,11 +10,33 @@ use std::sync::Arc;
 /// this service validates imports through the filesystem port and pure domain.
 pub struct LibraryService {
     filesystem: Arc<dyn FileSystemPort>,
+    storage: Option<Arc<dyn crate::ports::StoragePort>>,
 }
 
 impl LibraryService {
     pub fn new(filesystem: Arc<dyn FileSystemPort>) -> Self {
-        Self { filesystem }
+        Self { filesystem, storage: None }
+    }
+
+    pub fn with_storage(mut self, storage: Arc<dyn crate::ports::StoragePort>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    fn storage(&self) -> crate::AppResult<&dyn crate::ports::StoragePort> {
+        self.storage
+            .as_deref()
+            .ok_or_else(|| crate::AppError::CapabilityUnavailable {
+                id: "library.storage.unavailable".to_owned(),
+                guidance_id: "library.storage.setup".to_owned(),
+            })
+    }
+
+    pub async fn list_skills(
+        &self,
+        query: crate::ports::LibraryQuery,
+    ) -> crate::AppResult<crate::ports::LibraryPage> {
+        self.storage()?.list_skills(query).await
     }
 
     pub fn validate_import(&self, root: &Path) -> Result<ValidatedBundle, Vec<Diagnostic>> {
