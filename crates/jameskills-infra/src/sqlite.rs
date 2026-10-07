@@ -608,16 +608,18 @@ fn observed_heads_json(heads: &[RevisionId]) -> String {
     out
 }
 
+#[async_trait::async_trait]
 impl StoragePort for SqliteStore {
     fn schema_version(&self) -> AppResult<u32> {
-    async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage> {
-        self.list_skills_async(query).await
-    }
         SqliteStore::schema_version(self)
     }
 
     fn check_integrity(&self) -> AppResult<()> {
         SqliteStore::check_integrity(self)
+    }
+
+    async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage> {
+        self.list_skills_async(query).await
     }
 }
 
