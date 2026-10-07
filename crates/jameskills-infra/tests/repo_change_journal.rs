@@ -3,7 +3,8 @@ use jameskills_core::{
     AppError, AppResult,
     domain::{RepoChangePlan, RepoTemplateId, policy::RepositoryHead},
     ports::{
-        ClockPort, OperationJournalPort, RepoChangeJournal, RepoChangeJournalState,
+        ClockPort, CURRENT_SCHEMA_VERSION, OperationJournalPort, RepoChangeJournal,
+        RepoChangeJournalState,
         process::{ApprovedRoot, ProcessOutput, ProcessPort, ProcessSpec},
     },
 };
@@ -108,7 +109,7 @@ fn duplicate_operation_id_is_conflict_and_does_not_replace_the_original_journal(
     let loaded = store.load_operation(operation_id).unwrap().unwrap();
     assert_eq!(loaded.state(), RepoChangeJournalState::Planned);
     assert_eq!(loaded.updated_at(), "2026-10-05T12:00:00Z");
-    assert_eq!(store.schema_version().unwrap(), 6);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
 }
 
 #[test]
