@@ -1,7 +1,9 @@
 use jameskills_core::{
     SkillId,
+    domain::{RevisionKind, SaveRevisionRequest, validate_bundle},
     ports::{LibraryCursor, LibraryHistoryQuery, LibraryItemState, LibraryQuery},
 };
+use std::collections::BTreeMap;
 
 #[test]
 fn library_query_trims_casefolds_and_deduplicates_filters() {
@@ -66,4 +68,64 @@ fn library_history_pages_are_bounded() {
     assert!(LibraryHistoryQuery::new(id, None, 0).is_err());
     assert!(LibraryHistoryQuery::new(id, None, 101).is_err());
     assert!(LibraryHistoryQuery::new(id, None, 100).is_ok());
+}
+
+#[test]
+fn revision_catalog_filters_come_from_the_exact_validated_bundle() {
+    let files: BTreeMap<_, _> = [
+        (
+            "SKILL.md",
+            include_bytes!("../../../docs/examples/repository-foundation/SKILL.md").as_slice(),
+        ),
+        (
+            "jameskills.toml",
+            include_bytes!("../../../docs/examples/repository-foundation/jameskills.toml")
+                .as_slice(),
+        ),
+        (
+            "policies/repository.toml",
+            include_bytes!("../../../docs/examples/repository-foundation/policies/repository.toml")
+                .as_slice(),
+        ),
+        (
+            "guidance/repository.toml",
+            include_bytes!("../../../docs/examples/repository-foundation/guidance/repository.toml")
+                .as_slice(),
+        ),
+    ]
+    .into_iter()
+    .map(|(path, bytes)| {
+        (
+            jameskills_core::domain::PortablePath::new(path.to_owned()).unwrap(),
+            bytes.to_vec(),
+        )
+    })
+    .collect();
+    let bundle = validate_bundle(&files).unwrap();
+    let request = SaveRevisionRequest::new(
+        bundle.manifest().id(),
+        Some(bundle.content_hash().clone()),
+        vec![],
+        RevisionKind::Content,
+        bundle.manifest().version().to_string(),
+        bundle.manifest().schema_version(),
+        vec![],
+    )
+    .with_validated_bundle(&bundle)
+    .unwrap();
+
+    assert_eq!(request.catalog_tags(), &["ci", "git", "security"]);
+    assert!(request.catalog_capabilities().is_empty());
+
+    let tampered_hash = jameskills_core::domain::ContentHash::from_digest([0x55; 32]);
+    let mismatched = SaveRevisionRequest::new(
+        bundle.manifest().id(),
+        Some(tampered_hash),
+        vec![],
+        RevisionKind::Content,
+        bundle.manifest().version().to_string(),
+        bundle.manifest().schema_version(),
+        vec![],
+    );
+    assert!(mismatched.with_validated_bundle(&bundle).is_err());
 }

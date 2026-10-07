@@ -185,6 +185,8 @@ pub struct SaveRevisionRequest {
     semantic_version: String,
     schema_version: u32,
     expected_heads: Vec<RevisionId>,
+    catalog_tags: Vec<String>,
+    catalog_capabilities: Vec<String>,
 }
 
 impl SaveRevisionRequest {
@@ -205,7 +207,44 @@ impl SaveRevisionRequest {
             semantic_version,
             schema_version,
             expected_heads,
+            catalog_tags: Vec::new(),
+            catalog_capabilities: Vec::new(),
         }
+    }
+
+    /// Binds catalog filters to metadata from the same validated bundle bytes
+    /// that this content revision publishes.
+    pub fn with_validated_bundle(mut self, bundle: &ValidatedBundle) -> AppResult<Self> {
+        let manifest = bundle.manifest();
+        if !matches!(&self.kind, RevisionKind::Content)
+            || self.skill_id != manifest.id()
+            || self.bundle_hash.as_ref() != Some(bundle.content_hash())
+            || self.semantic_version != manifest.version().to_string()
+            || self.schema_version != manifest.schema_version()
+        {
+            return Err(AppError::Validation(vec![Diagnostic::error(
+                "revision.bundle.metadata_mismatch",
+                "Catalog metadata must come from the exact validated content revision.",
+            )]));
+        }
+        let normalize_values = |values: &[String]| {
+            let mut normalized = values
+                .iter()
+                .map(|value| value.trim().chars().flat_map(char::to_lowercase).collect())
+                .collect::<Vec<String>>();
+            normalized.sort();
+            normalized.dedup();
+            normalized
+        };
+        self.catalog_tags = normalize_values(manifest.tags());
+        self.catalog_capabilities = normalize_values(
+            &manifest
+                .capabilities()
+                .iter()
+                .map(|capability| capability.id().to_owned())
+                .collect::<Vec<_>>(),
+        );
+        Ok(self)
     }
 
     pub fn skill_id(&self) -> SkillId {
@@ -234,6 +273,14 @@ impl SaveRevisionRequest {
 
     pub fn expected_heads(&self) -> &[RevisionId] {
         &self.expected_heads
+    }
+
+    pub fn catalog_tags(&self) -> &[String] {
+        &self.catalog_tags
+    }
+
+    pub fn catalog_capabilities(&self) -> &[String] {
+        &self.catalog_capabilities
     }
 }
 
