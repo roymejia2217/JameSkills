@@ -13,6 +13,7 @@ use jameskills_infra::{
     platform::{
         HostPlatform, ToolCandidate, ToolProfile, find_tool_candidates, load_tool_profiles,
     },
+    process::{SystemProcessPort, fingerprint_executable},
 };
 use std::{
     collections::BTreeMap,
@@ -57,6 +58,7 @@ impl Drop for TestRoot {
 #[derive(Clone, Copy)]
 enum Report {
     Clean,
+    CleanWithoutStdout,
     Findings,
     Malformed,
 }
@@ -87,6 +89,11 @@ impl ProcessPort for FakeProcess {
         );
         match self.report {
             Report::Clean => Ok(ProcessOutput::new(Some(0), b"[]".to_vec(), Vec::new())),
+            Report::CleanWithoutStdout => Ok(ProcessOutput::new(
+                Some(0),
+                Vec::new(),
+                b"no findings".to_vec(),
+            )),
             Report::Findings => Ok(ProcessOutput::new(
                 Some(3),
                 include_bytes!("../../../tests/fixtures/repo-policy/gitleaks-findings.json")
@@ -189,6 +196,7 @@ fn scanner(
 fn scanner_stages_exact_validated_bytes_redacts_findings_and_cleans_staging() {
     for (report, expected) in [
         (Report::Clean, ImportScanStatus::NoFindings),
+        (Report::CleanWithoutStdout, ImportScanStatus::NoFindings),
         (Report::Findings, ImportScanStatus::Findings),
         (Report::Malformed, ImportScanStatus::Unknown),
     ] {
@@ -272,5 +280,62 @@ fn imported_gitleaks_ignore_file_blocks_before_process_spawn() {
             .unwrap()
             .next()
             .is_none()
+    );
+}
+
+#[test]
+#[ignore = "executes the explicitly approved Gitleaks binary against the inert fixture only"]
+fn real_gitleaks_scans_validated_fixture_and_cleans_private_staging() {
+    let executable = PathBuf::from(
+        std::env::var_os("JAMESKILLS_GITLEAKS_EXE")
+            .expect("set the explicitly approved absolute Gitleaks executable path"),
+    );
+    let approved_sha256 = std::env::var("JAMESKILLS_GITLEAKS_SHA256")
+        .expect("set the approved lowercase SHA-256 fingerprint");
+    let fingerprint = fingerprint_executable(&executable).expect("fingerprint approved binary");
+    let actual_sha256 = fingerprint
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(actual_sha256, approved_sha256.to_ascii_lowercase());
+
+    let profile = load_tool_profiles()
+        .unwrap()
+        .into_iter()
+        .find(|profile| profile.tool_id() == ToolId::Gitleaks)
+        .unwrap();
+    let parent = executable.parent().expect("absolute executable has parent");
+    let canonical_executable = std::fs::canonicalize(&executable).unwrap();
+    let candidate = find_tool_candidates(
+        std::slice::from_ref(&profile),
+        &[parent.to_path_buf()],
+        HostPlatform::Windows,
+    )
+    .into_iter()
+    .find(|candidate| {
+        candidate
+            .path()
+            .and_then(|path| std::fs::canonicalize(path).ok())
+            .is_some_and(|path| path == canonical_executable)
+    })
+    .expect("approved Gitleaks binary is a registered native candidate");
+
+    let root = TestRoot::new();
+    let staging_root = root.0.join("cache").join("import-scans");
+    let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
+    let scanner = GitleaksImportScanner::new(
+        profile,
+        candidate,
+        Some(fingerprint),
+        &environment,
+        Arc::new(SystemProcessPort),
+        staging_root.clone(),
+    );
+    let result = block_on(scanner.scan(&import_files())).expect("native scanner completes");
+    assert_eq!(result, ImportScanStatus::NoFindings);
+    assert!(
+        std::fs::read_dir(staging_root).unwrap().next().is_none(),
+        "private import staging must be empty after the scan"
     );
 }

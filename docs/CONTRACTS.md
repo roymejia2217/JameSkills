@@ -312,8 +312,10 @@ implementa readme-sections vía AST Markdown bounded, gitignore-patterns con Git
 `check-ignore --no-index -v -z` sobre rutas sintéticas registradas y tracked-secrets
 con Gitleaks redacted/fingerprint-checked. El Gitleaks profile actual escanea el
 working tree solo con Gitleaks 8.30.1, la única versión validada, y un `--config`
-privado app-owned que fuerza `useDefault=true`; la
-config `.gitleaks.toml` del repo no determina las reglas. El staging se limpia al
+privado app-owned que fuerza `useDefault=true`; el JSON de stdout está limitado
+a 64KiB. Un exit limpio con stdout vacío representa un reporte sin findings; las
+formas desconocidas permanecen Unknown. La config `.gitleaks.toml` del repo no
+determina las reglas. El staging se limpia al
 terminar incluso si falla el spawn. Si existe `.gitleaksignore`, el check queda
 Blocked antes de lanzar procesos porque el driver oficial también la aplica desde
 el target y no ofrece un bypass independiente. `include_history=true` devuelve
