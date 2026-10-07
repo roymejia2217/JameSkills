@@ -1123,6 +1123,21 @@ pub fn antigravity_cli_install_candidate(user_home: &Path) -> Option<PathBuf> {
         Some(user_home.join(".local").join("bin").join("agy"))
     }
 }
+
+pub fn grok_home_directory(
+    user_home: &Path,
+    grok_home_override: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let user_home =
+        ApprovedRoot::from_absolute_path(user_home.to_path_buf()).map_err(AppError::Validation)?;
+    match grok_home_override {
+        Some(directory) => ApprovedRoot::from_absolute_path(directory.to_path_buf())
+            .map(|root| root.path().to_path_buf())
+            .map_err(AppError::Validation),
+        None => Ok(user_home.path().join(".grok")),
+    }
+}
+
 impl PlatformFacts {
     pub fn detect() -> Self {
         detect_from(

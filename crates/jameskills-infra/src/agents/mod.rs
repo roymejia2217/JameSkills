@@ -4,6 +4,7 @@ mod common;
 mod registry;
 pub mod codex;
 pub mod antigravity;
+pub mod grok;
 pub mod opencode;
 pub mod pi;
 
