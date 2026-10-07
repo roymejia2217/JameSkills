@@ -3198,6 +3198,28 @@ pub struct LocalRepoChangePort {
     clock: Arc<dyn ClockPort>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepoChangeRecoveryStatus {
+    Committed,
+    Recovered,
+    Conflict,
+}
+
+pub struct RepoChangeRecovery {
+    operation_id: OperationId,
+    status: RepoChangeRecoveryStatus,
+}
+
+impl RepoChangeRecovery {
+    pub fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
+
+    pub fn status(&self) -> RepoChangeRecoveryStatus {
+        self.status
+    }
+}
+
 impl LocalRepoChangePort {
     pub fn new(
         process: Arc<dyn ProcessPort>,
@@ -3209,6 +3231,262 @@ impl LocalRepoChangePort {
             journals,
             clock,
         }
+    }
+
+    pub fn recover_pending(&self) -> AppResult<Vec<RepoChangeRecovery>> {
+        let pending = self.journals.pending_operations()?;
+        pending
+            .iter()
+            .map(|journal| {
+                let status = self.recover_operation(journal)?;
+                Ok(RepoChangeRecovery {
+                    operation_id: journal.operation_id(),
+                    status,
+                })
+            })
+            .collect()
+    }
+
+    fn recover_operation(
+        &self,
+        journal: &RepoChangeJournal,
+    ) -> AppResult<RepoChangeRecoveryStatus> {
+        let Ok((canonical_root, root_directory)) = open_repository_root(journal.root()) else {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        };
+        if repository_root_fingerprint(journal.root()).ok().as_ref()
+            != Some(journal.root_fingerprint())
+        {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        let parent = match open_rooted_repo_change_parent(
+            &root_directory,
+            &canonical_root,
+            journal.target(),
+        ) {
+            Ok(Some(parent)) => parent,
+            Ok(None) => return self.recover_missing_parent(journal),
+            Err(_) => return Ok(RepoChangeRecoveryStatus::Conflict),
+        };
+        let target_name = portable_file_name(journal.target())?;
+        let staging_name = portable_file_name(journal.staging_target())?;
+        let target =
+            read_rooted_repo_change_document(&root_directory, &canonical_root, journal.target());
+        let staging = read_rooted_repo_change_document(
+            &root_directory,
+            &canonical_root,
+            journal.staging_target(),
+        );
+        if matches!(&target, ReadmeFile::Blocked) || matches!(&staging, ReadmeFile::Blocked) {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        let target_hash = match &target {
+            ReadmeFile::Bytes(bytes) => {
+                Some(ContentHash::from_digest(Sha256::digest(bytes).into()))
+            }
+            ReadmeFile::Missing | ReadmeFile::Blocked => None,
+        };
+        let staging_hash = match &staging {
+            ReadmeFile::Bytes(bytes) => {
+                Some(ContentHash::from_digest(Sha256::digest(bytes).into()))
+            }
+            ReadmeFile::Missing | ReadmeFile::Blocked => None,
+        };
+        let target_owned = target_hash.as_ref() == Some(journal.proposed_hash());
+        let staging_owned = staging_hash.as_ref() == Some(journal.proposed_hash());
+        let target_missing = matches!(target, ReadmeFile::Missing);
+        let staging_missing = matches!(staging, ReadmeFile::Missing);
+        let linked_pair = target_owned
+            && staging_owned
+            && rooted_files_share_identity(&parent, staging_name, target_name);
+        match journal.state() {
+            RepoChangeJournalState::Planned | RepoChangeJournalState::Approved
+                if target_missing && staging_missing =>
+            {
+                self.advance_journal(
+                    journal.operation_id(),
+                    journal.state(),
+                    RepoChangeJournalState::Failed,
+                )?;
+                Ok(RepoChangeRecoveryStatus::Recovered)
+            }
+            RepoChangeJournalState::Planned | RepoChangeJournalState::Approved => {
+                Ok(RepoChangeRecoveryStatus::Conflict)
+            }
+            RepoChangeJournalState::Staged if linked_pair => {
+                self.finish_recovered_commit(journal, &root_directory, &canonical_root, &parent)
+            }
+            RepoChangeJournalState::CommitPending if linked_pair => {
+                self.finish_recovered_commit(journal, &root_directory, &canonical_root, &parent)
+            }
+            RepoChangeJournalState::NewMoved | RepoChangeJournalState::Verified
+                if target_owned && (staging_owned || staging_missing) =>
+            {
+                self.finish_recovered_commit(journal, &root_directory, &canonical_root, &parent)
+            }
+            RepoChangeJournalState::Staged
+            | RepoChangeJournalState::CommitPending
+            | RepoChangeJournalState::NewMoved
+            | RepoChangeJournalState::Verified
+            | RepoChangeJournalState::RollbackPending
+                if target_missing && (staging_owned || staging_missing) =>
+            {
+                self.finish_recovered_rollback(journal, &root_directory, &canonical_root, &parent)
+            }
+            _ => Ok(RepoChangeRecoveryStatus::Conflict),
+        }
+    }
+
+    fn recover_missing_parent(
+        &self,
+        journal: &RepoChangeJournal,
+    ) -> AppResult<RepoChangeRecoveryStatus> {
+        match journal.state() {
+            RepoChangeJournalState::Planned | RepoChangeJournalState::Approved => {
+                self.advance_journal(
+                    journal.operation_id(),
+                    journal.state(),
+                    RepoChangeJournalState::Failed,
+                )?;
+            }
+            state if state != RepoChangeJournalState::RollbackPending => {
+                if !state.allows_transition(RepoChangeJournalState::RollbackPending) {
+                    return Ok(RepoChangeRecoveryStatus::Conflict);
+                }
+                self.advance_journal(
+                    journal.operation_id(),
+                    state,
+                    RepoChangeJournalState::RollbackPending,
+                )?;
+            }
+            RepoChangeJournalState::RollbackPending => {}
+            _ => return Ok(RepoChangeRecoveryStatus::Conflict),
+        }
+        if journal.state() != RepoChangeJournalState::Planned
+            && journal.state() != RepoChangeJournalState::Approved
+        {
+            self.advance_journal(
+                journal.operation_id(),
+                RepoChangeJournalState::RollbackPending,
+                RepoChangeJournalState::Recovered,
+            )?;
+        }
+        Ok(RepoChangeRecoveryStatus::Recovered)
+    }
+
+    fn finish_recovered_rollback(
+        &self,
+        journal: &RepoChangeJournal,
+        root: &RootedDir,
+        canonical_root: &Path,
+        parent: &RootedDir,
+    ) -> AppResult<RepoChangeRecoveryStatus> {
+        if journal.state() != RepoChangeJournalState::RollbackPending {
+            self.advance_journal(
+                journal.operation_id(),
+                journal.state(),
+                RepoChangeJournalState::RollbackPending,
+            )?;
+        }
+        let staging_name = portable_file_name(journal.staging_target())?;
+        match remove_rooted_repo_change_stage(
+            root,
+            canonical_root,
+            parent,
+            staging_name,
+            journal.staging_target(),
+            journal.proposed_hash(),
+        ) {
+            Ok(()) => {}
+            Err(AppError::Conflict { .. } | AppError::PermissionDenied { .. }) => {
+                return Ok(RepoChangeRecoveryStatus::Conflict);
+            }
+            Err(error) => return Err(error),
+        }
+        if !matches!(
+            read_rooted_repo_change_document(root, canonical_root, journal.target()),
+            ReadmeFile::Missing
+        ) {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        self.advance_journal(
+            journal.operation_id(),
+            RepoChangeJournalState::RollbackPending,
+            RepoChangeJournalState::Recovered,
+        )?;
+        Ok(RepoChangeRecoveryStatus::Recovered)
+    }
+
+    fn finish_recovered_commit(
+        &self,
+        journal: &RepoChangeJournal,
+        root: &RootedDir,
+        canonical_root: &Path,
+        parent: &RootedDir,
+    ) -> AppResult<RepoChangeRecoveryStatus> {
+        if !matches!(
+            read_rooted_repo_change_document(root, canonical_root, journal.target()),
+            ReadmeFile::Bytes(bytes)
+                if ContentHash::from_digest(Sha256::digest(&bytes).into()) == *journal.proposed_hash()
+        ) {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        let mut state = journal.state();
+        if state == RepoChangeJournalState::Staged {
+            self.advance_journal(
+                journal.operation_id(),
+                state,
+                RepoChangeJournalState::CommitPending,
+            )?;
+            state = RepoChangeJournalState::CommitPending;
+        }
+        if state == RepoChangeJournalState::CommitPending {
+            self.advance_journal(
+                journal.operation_id(),
+                state,
+                RepoChangeJournalState::NewMoved,
+            )?;
+            state = RepoChangeJournalState::NewMoved;
+        }
+        if state == RepoChangeJournalState::NewMoved {
+            self.advance_journal(
+                journal.operation_id(),
+                state,
+                RepoChangeJournalState::Verified,
+            )?;
+            state = RepoChangeJournalState::Verified;
+        }
+        if state != RepoChangeJournalState::Verified {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        let staging_name = portable_file_name(journal.staging_target())?;
+        match remove_rooted_repo_change_stage(
+            root,
+            canonical_root,
+            parent,
+            staging_name,
+            journal.staging_target(),
+            journal.proposed_hash(),
+        ) {
+            Ok(()) => {}
+            Err(AppError::Conflict { .. } | AppError::PermissionDenied { .. }) => {
+                return Ok(RepoChangeRecoveryStatus::Conflict);
+            }
+            Err(error) => return Err(error),
+        }
+        if !matches!(
+            read_rooted_repo_change_document(root, canonical_root, journal.target()),
+            ReadmeFile::Bytes(bytes)
+                if ContentHash::from_digest(Sha256::digest(&bytes).into()) == *journal.proposed_hash()
+        ) {
+            return Ok(RepoChangeRecoveryStatus::Conflict);
+        }
+        self.advance_journal(
+            journal.operation_id(),
+            RepoChangeJournalState::Verified,
+            RepoChangeJournalState::Committed,
+        )?;
+        Ok(RepoChangeRecoveryStatus::Committed)
     }
 }
 
@@ -3595,6 +3873,22 @@ fn remove_rooted_repo_change_stage(
         }
         ReadmeFile::Bytes(_) | ReadmeFile::Blocked => Err(AppError::Conflict { current: vec![] }),
     }
+}
+
+fn rooted_files_share_identity(parent: &RootedDir, left: &str, right: &str) -> bool {
+    let Ok(left) = parent.open(left) else {
+        return false;
+    };
+    let Ok(right) = parent.open(right) else {
+        return false;
+    };
+    let Ok(left) = same_file::Handle::from_file(left.into_std()) else {
+        return false;
+    };
+    let Ok(right) = same_file::Handle::from_file(right.into_std()) else {
+        return false;
+    };
+    left == right
 }
 
 fn test_suite_manifest_fingerprint(root: &Path) -> AppResult<ContentHash> {

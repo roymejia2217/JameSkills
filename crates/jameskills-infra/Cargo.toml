@@ -13,6 +13,7 @@ directories = "=6.0.0"
 jameskills-core = { path = "../jameskills-core" }
 markdown = "=1.0.0"
 semver = { version = "=1.0.28", features = ["serde"] }
+same-file = "=1.0.6"
 sha2 = "=0.10.9"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-saphyr = { version = "=1.3.0", default-features = false, features = ["deserialize"] }

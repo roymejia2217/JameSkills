@@ -3678,6 +3678,7 @@ dependencies = [
  "jameskills-infra",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3717,6 +3718,7 @@ dependencies = [
  "jameskills-core",
  "markdown",
  "rusqlite",
+ "same-file",
  "semver",
  "serde",
  "serde-saphyr",
