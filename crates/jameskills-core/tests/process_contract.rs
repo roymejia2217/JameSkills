@@ -1,8 +1,8 @@
 use jameskills_core::{
-    domain::ToolId,
+    domain::{AgentId, ToolId},
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
-        ProcessPermission, ProcessSpec,
+        ProcessIdentity, ProcessPermission, ProcessSpec,
     },
 };
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, time::Duration};
@@ -138,4 +138,28 @@ fn process_spec_carries_the_explicitly_approved_executable_fingerprint() {
 
     assert!(spec.approved_executable_fingerprint() == Some(&fingerprint));
     assert_eq!(fingerprint.as_bytes(), &[0x42; 32]);
+}
+
+#[test]
+fn agent_process_identity_stays_separate_from_policy_tool_ids() {
+    let spec = ProcessSpec::new_for_agent(
+        approved_executable(),
+        AgentId::Codex,
+        vec![OsString::from("--version")],
+        approved_root(),
+        ApprovedEnv::new(BTreeMap::new()).unwrap(),
+        Duration::from_secs(2),
+        4096,
+        ProcessPermission::ReadOnlyCheck,
+        CancellationToken::new(),
+    )
+    .unwrap();
+
+    assert!(spec.process_identity() == ProcessIdentity::Agent(AgentId::Codex));
+    assert!(spec.tool_id().is_none());
+    assert_eq!(spec.args(), [OsString::from("--version")]);
+    assert!(matches!(
+        spec.permission(),
+        ProcessPermission::ReadOnlyCheck
+    ));
 }

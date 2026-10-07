@@ -5,8 +5,8 @@ use jameskills_core::{
     domain::ToolId,
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
-        ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec, RepositoryFacts,
-        RepositoryState,
+        ProcessIdentity, ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec,
+        RepositoryFacts, RepositoryState,
     },
 };
 use sha2::{Digest, Sha256};
@@ -339,7 +339,7 @@ fn repository_facts_error(code: &'static str) -> AppError {
 #[async_trait]
 impl ProcessPort for SystemProcessPort {
     async fn run(&self, spec: ProcessSpec) -> AppResult<ProcessOutput> {
-        let tool_id = tool_id_name(spec.tool_id()).to_owned();
+        let tool_id = process_identity_name(spec.process_identity()).to_owned();
         tokio::task::spawn_blocking(move || run_blocking(spec))
             .await
             .unwrap_or_else(|_| Err(external_error(&tool_id, None)))
@@ -347,7 +347,7 @@ impl ProcessPort for SystemProcessPort {
 }
 
 fn run_blocking(spec: ProcessSpec) -> AppResult<ProcessOutput> {
-    let tool_id = tool_id_name(spec.tool_id()).to_owned();
+    let tool_id = process_identity_name(spec.process_identity()).to_owned();
     match spec.permission() {
         ProcessPermission::ReadOnlyCheck | ProcessPermission::ExplicitMutation(_) => {}
     }
@@ -545,6 +545,13 @@ fn tool_id_name(tool_id: ToolId) -> &'static str {
         ToolId::Rustc => "rustc",
         ToolId::CargoAudit => "cargo-audit",
         ToolId::CargoDeny => "cargo-deny",
+    }
+}
+
+fn process_identity_name(identity: ProcessIdentity) -> &'static str {
+    match identity {
+        ProcessIdentity::Tool(tool_id) => tool_id_name(tool_id),
+        ProcessIdentity::Agent(agent_id) => agent_id.as_str(),
     }
 }
 
