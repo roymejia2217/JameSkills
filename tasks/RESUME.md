@@ -3,11 +3,11 @@
 Fecha UTC: 2026-10-07
 Rama / commit observado: `feat/skill-library` / `96d9039` (parent de esta actualización).
 Base: `main`=`caa9a23`, merge squash de PR #21.
-PR / CI remota conocida: PR #22 está OPEN y listo para review, base `main`, head `c976f02`; CI y Governance están SUCCESS solo para ese SHA. PR #25 head `8ce5863` tiene todos los checks SUCCESS; PR #26 head `0061f84` también tiene todos los checks SUCCESS. PR draft #27 está OPEN, base `feat/agent-adapters`, head `96d9039`; CI está en curso. La rama `feat/t020-commit-test-checks` local se restauró al remoto `c976f02`.
+PR / CI remota conocida: PR #22 está OPEN y listo para review, base `main`, head `c976f02`; CI y Governance están SUCCESS solo para ese SHA. PR #25 head `8ce5863` y PR #26 head `0061f84` tienen todos los checks SUCCESS. PR draft #27 está OPEN, base `feat/agent-adapters`, head `44c2d72`; Governance SUCCESS; aún no hay resultado CI reportado para este draft. La rama `feat/t020-commit-test-checks` local se restauró al remoto `c976f02`.
 
 ## C013/T039–T041 comprometidos; T042.e espera scanner nativo aprobado
 
-- Estado comprobado antes de esta actualización: rama `feat/skill-library`, PR #27 draft con base `feat/agent-adapters`, sin cambios de código sin confirmar. La biblioteca quedó organizada en commits funcionales por modelos, contratos/provider SQLite, casos de uso, filesystem/scanner, CLI, pruebas y docs; ver log desde `a80f8db`. Head observado `96d9039`.
+- Estado comprobado antes de esta actualización: rama `feat/skill-library`, PR #27 draft con base `feat/agent-adapters`, sin cambios de código sin confirmar. La biblioteca quedó organizada en commits funcionales por modelos, contratos/provider SQLite, casos de uso, filesystem/scanner, CLI, pruebas y docs; ver log desde `a80f8db`. Head observado `44c2d72`.
 - T020 ya estaba marcada completa en `tasks/todo.md`; PR #22 fue cambiada de draft a ready-for-review. La rama local `feat/t020-commit-test-checks` volvió a `origin/feat/t020-commit-test-checks` (`c976f02`), evitando mezclar trabajo posterior en su PR.
 - Durante la corrección de los PRs apilados, #25 reveló lockfile obsoleto, import faltante de `AtomicBool` y una expectativa de schema fijada al futuro. Se corrigieron y comprometieron en #25: `a896e43`, `ac9938f`, `26c7682`, `8ce5863`; el pre-push completo pasó con `CARGO_BUILD_JOBS=1`. PR #26 se sincronizó con esa base y con rustfmt en `0061f84`; su pre-push completo pasó también.
 - T023.src `bd78191`, T023.a/b `db5df25`, T023.c `0989248`: rules efectivas/classic protection, bypass tri-state, PR/check contexts y `RequiredCi` solo con regla host activa y resultado successful del SHA local exacto; respeta `integration_id`/`app_id`.
