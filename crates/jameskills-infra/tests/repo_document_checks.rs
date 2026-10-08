@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use jameskills_core::{
     AppError, PortablePath,
-    application::policy::{CheckContext, CheckRequest, PolicyService},
+    application::policy::{CheckContext, CheckRequest, PolicyCheckProvider, PolicyService},
     domain::{
         ToolId,
         policy::{CheckObservation, CheckStatus, parse_policy},
@@ -20,6 +20,7 @@ use jameskills_infra::{
     platform::{
         HostPlatform, ToolCandidate, ToolProfile, find_tool_candidates, load_tool_profiles,
     },
+    process::{SystemProcessPort, fingerprint_executable},
 };
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -764,4 +765,104 @@ include_history = false
     );
     assert_eq!(report.strict_exit(), 0);
     assert_eq!(process.invocations.lock().unwrap().len(), 5);
+}
+
+#[test]
+#[ignore = "executes the explicitly approved Gitleaks binary against a clean temporary repository fixture"]
+fn real_gitleaks_repository_policy_check_passes_on_an_isolated_root() {
+    let executable = PathBuf::from(
+        std::env::var_os("JAMESKILLS_GITLEAKS_EXE")
+            .expect("set the explicitly approved absolute Gitleaks executable path"),
+    );
+    let approved_sha256 = std::env::var("JAMESKILLS_GITLEAKS_SHA256")
+        .expect("set the approved lowercase SHA-256 fingerprint");
+    let fingerprint = fingerprint_executable(&executable).expect("fingerprint Gitleaks binary");
+    let actual_sha256 = fingerprint
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(actual_sha256, approved_sha256);
+
+    let profiles = load_tool_profiles().unwrap();
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.tool_id() == ToolId::Gitleaks)
+        .unwrap();
+    let canonical_executable = std::fs::canonicalize(&executable).unwrap();
+    let parent = canonical_executable.parent().unwrap();
+    let platform = if cfg!(windows) {
+        HostPlatform::Windows
+    } else {
+        HostPlatform::Linux
+    };
+    let candidate = find_tool_candidates(
+        std::slice::from_ref(profile),
+        &[parent.to_path_buf()],
+        platform,
+    )
+    .into_iter()
+    .find(|candidate| {
+        candidate
+            .path()
+            .and_then(|path| std::fs::canonicalize(path).ok())
+            .is_some_and(|path| path == canonical_executable)
+    })
+    .expect("selected executable matches the registered native Gitleaks candidate");
+    assert_eq!(
+        candidate.kind(),
+        jameskills_infra::platform::ToolCandidateKind::NativeExecutable
+    );
+
+    let root = TestRoot::new();
+    std::fs::write(
+        root.0.join("README.md"),
+        include_str!("../../../tests/fixtures/repo-policy/README.md"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.0.join(".gitignore"),
+        include_str!("../../../tests/fixtures/repo-policy/.gitignore"),
+    )
+    .unwrap();
+    let gitleaks = ApprovedRepositoryTool::new(
+        ApprovedExecutable::from_absolute_path(canonical_executable).unwrap(),
+        fingerprint,
+    );
+    let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
+    let provider = RepositoryPolicyCheckProvider::new(
+        root.approved(),
+        None,
+        Some(gitleaks),
+        environment,
+        Arc::new(SystemProcessPort),
+        Arc::new(RepoCheckClock),
+        ENVIRONMENT.to_owned(),
+    );
+    let policy = parse_policy(include_bytes!(
+        "../../../examples/repository-foundation/policies/repository.toml"
+    ))
+    .unwrap();
+    let requirement = policy
+        .requirements()
+        .iter()
+        .find(|requirement| requirement.id() == "no-tracked-secrets")
+        .unwrap();
+    let observation = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(provider.observe(requirement))
+        .expect("native Gitleaks provider completes on the isolated root");
+
+    assert_eq!(observation.status(), CheckStatus::Pass);
+    assert!(matches!(
+        observation.enforcement(),
+        Some(jameskills_core::domain::policy::Enforcement::LocalCheck)
+    ));
+    assert_eq!(observation.evidence().len(), 1);
+    assert_eq!(observation.evidence()[0].source_id(), "tool.gitleaks.scan");
+    assert_eq!(
+        observation.evidence()[0].summary(),
+        "Gitleaks 8.30.1 checked current tree; history excluded; JSON cap 65536 bytes."
+    );
 }

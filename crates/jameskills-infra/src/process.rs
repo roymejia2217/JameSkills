@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use command_group::CommandGroup;
 use jameskills_core::{
     AppError, AppResult,
-    domain::ToolId,
+    domain::{ToolId, policy::RepositoryHead},
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, CancellationToken, ExecutableFingerprint,
         ProcessIdentity, ProcessOutput, ProcessPermission, ProcessPort, ProcessSpec,
@@ -78,9 +78,15 @@ pub fn fingerprint_executable(path: &Path) -> AppResult<ExecutableFingerprint> {
 pub async fn collect_repository_facts(
     root: &Path,
     executable: &ApprovedExecutable,
+    approved_fingerprint: ExecutableFingerprint,
     environment: &ApprovedEnv,
     process: &dyn ProcessPort,
 ) -> AppResult<RepositoryFacts> {
+    if fingerprint_executable(executable.path())? != approved_fingerprint {
+        return Err(repository_facts_error(
+            "repository.git.fingerprint.mismatch",
+        ));
+    }
     let root = std::fs::canonicalize(root).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             AppError::NotFound
@@ -96,6 +102,7 @@ pub async fn collect_repository_facts(
     let version = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["--version"],
@@ -109,6 +116,7 @@ pub async fn collect_repository_facts(
     let inside = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["rev-parse", "--is-inside-work-tree"],
@@ -120,6 +128,7 @@ pub async fn collect_repository_facts(
             None,
             git_version,
             None,
+            None,
             RepositoryState::NotRepository,
             false,
             false,
@@ -129,6 +138,7 @@ pub async fn collect_repository_facts(
         let bare = run_git(
             process,
             executable,
+            approved_fingerprint,
             &approved_root,
             environment,
             &["rev-parse", "--is-bare-repository"],
@@ -145,6 +155,7 @@ pub async fn collect_repository_facts(
             None,
             git_version,
             None,
+            None,
             state,
             false,
             false,
@@ -154,6 +165,7 @@ pub async fn collect_repository_facts(
     let bare = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["rev-parse", "--is-bare-repository"],
@@ -166,6 +178,7 @@ pub async fn collect_repository_facts(
             None,
             git_version,
             None,
+            None,
             RepositoryState::Bare,
             false,
             false,
@@ -175,6 +188,7 @@ pub async fn collect_repository_facts(
     let top_level_output = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["rev-parse", "--show-toplevel"],
@@ -189,6 +203,7 @@ pub async fn collect_repository_facts(
     let branch_output = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -204,9 +219,30 @@ pub async fn collect_repository_facts(
         _ => return Err(external_error("git", branch_output.exit_code())),
     };
 
+    let head_output = run_git(
+        process,
+        executable,
+        approved_fingerprint,
+        &approved_root,
+        environment,
+        &["rev-parse", "--verify", "--quiet", "HEAD"],
+    )
+    .await?;
+    let head = match head_output.exit_code() {
+        Some(0) => {
+            let value = read_text_line(&head_output)
+                .filter(|line| !line.is_empty())
+                .ok_or_else(|| repository_facts_error("repository.head.invalid"))?;
+            Some(RepositoryHead::parse(&value).map_err(AppError::Validation)?)
+        }
+        Some(1) => None,
+        _ => return Err(external_error("git", head_output.exit_code())),
+    };
+
     let git_dir = read_git_directory(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         "--git-dir",
@@ -216,6 +252,7 @@ pub async fn collect_repository_facts(
     let common_dir = read_git_directory(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         "--git-common-dir",
@@ -225,6 +262,7 @@ pub async fn collect_repository_facts(
     let superproject = run_git(
         process,
         executable,
+        approved_fingerprint,
         &approved_root,
         environment,
         &["rev-parse", "--show-superproject-working-tree"],
@@ -238,6 +276,7 @@ pub async fn collect_repository_facts(
         Some(top_level),
         git_version,
         branch.clone(),
+        head,
         if branch.is_some() {
             RepositoryState::Attached
         } else {
@@ -251,6 +290,7 @@ pub async fn collect_repository_facts(
 async fn run_git(
     process: &dyn ProcessPort,
     executable: &ApprovedExecutable,
+    approved_fingerprint: ExecutableFingerprint,
     cwd: &ApprovedRoot,
     environment: &ApprovedEnv,
     args: &[&str],
@@ -272,13 +312,15 @@ async fn run_git(
         ProcessPermission::ReadOnlyCheck,
         CancellationToken::new(),
     )
-    .map_err(AppError::Validation)?;
+    .map_err(AppError::Validation)?
+    .with_approved_executable_fingerprint(approved_fingerprint);
     process.run(spec).await
 }
 
 async fn read_git_directory(
     process: &dyn ProcessPort,
     executable: &ApprovedExecutable,
+    approved_fingerprint: ExecutableFingerprint,
     cwd: &ApprovedRoot,
     environment: &ApprovedEnv,
     argument: &str,
@@ -287,6 +329,7 @@ async fn read_git_directory(
     let output = run_git(
         process,
         executable,
+        approved_fingerprint,
         cwd,
         environment,
         &["rev-parse", argument],

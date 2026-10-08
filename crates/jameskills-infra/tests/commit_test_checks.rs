@@ -15,8 +15,9 @@ use jameskills_core::{
 use jameskills_infra::{
     fs::{
         ApprovedCommitlint, ApprovedCommitlintNode, ApprovedRepositoryTool, LocalFileSystem,
-        RepositoryPolicyCheckProvider,
+        RepositoryPolicyCheckProvider, commitlint_cli_entrypoint_for_candidate,
     },
+    platform::{HostPlatform, ToolCandidateKind, find_tool_candidates, load_tool_profiles},
     process::{SystemProcessPort, fingerprint_executable},
 };
 use std::{
@@ -96,6 +97,44 @@ impl Drop for TestRoot {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn commitlint_command_shim_resolves_only_the_registered_cli_js_entrypoint() {
+    let root = TestRoot::new();
+    let launcher_dir = root.0.join("project").join("node_modules").join(".bin");
+    let package_dir = root
+        .0
+        .join("project")
+        .join("node_modules")
+        .join("@commitlint")
+        .join("cli");
+    std::fs::create_dir_all(&launcher_dir).unwrap();
+    std::fs::create_dir_all(&package_dir).unwrap();
+    let launcher = launcher_dir.join("commitlint.cmd");
+    let entrypoint = package_dir.join("cli.js");
+    std::fs::write(&launcher, b"@echo off\n").unwrap();
+    std::fs::write(&entrypoint, b"// reviewed package fixture\n").unwrap();
+    let profile = load_tool_profiles()
+        .unwrap()
+        .into_iter()
+        .find(|profile| profile.tool_id() == ToolId::Commitlint)
+        .unwrap();
+    let candidate = find_tool_candidates(
+        &[profile],
+        &[std::fs::canonicalize(&launcher_dir).unwrap()],
+        HostPlatform::Windows,
+    )
+    .into_iter()
+    .next()
+    .unwrap();
+
+    assert_eq!(candidate.kind(), ToolCandidateKind::CommandShim);
+    assert_eq!(
+        commitlint_cli_entrypoint_for_candidate(&candidate).as_deref(),
+        Some(std::fs::canonicalize(entrypoint).unwrap().as_path())
+    );
+    assert!(!launcher_dir.join("commitlint.js").exists());
 }
 
 struct TestClock;

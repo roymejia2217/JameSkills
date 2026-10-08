@@ -2,10 +2,13 @@ use async_trait::async_trait;
 use jameskills_core::{
     AppError,
     ports::process::{
-        ApprovedEnv, ApprovedExecutable, ProcessOutput, ProcessPort, ProcessSpec, RepositoryState,
+        ApprovedEnv, ApprovedExecutable, ExecutableFingerprint, ProcessOutput, ProcessPort,
+        ProcessSpec, RepositoryState,
     },
 };
-use jameskills_infra::process::{SystemProcessPort, collect_repository_facts};
+use jameskills_infra::process::{
+    SystemProcessPort, collect_repository_facts, fingerprint_executable,
+};
 use std::{
     collections::{BTreeMap, VecDeque},
     ffi::OsString,
@@ -17,6 +20,7 @@ use std::{
 struct Invocation {
     args: Vec<OsString>,
     cwd: PathBuf,
+    fingerprint: Option<ExecutableFingerprint>,
 }
 
 struct FakeProcessPort {
@@ -43,6 +47,7 @@ impl ProcessPort for FakeProcessPort {
         self.invocations.lock().unwrap().push(Invocation {
             args: spec.args().to_vec(),
             cwd: spec.cwd().path().to_path_buf(),
+            fingerprint: spec.approved_executable_fingerprint().copied(),
         });
         self.responses
             .lock()
@@ -68,6 +73,7 @@ fn repository_facts_use_fixed_argv_and_keep_paths_out_of_arguments() {
     std::fs::create_dir_all(root.join(".git")).unwrap();
     let root = std::fs::canonicalize(root).unwrap();
     let git = ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap();
+    let expected_fingerprint = fingerprint_executable(git.path()).unwrap();
     let environment = empty_environment();
     let fake = FakeProcessPort::new(vec![
         stdout("git version 2.55.0\n", 0),
@@ -75,6 +81,7 @@ fn repository_facts_use_fixed_argv_and_keep_paths_out_of_arguments() {
         stdout("false\n", 0),
         stdout(format!("{}\n", root.display()), 0),
         stdout("main\n", 0),
+        stdout(format!("{}\n", "a".repeat(40)), 0),
         stdout(".git\n", 0),
         stdout(".git\n", 0),
         stdout("\n", 0),
@@ -84,15 +91,27 @@ fn repository_facts_use_fixed_argv_and_keep_paths_out_of_arguments() {
         .unwrap();
 
     let facts = runtime
-        .block_on(collect_repository_facts(&root, &git, &environment, &fake))
+        .block_on(collect_repository_facts(
+            &root,
+            &git,
+            expected_fingerprint,
+            &environment,
+            &fake,
+        ))
         .unwrap();
 
     assert_eq!(facts.state(), RepositoryState::Attached);
     assert_eq!(facts.root(), &root);
     assert_eq!(facts.branch(), Some("main"));
+    assert_eq!(facts.head().unwrap().as_str(), "a".repeat(40));
     let invocations = fake.invocations.lock().unwrap();
-    assert_eq!(invocations.len(), 8);
+    assert_eq!(invocations.len(), 9);
     assert!(invocations.iter().all(|call| call.cwd == root));
+    assert!(
+        invocations
+            .iter()
+            .all(|call| call.fingerprint == Some(expected_fingerprint))
+    );
     assert!(invocations.iter().all(|call| {
         call.args.iter().all(|argument| {
             !argument
@@ -117,12 +136,44 @@ fn repository_facts_use_fixed_argv_and_keep_paths_out_of_arguments() {
             OsString::from("HEAD"),
         ]
     );
+    assert_eq!(
+        invocations[5].args,
+        vec![
+            OsString::from("rev-parse"),
+            OsString::from("--verify"),
+            OsString::from("--quiet"),
+            OsString::from("HEAD"),
+        ]
+    );
+}
+
+#[test]
+fn repository_fact_provider_rejects_an_unapproved_executable_fingerprint_before_spawn() {
+    let repo = TempRepo::new("fingerprint mismatch");
+    let executable =
+        ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap();
+    let fake = FakeProcessPort::new(Vec::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+
+    let result = runtime.block_on(collect_repository_facts(
+        repo.path(),
+        &executable,
+        ExecutableFingerprint::from_sha256([0; 32]),
+        &empty_environment(),
+        &fake,
+    ));
+
+    assert!(matches!(result, Err(AppError::Validation(_))));
+    assert!(fake.invocations.lock().unwrap().is_empty());
 }
 
 #[test]
 fn repository_path_without_git_metadata_is_reported_as_not_a_repository() {
     let repo = TempRepo::new("not a repository");
     let git = ApprovedExecutable::from_absolute_path(std::env::current_exe().unwrap()).unwrap();
+    let fingerprint = fingerprint_executable(git.path()).unwrap();
     let fake = FakeProcessPort::new(vec![
         stdout("git version 2.55.0\n", 0),
         stdout("fatal: not a git repository\n", 128),
@@ -135,6 +186,7 @@ fn repository_path_without_git_metadata_is_reported_as_not_a_repository() {
         .block_on(collect_repository_facts(
             repo.path(),
             &git,
+            fingerprint,
             &empty_environment(),
             &fake,
         ))
@@ -230,6 +282,7 @@ fn assert_git_setup(git: &ApprovedExecutable, cwd: &Path, args: &[&str]) {
 #[test]
 fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
     let git = approved_git();
+    let fingerprint = fingerprint_executable(git.path()).unwrap();
     let environment = safe_env();
     let process = SystemProcessPort;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -258,6 +311,7 @@ fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
         .block_on(collect_repository_facts(
             repo.path(),
             &git,
+            fingerprint,
             &environment,
             &process,
         ))
@@ -265,6 +319,7 @@ fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
     assert_eq!(attached.state(), RepositoryState::Attached);
     assert_eq!(attached.branch(), Some("main"));
     assert_eq!(attached.top_level(), Some(repo.path()));
+    assert!(attached.head().is_some());
     assert!(!attached.is_linked_worktree());
     assert!(!attached.is_submodule());
     assert!(attached.git_version().starts_with("git version "));
@@ -278,6 +333,7 @@ fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
         .block_on(collect_repository_facts(
             repo.path(),
             &git,
+            fingerprint,
             &environment,
             &process,
         ))
@@ -304,6 +360,7 @@ fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
         .block_on(collect_repository_facts(
             &linked_path,
             &git,
+            fingerprint,
             &environment,
             &process,
         ))
@@ -347,6 +404,7 @@ fn real_git_facts_cover_attached_detached_linked_worktree_and_submodule() {
         .block_on(collect_repository_facts(
             &repo.path().join("submodule"),
             &git,
+            fingerprint,
             &environment,
             &process,
         ))

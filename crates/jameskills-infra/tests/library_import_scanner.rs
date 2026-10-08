@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use jameskills_core::{
     AppResult,
-    domain::{ImportScanStatus, ToolId},
+    domain::{ImportScanStatus, ImportSourceKind, ToolId},
     ports::{
         ImportScanPort,
         filesystem::BundleFiles,
@@ -9,11 +9,13 @@ use jameskills_core::{
     },
 };
 use jameskills_infra::{
+    composition::build_services_with_gitleaks,
     fs::GitleaksImportScanner,
     platform::{
-        HostPlatform, ToolCandidate, ToolProfile, find_tool_candidates, load_tool_profiles,
+        HostPlatform, ToolCandidate, ToolProfile, UserDirectories, find_tool_candidates,
+        load_tool_profiles,
     },
-    process::{SystemProcessPort, fingerprint_executable},
+    process::fingerprint_executable,
 };
 use std::{
     collections::BTreeMap,
@@ -300,42 +302,56 @@ fn real_gitleaks_scans_validated_fixture_and_cleans_private_staging() {
         .collect::<String>();
     assert_eq!(actual_sha256, approved_sha256.to_ascii_lowercase());
 
-    let profile = load_tool_profiles()
-        .unwrap()
-        .into_iter()
-        .find(|profile| profile.tool_id() == ToolId::Gitleaks)
-        .unwrap();
-    let parent = executable.parent().expect("absolute executable has parent");
-    let canonical_executable = std::fs::canonicalize(&executable).unwrap();
-    let candidate = find_tool_candidates(
-        std::slice::from_ref(&profile),
-        &[parent.to_path_buf()],
-        HostPlatform::Windows,
-    )
-    .into_iter()
-    .find(|candidate| {
-        candidate
-            .path()
-            .and_then(|path| std::fs::canonicalize(path).ok())
-            .is_some_and(|path| path == canonical_executable)
-    })
-    .expect("approved Gitleaks binary is a registered native candidate");
-
     let root = TestRoot::new();
-    let staging_root = root.0.join("cache").join("import-scans");
-    let environment = ApprovedEnv::new(BTreeMap::new()).unwrap();
-    let scanner = GitleaksImportScanner::new(
-        profile,
-        candidate,
-        Some(fingerprint),
-        &environment,
-        Arc::new(SystemProcessPort),
-        staging_root.clone(),
+    let source = root.0.join("validated-source");
+    for (path, bytes) in import_files() {
+        let path = source.join(path.as_str());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+    let directories = UserDirectories {
+        config: root.0.join("config"),
+        data: root.0.join("data"),
+        cache: root.0.join("cache"),
+    };
+    let runtime = build_services_with_gitleaks(directories, &executable, fingerprint)
+        .expect("approved Gitleaks runtime builds");
+    let preview = block_on(
+        runtime
+            .library()
+            .preview_import(&source, ImportSourceKind::Directory),
+    )
+    .expect("native runtime import preview completes");
+    assert_eq!(preview.scan_status(), ImportScanStatus::NoFindings);
+    assert_eq!(
+        preview.trust_state(),
+        jameskills_core::domain::TrustState::Quarantined
     );
-    let result = block_on(scanner.scan(&import_files())).expect("native scanner completes");
-    assert_eq!(result, ImportScanStatus::NoFindings);
+    let staging_root = root.0.join("cache").join("import-scans");
     assert!(
         std::fs::read_dir(staging_root).unwrap().next().is_none(),
         "private import staging must be empty after the scan"
     );
+}
+
+#[test]
+fn runtime_rejects_a_gitleaks_fingerprint_that_does_not_match_the_selected_executable() {
+    let root = TestRoot::new();
+    let executable = root.0.join(if cfg!(windows) {
+        "gitleaks.exe"
+    } else {
+        "gitleaks"
+    });
+    std::fs::write(&executable, b"not the approved executable").unwrap();
+    let result = build_services_with_gitleaks(
+        UserDirectories {
+            config: root.0.join("config"),
+            data: root.0.join("data"),
+            cache: root.0.join("cache"),
+        },
+        &executable,
+        ExecutableFingerprint::from_sha256([0x42; 32]),
+    );
+    assert!(result.is_err());
+    assert!(!root.0.join("data").exists());
 }
