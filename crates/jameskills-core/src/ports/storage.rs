@@ -1,8 +1,9 @@
 use crate::{
     AppResult, Diagnostic,
     domain::{
-        ContentHash, CreateSkill, ImportPreview, ImportResolution, ImportResult, RevisionId,
-        SaveRevisionRequest, SaveRevisionResult, SkillDraft, SkillId, ValidatedBundle,
+        ContentHash, CreateSkill, ImportPreview, ImportResolution, ImportResult, RepositoryBinding,
+        RepositoryBindingReport, RevisionId, RevisionTrust, SaveRevisionRequest,
+        SaveRevisionResult, SkillDraft, SkillId, ValidatedBundle,
     },
     ports::filesystem::BundleFiles,
 };
@@ -407,7 +408,7 @@ impl SaveDraftRequest {
 
 /// Schema version applied by the storage actor. Migration files map one to
 /// one onto versions: 001_library.sql is version 1, and so on.
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 /// Persistent library storage seam. Only the operations the storage actor
 /// implements today are exposed; snapshot merge and the remaining DTOs
@@ -420,8 +421,49 @@ pub trait StoragePort: Send + Sync {
     fn check_integrity(&self) -> AppResult<()>;
     /// Reads one bounded page of catalog metadata; adapters must not load blobs.
     async fn list_skills(&self, query: LibraryQuery) -> AppResult<LibraryPage>;
+    /// Stores one local-only binding after validating that its exact content
+    /// revision is still an active head of the specified skill.
+    async fn save_repository_binding(&self, binding: RepositoryBinding) -> AppResult<()>;
+    /// Reads one local binding by its UUID string; it may be stale and must be
+    /// revalidated before its prior result is reused.
+    async fn load_repository_binding(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBinding>>;
+    /// Lists the bounded local bindings for one skill in stable UUID order.
+    async fn list_repository_bindings(
+        &self,
+        skill_id: SkillId,
+    ) -> AppResult<Vec<RepositoryBinding>>;
+    /// Replaces the last report only while its identity basis still matches the
+    /// current binding; older results remain available as stale until refreshed.
+    async fn save_repository_binding_report(
+        &self,
+        binding: &RepositoryBinding,
+        report: RepositoryBindingReport,
+    ) -> AppResult<()>;
+    /// Reads the previous redacted report, if one has been successfully stored.
+    async fn load_repository_binding_report(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBindingReport>>;
     /// Explicitly loads selected current-head content; list operations remain metadata-only.
     async fn load_skill(&self, skill_id: SkillId) -> AppResult<Option<LibrarySkillDetail>>;
+    /// Loads exact content bytes for an addressable content revision, including
+    /// a historical revision that is no longer a current head. Tombstones return None.
+    async fn load_revision_files(
+        &self,
+        skill_id: SkillId,
+        revision_id: &RevisionId,
+    ) -> AppResult<Option<BundleFiles>>;
+    /// Reads local-only trust/provenance for a stored revision. Authored
+    /// revisions without a trust row are Reviewed; imported rows retain their
+    /// explicit source classification.
+    async fn load_revision_trust(
+        &self,
+        skill_id: SkillId,
+        revision_id: &RevisionId,
+    ) -> AppResult<RevisionTrust>;
     /// Reads a bounded causal-history page without loading revision blobs.
     async fn load_history(&self, query: LibraryHistoryQuery) -> AppResult<LibraryHistoryPage>;
     /// Reads the current local draft without validating its semantic content.

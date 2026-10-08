@@ -36,8 +36,11 @@ pub use import::{
     ImportScanStatus, ImportSourceKind, TrustState,
 };
 pub use library::{
-    CreateSkill, RevisionKind, RevisionRecord, SaveRevisionRequest, SaveRevisionResult, SkillDraft,
-    compute_revision,
+    CreateSkill, DeleteRequest, ForkRequest, MAX_BINDING_REPORT_CHECKS,
+    MAX_REPOSITORY_BINDINGS_PER_SKILL, RepositoryBinding, RepositoryBindingCheck,
+    RepositoryBindingEvidence, RepositoryBindingReport, RepositoryProfile, RestoreRevisionRequest,
+    RevisionKind, RevisionRecord, RevisionTrust, SaveRevisionRequest, SaveRevisionResult,
+    SkillDraft, compute_revision,
 };
 pub use policy::{
     Check, Enforcement, Phase, Policy, Requirement, Severity, ToolId, ToolOperation,

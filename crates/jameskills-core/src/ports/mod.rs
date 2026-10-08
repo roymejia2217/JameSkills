@@ -10,8 +10,8 @@ mod storage;
 pub use agent::{AgentAvailability, AgentDetection, AgentPort, DetectionContext};
 pub use clock::ClockPort;
 pub use filesystem::{
-    BundleFiles, bundle_entry_from_path, extract_archive_files, validate_archive_entries,
-    write_bundle_archive,
+    BundleFiles, ExportDestinationState, bundle_entry_from_path, extract_archive_files,
+    validate_archive_entries, write_bundle_archive,
 };
 pub use import_scan::ImportScanPort;
 pub use operation_journal::{OperationJournalPort, RepoChangeJournal, RepoChangeJournalState};

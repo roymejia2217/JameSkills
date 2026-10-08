@@ -4,9 +4,11 @@ use jameskills_core::{
     AppError, AppResult, Diagnostic, OperationId, PortablePath,
     domain::{
         ContentHash, CreateSkill, ImportClassification, ImportPreview, ImportResolution,
-        ImportResult, ImportSourceKind, RevisionId, RevisionKind, RevisionRecord,
-        SaveRevisionRequest, SaveRevisionResult, SkillDraft, SkillId, TrustState, ValidatedBundle,
-        policy::RepositoryHead, validate_bundle,
+        ImportResult, ImportSourceKind, MAX_BINDING_REPORT_CHECKS,
+        MAX_REPOSITORY_BINDINGS_PER_SKILL, RepositoryBinding, RepositoryBindingCheck,
+        RepositoryBindingEvidence, RepositoryBindingReport, RepositoryProfile, RevisionId,
+        RevisionKind, RevisionRecord, RevisionTrust, SaveRevisionRequest, SaveRevisionResult,
+        SkillDraft, SkillId, TrustState, ValidatedBundle, policy::RepositoryHead, validate_bundle,
     },
     ports::{
         BundleFiles, CURRENT_SCHEMA_VERSION, LibraryCursor, LibraryHeadSummary,
@@ -22,13 +24,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MIGRATIONS: [(u32, &str); 6] = [
+const MIGRATIONS: [(u32, &str); 8] = [
     (1, include_str!("../migrations/001_library.sql")),
     (2, include_str!("../migrations/002_operations.sql")),
     (3, include_str!("../migrations/003_sync.sql")),
     (4, include_str!("../migrations/004_library_catalog.sql")),
     (5, include_str!("../migrations/005_import_lookup.sql")),
     (6, include_str!("../migrations/006_revision_trust.sql")),
+    (7, include_str!("../migrations/007_repository_bindings.sql")),
+    (
+        8,
+        include_str!("../migrations/008_repository_binding_results.sql"),
+    ),
 ];
 const MAX_DRAFT_PAYLOAD_BYTES: usize = 32 * 1024 * 1024;
 
@@ -197,11 +204,259 @@ impl SqliteStore {
         list_skills_from_connection(&self.connection, query)
     }
 
+    pub fn save_repository_binding(&self, binding: &RepositoryBinding) -> AppResult<()> {
+        if self.read_only {
+            return Err(storage_error("storage.store.read_only"));
+        }
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let transaction = guard
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| storage_error("storage.transaction.failed"))?;
+        let skill_id = binding.skill_id().as_uuid().to_string();
+        let current_skill: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM skills WHERE id = ?1)",
+                [&skill_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_error("storage.query.failed"))?;
+        if !current_skill {
+            return Err(AppError::NotFound);
+        }
+        let existing_skill: Option<String> = transaction
+            .query_row(
+                "SELECT skill_id FROM repository_bindings WHERE id = ?1",
+                [binding.id()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| storage_error("storage.query.failed"))?;
+        if existing_skill
+            .as_deref()
+            .is_some_and(|stored_skill| stored_skill != skill_id)
+        {
+            return Err(AppError::Conflict {
+                current: Vec::new(),
+            });
+        }
+        let suite_is_current: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM revisions r JOIN skill_heads h ON h.skill_id = r.skill_id AND h.revision_id = r.id WHERE r.id = ?1 AND r.skill_id = ?2 AND r.state = 'content')",
+                rusqlite::params![binding.suite_revision().as_str(), skill_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_error("storage.query.failed"))?;
+        if !suite_is_current {
+            return Err(AppError::Conflict {
+                current: read_heads(&transaction, binding.skill_id())?
+                    .iter()
+                    .map(|head| RevisionId::parse_hex(head))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| storage_error("storage.data.corrupt"))?,
+            });
+        }
+        if existing_skill.is_none() {
+            let count: i64 = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM repository_bindings WHERE skill_id = ?1",
+                    [&skill_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| storage_error("storage.query.failed"))?;
+            if count >= MAX_REPOSITORY_BINDINGS_PER_SKILL as i64 {
+                return Err(AppError::Validation(vec![Diagnostic::error(
+                    "library.binding.limit",
+                    "Repository binding limit was reached for this skill.",
+                )]));
+            }
+        }
+        transaction
+            .execute(
+                "INSERT INTO repository_bindings(id, skill_id, suite_revision_id, repository_root, profile, strict, repository_head, environment_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(id) DO UPDATE SET suite_revision_id = excluded.suite_revision_id, repository_root = excluded.repository_root, profile = excluded.profile, strict = excluded.strict, repository_head = excluded.repository_head, environment_fingerprint = excluded.environment_fingerprint WHERE repository_bindings.skill_id = excluded.skill_id",
+                rusqlite::params![
+                    binding.id(),
+                    skill_id,
+                    binding.suite_revision().as_str(),
+                    binding.repository_root().to_string_lossy().into_owned(),
+                    binding.profile().as_str(),
+                    i64::from(binding.strict()),
+                    binding.repository_head().as_str(),
+                    binding.environment_fingerprint(),
+                ],
+            )
+            .map_err(|_| storage_error("storage.binding.write.failed"))?;
+        transaction
+            .commit()
+            .map_err(|_| storage_error("storage.transaction.failed"))
+    }
+
+    pub fn load_repository_binding(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBinding>> {
+        let guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        load_repository_binding_by_id(&guard, binding_id)
+    }
+
+    pub fn list_repository_bindings(&self, skill_id: SkillId) -> AppResult<Vec<RepositoryBinding>> {
+        load_repository_bindings_for_skill(&self.connection, skill_id)
+    }
+
+    pub fn save_repository_binding_report(
+        &self,
+        binding: &RepositoryBinding,
+        report: &RepositoryBindingReport,
+    ) -> AppResult<()> {
+        if self.read_only {
+            return Err(storage_error("storage.store.read_only"));
+        }
+        if report.is_stale_for(binding) || report.binding_id() != binding.id() {
+            return Err(AppError::Conflict {
+                current: Vec::new(),
+            });
+        }
+        let payload = encode_repository_binding_report(report)?;
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let transaction = guard
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| storage_error("storage.transaction.failed"))?;
+        let current =
+            load_repository_binding_by_id(&transaction, binding.id())?.ok_or(AppError::NotFound)?;
+        if current != *binding {
+            return Err(AppError::Conflict {
+                current: read_heads(&transaction, binding.skill_id())?
+                    .iter()
+                    .map(|head| RevisionId::parse_hex(head))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| storage_error("storage.data.corrupt"))?,
+            });
+        }
+        transaction
+            .execute(
+                "INSERT INTO repository_binding_results(binding_id, report_json) VALUES (?1, ?2) ON CONFLICT(binding_id) DO UPDATE SET report_json = excluded.report_json",
+                rusqlite::params![binding.id(), payload],
+            )
+            .map_err(|_| storage_error("storage.binding.report.write.failed"))?;
+        transaction
+            .commit()
+            .map_err(|_| storage_error("storage.transaction.failed"))
+    }
+
+    pub fn load_repository_binding_report(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBindingReport>> {
+        let guard = self
+            .connection
+            .lock()
+            .map_err(|_| storage_error("storage.lock.poisoned"))?;
+        let payload = guard
+            .query_row(
+                "SELECT report_json FROM repository_binding_results WHERE binding_id = ?1",
+                [binding_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| storage_error("storage.query.failed"))?;
+        payload
+            .map(|payload| decode_repository_binding_report(&payload))
+            .transpose()
+    }
+
     async fn list_skills_async(&self, query: LibraryQuery) -> AppResult<LibraryPage> {
         let connection = self.connection.clone();
         tokio::task::spawn_blocking(move || list_skills_from_connection(&connection, &query))
             .await
             .map_err(|_| storage_error("storage.query.worker.failed"))?
+    }
+
+    async fn save_repository_binding_async(&self, binding: RepositoryBinding) -> AppResult<()> {
+        let store = Self {
+            connection: self.connection.clone(),
+            path: self.path.clone(),
+            blob_root: self.blob_root.clone(),
+            read_only: self.read_only,
+        };
+        tokio::task::spawn_blocking(move || store.save_repository_binding(&binding))
+            .await
+            .map_err(|_| storage_error("storage.binding.worker.failed"))?
+    }
+
+    async fn load_repository_binding_async(
+        &self,
+        binding_id: String,
+    ) -> AppResult<Option<RepositoryBinding>> {
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || {
+            let guard = connection
+                .lock()
+                .map_err(|_| storage_error("storage.lock.poisoned"))?;
+            load_repository_binding_by_id(&guard, &binding_id)
+        })
+        .await
+        .map_err(|_| storage_error("storage.binding.worker.failed"))?
+    }
+
+    async fn list_repository_bindings_async(
+        &self,
+        skill_id: SkillId,
+    ) -> AppResult<Vec<RepositoryBinding>> {
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || {
+            load_repository_bindings_for_skill(&connection, skill_id)
+        })
+        .await
+        .map_err(|_| storage_error("storage.binding.worker.failed"))?
+    }
+
+    async fn save_repository_binding_report_async(
+        &self,
+        binding: RepositoryBinding,
+        report: RepositoryBindingReport,
+    ) -> AppResult<()> {
+        let store = Self {
+            connection: self.connection.clone(),
+            path: self.path.clone(),
+            blob_root: self.blob_root.clone(),
+            read_only: self.read_only,
+        };
+        tokio::task::spawn_blocking(move || store.save_repository_binding_report(&binding, &report))
+            .await
+            .map_err(|_| storage_error("storage.binding.report.worker.failed"))?
+    }
+
+    async fn load_repository_binding_report_async(
+        &self,
+        binding_id: String,
+    ) -> AppResult<Option<RepositoryBindingReport>> {
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || {
+            let guard = connection
+                .lock()
+                .map_err(|_| storage_error("storage.lock.poisoned"))?;
+            let payload = guard
+                .query_row(
+                    "SELECT report_json FROM repository_binding_results WHERE binding_id = ?1",
+                    [binding_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|_| storage_error("storage.query.failed"))?;
+            payload
+                .map(|payload| decode_repository_binding_report(&payload))
+                .transpose()
+        })
+        .await
+        .map_err(|_| storage_error("storage.binding.report.worker.failed"))?
     }
 
     pub fn get_heads(&self, skill_id: SkillId) -> AppResult<Vec<RevisionId>> {
@@ -304,6 +559,33 @@ impl SqliteStore {
 
     pub fn load_skill(&self, skill_id: SkillId) -> AppResult<Option<LibrarySkillDetail>> {
         load_skill_from_connection(&self.connection, &self.blob_root, skill_id)
+    }
+
+    async fn load_revision_files_async(
+        &self,
+        skill_id: SkillId,
+        revision_id: RevisionId,
+    ) -> AppResult<Option<BundleFiles>> {
+        let connection = self.connection.clone();
+        let blob_root = self.blob_root.clone();
+        tokio::task::spawn_blocking(move || {
+            load_revision_files_from_connection(&connection, &blob_root, skill_id, &revision_id)
+        })
+        .await
+        .map_err(|_| storage_error("storage.query.worker.failed"))?
+    }
+
+    async fn load_revision_trust_async(
+        &self,
+        skill_id: SkillId,
+        revision_id: RevisionId,
+    ) -> AppResult<RevisionTrust> {
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || {
+            load_revision_trust_from_connection(&connection, skill_id, &revision_id)
+        })
+        .await
+        .map_err(|_| storage_error("storage.query.worker.failed"))?
     }
 
     async fn load_skill_async(&self, skill_id: SkillId) -> AppResult<Option<LibrarySkillDetail>> {
@@ -1144,6 +1426,18 @@ impl SqliteStore {
                 ),
             )
             .map_err(|_| storage_error("storage.revision.rejected"))?;
+        if request.trust().state() == TrustState::Quarantined {
+            let source_kind = request
+                .trust()
+                .source_kind()
+                .ok_or_else(|| storage_error("storage.revision.trust.invalid"))?;
+            transaction
+                .execute(
+                    "INSERT INTO revision_trust(revision_id, trust_state, source_kind) VALUES (?1, 'quarantined', ?2)",
+                    (record.id().as_str(), import_source_name(source_kind)),
+                )
+                .map_err(|_| storage_error("storage.revision.trust.write.failed"))?;
+        }
         if matches!(request.kind(), RevisionKind::Content) {
             let display_name: String = transaction
                 .query_row(
@@ -1459,6 +1753,394 @@ fn load_skill_from_connection(
         loaded_heads.push(LibraryLoadedHead::new(head, files));
     }
     Ok(Some(LibrarySkillDetail::new(summary, loaded_heads)))
+}
+
+fn load_revision_files_from_connection(
+    connection: &Mutex<Connection>,
+    blob_root: &Path,
+    skill_id: SkillId,
+    revision_id: &RevisionId,
+) -> AppResult<Option<BundleFiles>> {
+    let guard = connection
+        .lock()
+        .map_err(|_| storage_error("storage.lock.poisoned"))?;
+    let record = guard
+        .query_row(
+            "SELECT bundle_hash, state FROM revisions WHERE id = ?1 AND skill_id = ?2",
+            rusqlite::params![revision_id.as_str(), skill_id.as_uuid().to_string()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let Some((bundle_hash, state)) = record else {
+        return Ok(None);
+    };
+    if state != "content" {
+        return Ok(None);
+    }
+    let bundle_hash =
+        ContentHash::parse_hex(&bundle_hash).map_err(|_| storage_error("storage.data.corrupt"))?;
+    verify_blob_bytes(blob_root, &bundle_hash)
+        .map(Some)
+        .map_err(|_| storage_error("storage.blob.invalid"))
+}
+
+fn load_revision_trust_from_connection(
+    connection: &Mutex<Connection>,
+    skill_id: SkillId,
+    revision_id: &RevisionId,
+) -> AppResult<RevisionTrust> {
+    let guard = connection
+        .lock()
+        .map_err(|_| storage_error("storage.lock.poisoned"))?;
+    let stored = guard
+        .query_row(
+            "SELECT r.state, t.trust_state, t.source_kind FROM revisions r LEFT JOIN revision_trust t ON t.revision_id = r.id WHERE r.id = ?1 AND r.skill_id = ?2",
+            rusqlite::params![revision_id.as_str(), skill_id.as_uuid().to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| storage_error("storage.query.failed"))?
+        .ok_or(AppError::NotFound)?;
+    let (revision_state, trust_state, source_kind) = stored;
+    if !matches!(revision_state.as_str(), "content" | "tombstone") {
+        return Err(storage_error("storage.data.corrupt"));
+    }
+    match (trust_state.as_deref(), source_kind.as_deref()) {
+        (None, None) | (Some("reviewed"), None) => Ok(RevisionTrust::reviewed()),
+        (Some("quarantined"), Some("directory")) => {
+            Ok(RevisionTrust::quarantined(ImportSourceKind::Directory))
+        }
+        (Some("quarantined"), Some("archive")) => {
+            Ok(RevisionTrust::quarantined(ImportSourceKind::Archive))
+        }
+        (Some("quarantined"), Some("plain-skill")) => {
+            Ok(RevisionTrust::quarantined(ImportSourceKind::PlainSkill))
+        }
+        _ => Err(storage_error("storage.data.corrupt")),
+    }
+}
+
+type StoredRepositoryBinding = (String, String, String, String, String, i64, String, String);
+
+fn decode_repository_binding(stored: StoredRepositoryBinding) -> AppResult<RepositoryBinding> {
+    let (id, skill_id, revision_id, root, profile, strict, head, environment) = stored;
+    let skill_id = SkillId::parse(&skill_id).map_err(|_| storage_error("storage.data.corrupt"))?;
+    let revision_id =
+        RevisionId::parse_hex(&revision_id).map_err(|_| storage_error("storage.data.corrupt"))?;
+    let profile =
+        RepositoryProfile::parse(&profile).map_err(|_| storage_error("storage.data.corrupt"))?;
+    let strict = match strict {
+        0 => false,
+        1 => true,
+        _ => return Err(storage_error("storage.data.corrupt")),
+    };
+    let head = RepositoryHead::parse(&head).map_err(|_| storage_error("storage.data.corrupt"))?;
+    RepositoryBinding::from_storage(
+        id,
+        skill_id,
+        revision_id,
+        PathBuf::from(root),
+        profile,
+        strict,
+        head,
+        environment,
+    )
+    .map_err(|_| storage_error("storage.data.corrupt"))
+}
+
+const MAX_BINDING_REPORT_JSON_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BINDING_REPORT_EVIDENCE: usize = 32;
+
+fn encode_repository_binding_report(report: &RepositoryBindingReport) -> AppResult<String> {
+    let checks = report
+        .checks()
+        .iter()
+        .map(|check| {
+            let evidence = check
+                .evidence()
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "source_id": entry.source_id(),
+                        "observed_at": entry.observed_at(),
+                        "revision": entry.revision().map(RevisionId::as_str),
+                        "environment_fingerprint": entry.environment_fingerprint(),
+                        "summary": entry.summary(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "requirement_id": check.requirement_id(),
+                "status": check.status(),
+                "severity": check.severity(),
+                "enforcement": check.enforcement(),
+                "guidance_id": check.guidance_id(),
+                "evidence": evidence,
+            })
+        })
+        .collect::<Vec<_>>();
+    let value = serde_json::json!({
+        "binding_id": report.binding_id(),
+        "skill_id": report.skill_id().as_uuid().to_string(),
+        "suite_revision": report.suite_revision().as_str(),
+        "repository_head": report.repository_head().as_str(),
+        "environment_fingerprint": report.environment_fingerprint(),
+        "profile": report.profile().as_str(),
+        "strict": report.strict(),
+        "observed_at": report.observed_at(),
+        "strict_passed": report.strict_passed(),
+        "checks": checks,
+    });
+    let encoded = serde_json::to_string(&value)
+        .map_err(|_| storage_error("storage.binding.report.encode.failed"))?;
+    if encoded.len() > MAX_BINDING_REPORT_JSON_BYTES {
+        return Err(AppError::Validation(vec![Diagnostic::error(
+            "library.binding.report.limit",
+            "Repository binding result exceeds its local retention limit.",
+        )]));
+    }
+    Ok(encoded)
+}
+
+fn decode_repository_binding_report(encoded: &str) -> AppResult<RepositoryBindingReport> {
+    if encoded.len() > MAX_BINDING_REPORT_JSON_BYTES {
+        return Err(storage_error("storage.binding.report.corrupt"));
+    }
+    let value: serde_json::Value = serde_json::from_str(encoded)
+        .map_err(|_| storage_error("storage.binding.report.corrupt"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?;
+    validate_json_keys(
+        object,
+        &[
+            "binding_id",
+            "skill_id",
+            "suite_revision",
+            "repository_head",
+            "environment_fingerprint",
+            "profile",
+            "strict",
+            "observed_at",
+            "strict_passed",
+            "checks",
+        ],
+    )?;
+    let binding_id = json_string(object, "binding_id")?.to_owned();
+    let skill_id = SkillId::parse(json_string(object, "skill_id")?)
+        .map_err(|_| storage_error("storage.binding.report.corrupt"))?;
+    let suite_revision = RevisionId::parse_hex(json_string(object, "suite_revision")?)
+        .map_err(|_| storage_error("storage.binding.report.corrupt"))?;
+    let repository_head = RepositoryHead::parse(json_string(object, "repository_head")?)
+        .map_err(|_| storage_error("storage.binding.report.corrupt"))?;
+    let environment_fingerprint = json_string(object, "environment_fingerprint")?.to_owned();
+    let profile = RepositoryProfile::parse(json_string(object, "profile")?)
+        .map_err(|_| storage_error("storage.binding.report.corrupt"))?;
+    let strict = object
+        .get("strict")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?;
+    let observed_at = json_string(object, "observed_at")?.to_owned();
+    let strict_passed = object
+        .get("strict_passed")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?;
+    let checks = object
+        .get("checks")
+        .and_then(serde_json::Value::as_array)
+        .filter(|checks| checks.len() <= MAX_BINDING_REPORT_CHECKS)
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?
+        .iter()
+        .map(decode_repository_binding_check)
+        .collect::<AppResult<Vec<_>>>()?;
+    RepositoryBindingReport::from_storage(
+        binding_id,
+        skill_id,
+        suite_revision,
+        repository_head,
+        environment_fingerprint,
+        profile,
+        strict,
+        observed_at,
+        strict_passed,
+        checks,
+    )
+    .map_err(|_| storage_error("storage.binding.report.corrupt"))
+}
+
+fn decode_repository_binding_check(value: &serde_json::Value) -> AppResult<RepositoryBindingCheck> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?;
+    validate_json_keys(
+        object,
+        &[
+            "requirement_id",
+            "status",
+            "severity",
+            "enforcement",
+            "guidance_id",
+            "evidence",
+        ],
+    )?;
+    let evidence = object
+        .get("evidence")
+        .and_then(serde_json::Value::as_array)
+        .filter(|evidence| evidence.len() <= MAX_BINDING_REPORT_EVIDENCE)
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?
+        .iter()
+        .map(decode_repository_binding_evidence)
+        .collect::<AppResult<Vec<_>>>()?;
+    RepositoryBindingCheck::new(
+        json_string(object, "requirement_id")?.to_owned(),
+        json_string(object, "status")?.to_owned(),
+        json_string(object, "severity")?.to_owned(),
+        json_optional_string(object, "enforcement")?,
+        json_optional_string(object, "guidance_id")?,
+        evidence,
+    )
+    .map_err(|_| storage_error("storage.binding.report.corrupt"))
+}
+
+fn decode_repository_binding_evidence(
+    value: &serde_json::Value,
+) -> AppResult<RepositoryBindingEvidence> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))?;
+    validate_json_keys(
+        object,
+        &[
+            "source_id",
+            "observed_at",
+            "revision",
+            "environment_fingerprint",
+            "summary",
+        ],
+    )?;
+    let revision = match object.get("revision") {
+        Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(value)) => Some(
+            RevisionId::parse_hex(value)
+                .map_err(|_| storage_error("storage.binding.report.corrupt"))?,
+        ),
+        _ => return Err(storage_error("storage.binding.report.corrupt")),
+    };
+    RepositoryBindingEvidence::new(
+        json_string(object, "source_id")?.to_owned(),
+        json_string(object, "observed_at")?.to_owned(),
+        revision,
+        json_string(object, "environment_fingerprint")?.to_owned(),
+        json_string(object, "summary")?.to_owned(),
+    )
+    .map_err(|_| storage_error("storage.binding.report.corrupt"))
+}
+
+fn validate_json_keys(
+    object: &serde_json::Map<String, serde_json::Value>,
+    expected: &[&str],
+) -> AppResult<()> {
+    if object.len() != expected.len() || object.keys().any(|key| !expected.contains(&key.as_str()))
+    {
+        return Err(storage_error("storage.binding.report.corrupt"));
+    }
+    Ok(())
+}
+
+fn json_string<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> AppResult<&'a str> {
+    object
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| storage_error("storage.binding.report.corrupt"))
+}
+
+fn json_optional_string(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> AppResult<Option<String>> {
+    match object.get(key) {
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
+        _ => Err(storage_error("storage.binding.report.corrupt")),
+    }
+}
+
+fn load_repository_binding_by_id(
+    connection: &Connection,
+    binding_id: &str,
+) -> AppResult<Option<RepositoryBinding>> {
+    let stored = connection
+        .query_row(
+            "SELECT id, skill_id, suite_revision_id, repository_root, profile, strict, repository_head, environment_fingerprint FROM repository_bindings WHERE id = ?1",
+            [binding_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    stored.map(decode_repository_binding).transpose()
+}
+
+fn load_repository_bindings_for_skill(
+    connection: &Mutex<Connection>,
+    skill_id: SkillId,
+) -> AppResult<Vec<RepositoryBinding>> {
+    let guard = connection
+        .lock()
+        .map_err(|_| storage_error("storage.lock.poisoned"))?;
+    let mut statement = guard
+        .prepare(
+            "SELECT id, skill_id, suite_revision_id, repository_root, profile, strict, repository_head, environment_fingerprint FROM repository_bindings WHERE skill_id = ?1 ORDER BY id LIMIT ?2",
+        )
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let rows = statement
+        .query_map(
+            rusqlite::params![
+                skill_id.as_uuid().to_string(),
+                (MAX_REPOSITORY_BINDINGS_PER_SKILL + 1) as i64,
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )
+        .map_err(|_| storage_error("storage.query.failed"))?;
+    let mut stored = Vec::new();
+    for row in rows {
+        stored.push(row.map_err(|_| storage_error("storage.data.corrupt"))?);
+    }
+    if stored.len() > MAX_REPOSITORY_BINDINGS_PER_SKILL {
+        return Err(storage_error("storage.binding.limit.corrupt"));
+    }
+    stored.into_iter().map(decode_repository_binding).collect()
 }
 
 fn load_history_from_connection(
@@ -1936,8 +2618,62 @@ impl StoragePort for SqliteStore {
         self.list_skills_async(query).await
     }
 
+    async fn save_repository_binding(&self, binding: RepositoryBinding) -> AppResult<()> {
+        self.save_repository_binding_async(binding).await
+    }
+
+    async fn load_repository_binding(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBinding>> {
+        self.load_repository_binding_async(binding_id.to_owned())
+            .await
+    }
+
+    async fn list_repository_bindings(
+        &self,
+        skill_id: SkillId,
+    ) -> AppResult<Vec<RepositoryBinding>> {
+        self.list_repository_bindings_async(skill_id).await
+    }
+
+    async fn save_repository_binding_report(
+        &self,
+        binding: &RepositoryBinding,
+        report: RepositoryBindingReport,
+    ) -> AppResult<()> {
+        self.save_repository_binding_report_async(binding.clone(), report)
+            .await
+    }
+
+    async fn load_repository_binding_report(
+        &self,
+        binding_id: &str,
+    ) -> AppResult<Option<RepositoryBindingReport>> {
+        self.load_repository_binding_report_async(binding_id.to_owned())
+            .await
+    }
+
     async fn load_skill(&self, skill_id: SkillId) -> AppResult<Option<LibrarySkillDetail>> {
         self.load_skill_async(skill_id).await
+    }
+
+    async fn load_revision_files(
+        &self,
+        skill_id: SkillId,
+        revision_id: &RevisionId,
+    ) -> AppResult<Option<BundleFiles>> {
+        self.load_revision_files_async(skill_id, revision_id.clone())
+            .await
+    }
+
+    async fn load_revision_trust(
+        &self,
+        skill_id: SkillId,
+        revision_id: &RevisionId,
+    ) -> AppResult<RevisionTrust> {
+        self.load_revision_trust_async(skill_id, revision_id.clone())
+            .await
     }
 
     async fn load_history(&self, query: LibraryHistoryQuery) -> AppResult<LibraryHistoryPage> {
