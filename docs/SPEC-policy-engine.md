@@ -84,6 +84,26 @@ formato inválido, demasiado grande o inaccesible produce Unknown, no Unsupporte
 `detect_tools` combina profiles app-owned y candidatos explícitos; ejecuta un
 probe solo cuando recibe el fingerprint SHA-256 aprobado correspondiente.
 
+La identidad de repositorio para bindings usa `git rev-parse --verify --quiet HEAD`
+con argv fijo, `ReadOnlyCheck` y el SHA-256 explícito del ejecutable en cada
+ProcessSpec. Fingerprint cambiado bloquea antes del primer spawn. Un repo sin HEAD
+no puede crear un binding vigente; un cambio de HEAD produce fingerprint nuevo y
+obliga a revalidar, nunca hereda checks previos.
+
+`RuntimeServices::observe_repository_binding` requiere un `ApprovedRepositoryTool`,
+canonicaliza el root y exige que sea el top-level del worktree, valida que el
+profile Rust/Node/Generic sea compatible con manifests observados y devuelve
+binding facts para persistir. El environment fingerprint incluye root, stack,
+Git version/executable hash, host OS/arch, profile y environment allowlisted;
+HEAD se liga por separado. Un HEAD cambiado solicita re-evaluación; root/profile/
+environment distinto invalida el resultado previo y exige rebind, por lo que mover
+el repositorio o observarlo desde WSL no reutiliza evidencia anterior.
+Si el repositorio no está disponible o el suite revision ya no es el head único,
+`evaluate_binding` conserva el último resumen redacted con estado Stale y un
+`RepositoryBindingNextStep` (localizar/rebind, cambiar profile, revisar entorno,
+seleccionar revisión actual, aprobar Git, retry o refrescar). No fabrica Pass
+durante offline ni ante falta de tool approval.
+
 T019 Gitleaks `dir` versión exacta 8.30.1 analiza el working tree sin historial
 con output redacted y bounded; es un scope más amplio que los paths versionados.
 Otra versión permanece Blocked hasta tener fuente/fixture y contrato verificados.

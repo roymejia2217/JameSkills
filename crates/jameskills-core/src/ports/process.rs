@@ -1,6 +1,6 @@
 use crate::{
     AppResult, Diagnostic,
-    domain::{AgentId, OperationId, ToolId},
+    domain::{AgentId, OperationId, ToolId, policy::RepositoryHead},
 };
 use std::{
     collections::BTreeMap,
@@ -371,6 +371,7 @@ pub struct RepositoryFacts {
     top_level: Option<PathBuf>,
     git_version: String,
     branch: Option<String>,
+    head: Option<RepositoryHead>,
     state: RepositoryState,
     linked_worktree: bool,
     submodule: bool,
@@ -383,6 +384,7 @@ impl RepositoryFacts {
         top_level: Option<PathBuf>,
         git_version: String,
         branch: Option<String>,
+        head: Option<RepositoryHead>,
         state: RepositoryState,
         linked_worktree: bool,
         submodule: bool,
@@ -392,6 +394,7 @@ impl RepositoryFacts {
             top_level,
             git_version,
             branch,
+            head,
             state,
             linked_worktree,
             submodule,
@@ -412,6 +415,10 @@ impl RepositoryFacts {
 
     pub fn branch(&self) -> Option<&str> {
         self.branch.as_deref()
+    }
+
+    pub fn head(&self) -> Option<&RepositoryHead> {
+        self.head.as_ref()
     }
 
     pub fn state(&self) -> RepositoryState {

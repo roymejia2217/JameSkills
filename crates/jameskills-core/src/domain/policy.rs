@@ -602,6 +602,11 @@ impl CheckReport {
         &self.results
     }
 
+    /// Requirement identifiers that block strict execution when they do not pass.
+    pub fn required_ids(&self) -> &BTreeSet<String> {
+        &self.required_ids
+    }
+
     pub fn strict_exit(&self) -> u8 {
         strict_exit(self)
     }

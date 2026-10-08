@@ -1,9 +1,13 @@
 use crate::{
     AppError, AppResult, ContentHash, Diagnostic, OperationId,
-    domain::policy::{
-        ApplicabilityFact, CheckEvidence, CheckObservation, CheckReport, CheckStatus, Policy,
-        RepositoryHead, Requirement, TestSuiteDeclaration, TestSuiteKind, TestSuiteRunResult,
-        evaluate_predicate, not_applicable_result,
+    domain::{
+        RepositoryBinding, RepositoryBindingCheck, RepositoryBindingEvidence,
+        RepositoryBindingReport,
+        policy::{
+            ApplicabilityFact, CheckEvidence, CheckObservation, CheckReport, CheckStatus, Policy,
+            RepositoryHead, Requirement, TestSuiteDeclaration, TestSuiteKind, TestSuiteRunResult,
+            evaluate_predicate, not_applicable_result,
+        },
     },
     ports::{
         ClockPort,
@@ -54,6 +58,138 @@ struct ApplicabilityObservation {
 pub struct CheckRequest {
     policy: Policy,
     context: CheckContext,
+}
+
+/// Inputs gathered by the binding coordinator before evaluating a suite. An
+/// absent observation/report is explicit: stale results are retained, never
+/// converted into a successful empty report.
+pub struct RepositoryBindingEvaluationRequest {
+    binding: RepositoryBinding,
+    observed_binding: Option<RepositoryBinding>,
+    observation_failure: Option<RepositoryBindingStaleReason>,
+    current_suite_revision: Option<crate::domain::RevisionId>,
+    policies: Option<Vec<Policy>>,
+    context: CheckContext,
+    previous_report: Option<RepositoryBindingReport>,
+    observed_at: String,
+}
+
+impl RepositoryBindingEvaluationRequest {
+    pub fn new(
+        binding: RepositoryBinding,
+        observed_binding: Option<RepositoryBinding>,
+        current_suite_revision: Option<crate::domain::RevisionId>,
+        policies: Option<Vec<Policy>>,
+        context: CheckContext,
+        previous_report: Option<RepositoryBindingReport>,
+        observed_at: String,
+    ) -> Self {
+        Self {
+            binding,
+            observed_binding,
+            observation_failure: None,
+            current_suite_revision,
+            policies,
+            context,
+            previous_report,
+            observed_at,
+        }
+    }
+
+    pub fn with_observation_failure(mut self, reason: RepositoryBindingStaleReason) -> Self {
+        self.observation_failure = Some(reason);
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepositoryBindingStaleReason {
+    RepositoryUnavailable,
+    RepositoryMoved,
+    GitApprovalRequired,
+    ProfileChanged,
+    EnvironmentChanged,
+    SuiteRevisionChanged,
+    EvaluationUnavailable,
+    BindingChangedDuringEvaluation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepositoryBindingNextStep {
+    LocateRepository,
+    RebindRepository,
+    ApproveGit,
+    ReviewProfile,
+    ReconfirmEnvironment,
+    SelectCurrentSuiteRevision,
+    RetryChecks,
+    RefreshBinding,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct RepositoryBindingEvaluation {
+    binding: RepositoryBinding,
+    report: Option<RepositoryBindingReport>,
+    stale_reason: Option<RepositoryBindingStaleReason>,
+}
+
+impl RepositoryBindingEvaluation {
+    pub fn stale(
+        binding: RepositoryBinding,
+        report: Option<RepositoryBindingReport>,
+        reason: RepositoryBindingStaleReason,
+    ) -> Self {
+        Self {
+            binding,
+            report,
+            stale_reason: Some(reason),
+        }
+    }
+
+    pub fn is_stale(&self) -> bool {
+        self.stale_reason.is_some()
+    }
+
+    pub fn stale_reason(&self) -> Option<RepositoryBindingStaleReason> {
+        self.stale_reason
+    }
+
+    pub fn next_step(&self) -> Option<RepositoryBindingNextStep> {
+        self.stale_reason.map(|reason| match reason {
+            RepositoryBindingStaleReason::RepositoryUnavailable => {
+                RepositoryBindingNextStep::LocateRepository
+            }
+            RepositoryBindingStaleReason::RepositoryMoved => {
+                RepositoryBindingNextStep::RebindRepository
+            }
+            RepositoryBindingStaleReason::GitApprovalRequired => {
+                RepositoryBindingNextStep::ApproveGit
+            }
+            RepositoryBindingStaleReason::ProfileChanged => {
+                RepositoryBindingNextStep::ReviewProfile
+            }
+            RepositoryBindingStaleReason::EnvironmentChanged => {
+                RepositoryBindingNextStep::ReconfirmEnvironment
+            }
+            RepositoryBindingStaleReason::SuiteRevisionChanged => {
+                RepositoryBindingNextStep::SelectCurrentSuiteRevision
+            }
+            RepositoryBindingStaleReason::EvaluationUnavailable => {
+                RepositoryBindingNextStep::RetryChecks
+            }
+            RepositoryBindingStaleReason::BindingChangedDuringEvaluation => {
+                RepositoryBindingNextStep::RefreshBinding
+            }
+        })
+    }
+
+    pub fn binding(&self) -> &RepositoryBinding {
+        &self.binding
+    }
+
+    pub fn report(&self) -> Option<&RepositoryBindingReport> {
+        self.report.as_ref()
+    }
 }
 
 /// Read-only preview of the selected suite and repository snapshot.
@@ -246,6 +382,199 @@ impl PolicyService {
             }
         }
         Ok(CheckReport::new(results, required_ids))
+    }
+
+    /// Evaluates every typed policy in one validated suite revision and
+    /// combines results without allowing duplicate requirement identifiers.
+    pub async fn check_suite(
+        &self,
+        policies: Vec<Policy>,
+        context: CheckContext,
+    ) -> AppResult<CheckReport> {
+        if policies.is_empty() {
+            return Err(AppError::Validation(vec![Diagnostic::error(
+                "policy.suite.empty",
+                "A repository binding requires at least one policy in its suite revision.",
+            )]));
+        }
+        let mut results = Vec::new();
+        let mut required_ids = BTreeSet::new();
+        let mut seen = BTreeSet::new();
+        for policy in policies {
+            let report = self
+                .check(CheckRequest::new(policy, context.clone()))
+                .await?;
+            for result in report.results() {
+                if !seen.insert(result.requirement_id().to_owned()) {
+                    return Err(AppError::Validation(vec![Diagnostic::error(
+                        "policy.suite.requirement.duplicate",
+                        "Requirement identifiers must be unique across suite policies.",
+                    )]));
+                }
+                results.push(result.clone());
+            }
+            required_ids.extend(report.required_ids().iter().cloned());
+        }
+        Ok(CheckReport::new(results, required_ids))
+    }
+
+    /// Evaluates only when the selected suite revision and repository
+    /// environment still match the saved binding. HEAD-only changes trigger a
+    /// fresh check; unavailable or moved bindings retain their prior report as
+    /// explicitly stale.
+    pub async fn evaluate_binding(
+        &self,
+        request: RepositoryBindingEvaluationRequest,
+    ) -> AppResult<RepositoryBindingEvaluation> {
+        let stale = |reason, report| RepositoryBindingEvaluation {
+            binding: request.binding.clone(),
+            report,
+            stale_reason: Some(reason),
+        };
+        if request.current_suite_revision.as_ref() != Some(request.binding.suite_revision()) {
+            return Ok(stale(
+                RepositoryBindingStaleReason::SuiteRevisionChanged,
+                request.previous_report,
+            ));
+        }
+        if let Some(reason) = request.observation_failure {
+            return Ok(stale(reason, request.previous_report));
+        }
+        let Some(observed) = request.observed_binding.as_ref() else {
+            return Ok(stale(
+                RepositoryBindingStaleReason::RepositoryUnavailable,
+                request.previous_report,
+            ));
+        };
+        if observed.skill_id() != request.binding.skill_id()
+            || observed.suite_revision() != request.binding.suite_revision()
+        {
+            return Ok(stale(
+                RepositoryBindingStaleReason::SuiteRevisionChanged,
+                request.previous_report,
+            ));
+        }
+        if observed.repository_root() != request.binding.repository_root() {
+            return Ok(stale(
+                RepositoryBindingStaleReason::RepositoryMoved,
+                request.previous_report,
+            ));
+        }
+        if observed.profile() != request.binding.profile()
+            || observed.strict() != request.binding.strict()
+        {
+            return Ok(stale(
+                RepositoryBindingStaleReason::ProfileChanged,
+                request.previous_report,
+            ));
+        }
+        if observed.environment_fingerprint() != request.binding.environment_fingerprint() {
+            return Ok(stale(
+                RepositoryBindingStaleReason::EnvironmentChanged,
+                request.previous_report,
+            ));
+        }
+        let Some(policies) = request.policies else {
+            return Ok(stale(
+                RepositoryBindingStaleReason::EvaluationUnavailable,
+                request.previous_report,
+            ));
+        };
+        let binding = RepositoryBinding::from_storage(
+            request.binding.id().to_owned(),
+            request.binding.skill_id(),
+            request.binding.suite_revision().clone(),
+            observed.repository_root().to_path_buf(),
+            observed.profile(),
+            observed.strict(),
+            observed.repository_head().clone(),
+            observed.environment_fingerprint().to_owned(),
+        )?;
+        let report = match self.check_suite(policies, request.context).await {
+            Ok(report) => report,
+            Err(_) => {
+                return Ok(stale(
+                    RepositoryBindingStaleReason::EvaluationUnavailable,
+                    request.previous_report,
+                ));
+            }
+        };
+        let checks = report
+            .results()
+            .iter()
+            .map(binding_check_snapshot)
+            .collect::<AppResult<Vec<_>>>()?;
+        let stored_report = RepositoryBindingReport::new(
+            &binding,
+            request.observed_at,
+            report.strict_exit() == 0,
+            checks,
+        )?;
+        Ok(RepositoryBindingEvaluation {
+            binding,
+            report: Some(stored_report),
+            stale_reason: None,
+        })
+    }
+}
+
+fn binding_check_snapshot(
+    result: &crate::domain::policy::CheckResult,
+) -> AppResult<RepositoryBindingCheck> {
+    let evidence = result
+        .evidence()
+        .iter()
+        .map(|item| {
+            RepositoryBindingEvidence::new(
+                item.source_id().to_owned(),
+                item.observed_at().to_owned(),
+                item.revision().cloned(),
+                item.environment_fingerprint().to_owned(),
+                item.summary().to_owned(),
+            )
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    RepositoryBindingCheck::new(
+        result.requirement_id().to_owned(),
+        check_status_name(result.status()).to_owned(),
+        severity_name(result.severity()).to_owned(),
+        result
+            .enforcement()
+            .map(enforcement_name)
+            .map(str::to_owned),
+        result.guidance_id().map(str::to_owned),
+        evidence,
+    )
+}
+
+fn check_status_name(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "pass",
+        CheckStatus::Fail => "fail",
+        CheckStatus::Blocked => "blocked",
+        CheckStatus::Unknown => "unknown",
+        CheckStatus::Unsupported => "unsupported",
+        CheckStatus::NotApplicable => "not-applicable",
+    }
+}
+
+fn severity_name(severity: crate::domain::policy::Severity) -> &'static str {
+    use crate::domain::policy::Severity;
+    match severity {
+        Severity::Info => "info",
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+}
+
+fn enforcement_name(enforcement: crate::domain::policy::Enforcement) -> &'static str {
+    use crate::domain::policy::Enforcement;
+    match enforcement {
+        Enforcement::Instruction => "instruction",
+        Enforcement::LocalCheck => "local-check",
+        Enforcement::LocalHook => "local-hook",
+        Enforcement::RequiredCi => "required-ci",
+        Enforcement::HostRule => "host-rule",
     }
 }
 

@@ -1874,6 +1874,36 @@ fn node_path_argument(path: &Path) -> OsString {
     path.as_os_str().to_os_string()
 }
 
+/// Resolves a registered Commitlint launcher to the package-owned JavaScript
+/// CLI without invoking a native shim or following symlinks.
+pub fn commitlint_cli_entrypoint_for_candidate(candidate: &ToolCandidate) -> Option<PathBuf> {
+    if candidate.tool_id() != ToolId::Commitlint {
+        return None;
+    }
+    let launcher = candidate.path()?;
+    let mut candidates = Vec::new();
+    if is_commitlint_cli_entrypoint(launcher) {
+        candidates.push(launcher.to_path_buf());
+    }
+    for ancestor in launcher.ancestors().take(8) {
+        for relative in [
+            Path::new("node_modules/@commitlint/cli/cli.js"),
+            Path::new("lib/node_modules/@commitlint/cli/cli.js"),
+            Path::new("share/nodejs/node_modules/@commitlint/cli/cli.js"),
+        ] {
+            candidates.push(ancestor.join(relative));
+        }
+    }
+    candidates.into_iter().find_map(|candidate| {
+        let metadata = std::fs::symlink_metadata(&candidate).ok()?;
+        if !metadata.file_type().is_file() {
+            return None;
+        }
+        let canonical = std::fs::canonicalize(candidate).ok()?;
+        is_commitlint_cli_entrypoint(&canonical).then_some(canonical)
+    })
+}
+
 fn is_npm_cli_entrypoint(path: &Path) -> bool {
     let components = path
         .components()
