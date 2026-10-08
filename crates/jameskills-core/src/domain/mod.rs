@@ -9,6 +9,7 @@ pub mod policy;
 pub mod repo_change;
 mod scope;
 pub mod skill;
+pub mod sync;
 
 pub use agent::{
     AgentCapabilities, AgentCapabilityAssessment, AgentCapabilityId, AgentId, AgentInstallMode,
@@ -51,4 +52,14 @@ pub use scope::Scope;
 pub use skill::{
     CapabilityDeclaration, SkillFrontmatter, SkillManifest, ValidatedBundle, canonical_inventory,
     hash_bundle, validate_bundle,
+};
+pub use sync::{
+    BACKUP_AEAD_TAG_LEN, BACKUP_ARGON2_ITERATIONS, BACKUP_ARGON2_MEMORY_KIB,
+    BACKUP_ARGON2_PARALLELISM, BACKUP_CIPHER_XCHACHA20_POLY1305, BACKUP_HEADER_V1_LEN,
+    BACKUP_HEADER_V1_VERSION, BACKUP_KDF_ARGON2ID, BACKUP_NONCE_LEN, BACKUP_SALT_LEN,
+    BACKUP_WRAPPED_MASTER_LEN, BackupHeaderV1, CANONICAL_HASH_VERSION, DeviceId, EncryptedSnapshot,
+    MAX_ENCRYPTED_PAYLOAD_BYTES, MAX_SNAPSHOT_ARCHIVES_BYTES, MAX_SNAPSHOT_BUNDLE_BYTES,
+    MAX_SNAPSHOT_METADATA_ENTRIES, MAX_SNAPSHOT_PARENTS, SNAPSHOT_SCHEMA_VERSION, SnapshotBundle,
+    SnapshotHead, SnapshotId, SnapshotPayload, SnapshotRevision, SnapshotRevisionKind,
+    UnlockedVault, VaultId, VerifiedSnapshot, WrappingKey,
 };
