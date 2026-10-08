@@ -1,6 +1,6 @@
 # Fuentes y decisiones verificadas — JameSkills
 
-Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UTC en Linux x86_64. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. Aún no se ha compilado el workspace ni se ha abierto una ventana de aplicación.
+Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UTC en Linux x86_64. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. Checkpoints C014/C015 verificaron compilación y pruebas GPUI headless en Windows MSVC; no se afirma smoke visual nativo.
 
 ## Plataforma nativa
 
@@ -14,6 +14,11 @@ Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UT
 | https://gpui-kit.com/docs/installation | Windows 10+, MSVC/VS2022+CMake; Ubuntu24.04 packages; Vulkan+sesión gráfica; la página indica baseline Rust1.92 | La página refleja un baseline insuficiente para source v0.7.0; T001 verificó compilación con Rust1.95 por `cold_path` |
 | https://gpui-kit.com/docs/assets/ | Assets debe registrarse; catálogo e iconos separados de componentes | Usar Assets del Kit y verificar nombres del catálogo fijado |
 | https://github.com/longbridge/gpui-kit/tree/v0.7.0/examples/ai_recipes | Recetas compilables y tests retained state | Modelo de entidades/subscriptions y UI tests desde fuentes fijadas |
+| https://crates.io/api/v1/crates/rfd/0.17.2 | rfd 0.17.2, MIT, edition 2021, yanked=false, checksum `20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220`; índice no declara MSRV | Pin exacto; compatibilidad se verifica con Rust1.95 en Windows/Linux |
+| https://github.com/PolyMeilex/rfd/tree/0.17.2 | Tag 0.17.2 del selector nativo de archivos | Usar API AsyncFileDialog, nunca invocar shell/tool para abrir picker |
+| https://docs.rs/rfd/0.17.2/rfd/struct.AsyncFileDialog.html | API versionada: `pick_file`, `pick_folder`, `save_file`, `set_file_name`, filtros; Windows/Linux/macOS | Acciones de UI esperan selección/cancel sin bloquear render |
+| https://docs.rs/rfd/0.17.2/rfd/struct.FileHandle.html | `FileHandle::path()` devuelve ruta nativa en desktop | Pasar la ruta al preview/apply tipado; no abrir contenido del picker en el renderer |
+| https://docs.rs/rfd/0.17.2/rfd/ | Default features `xdg-portal` + `wayland`; Linux portal usa backend del desktop, `libdbus`/Zenity como fallback según runtime | Linux package/runtime documenta portal y Zenity; no sustituir por GTK ni mock web |
 
 Directorios nativos: crate `directories = "=6.0.0"`, MIT OR Apache-2.0,
 [`BaseDirs`](https://docs.rs/directories/6.0.0/directories/struct.BaseDirs.html)
@@ -207,7 +212,11 @@ Drive no provee aquí un CAS verificado para un HEAD mutable. Se usa DAG de snap
 - cargo-audit: https://rustsec.org/docs/
 - RustCrypto AEAD: https://docs.rs/chacha20poly1305/
 - Argon2: https://docs.rs/argon2/
-- Keyring: https://docs.rs/keyring/
+- Argon2 KDF specification/vector: https://www.rfc-editor.org/rfc/rfc9106.txt (Argon2 version 0x13 and published Argon2id test vector, §5.3).
+- Crypto T051 pins: `argon2 = 0.5.3` (MIT OR Apache-2.0, MSRV1.65, crates.io `yanked=false`, checksum `3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072`), `chacha20poly1305 = 0.10.1` (Apache-2.0 OR MIT, docs declare Rust1.56+, `yanked=false`, checksum `10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35`) and `zeroize = 1.9.0` (source above). Argon2 disables default PHC/password-hash/rand features and enables `zeroize`; provider supplies/zeroizes caller-owned blocks using explicit-memory API, with `alloc` disabled to avoid library-owned KDF memory. Chacha uses `alloc` + `getrandom` for fallible OS `OsRng` nonce generation. RustCrypto docs confirm `Params::new`, `Algorithm::Argon2id`, version v19, `hash_password_into_with_memory`, and XChaCha20Poly1305/XNonce 24-byte nonces. RFC9106 provides a separate Argon2id test vector. XChaCha follows SPEC-cloud-sync despite docs noting no final IETF standard; ciphertext AAD/offsets are JameSkills protocol, not crate defaults.
+- Snapshot ZIP T052: `zip = 8.5.1`, MIT, MSRV1.88, crates.io `yanked=false`, checksum `dcab981e19633ebcf0b001ddd37dd802996098bc1864f90b7c5d970ce76c1d59`; versioned docs confirm `ZipWriter`, `ZipArchive`, Stored entries, and ZIP64. Pin disables all default features (AES/password encryption and compression codecs); only app-generated, bounded Stored entries are written/read. Paths/names, entry count, aggregate bytes and actual reads remain app-validated; no arbitrary extraction helper or filesystem path API is used.
+- Secret memory clearing T051: [`zeroize 1.9.0`](https://docs.rs/zeroize/1.9.0/zeroize/) (MIT OR Apache-2.0, MSRV1.85). Its `Zeroize` implementation uses volatile writes/fences to avoid compiler elision; `ZeroizeOnDrop` is only a marker, so `SecretInput` implements Drop that calls `zeroize()` explicitly. The crate has no required dependencies; only core owns the passphrase bytes, with no serde/Debug exposure.
+- Keyring: https://docs.rs/keyring/4.2.0/keyring/v1/ and https://docs.rs/keyring/4.2.0/keyring/v1/struct.Entry.html. Pin `keyring=4.2.0` (MIT OR Apache-2.0, MSRV1.88.0, crates.io release dated 2026-08-29, `yanked=false`, checksum `2270074a3d26bcac93c1dc5d2845eb4c089e8d761ccf6e0ea266a16004640627`); crate defaults are disabled and only `v1` is enabled. Its v1 `Entry` uses Windows Credential Manager and Secret Service on Linux; `store_status`, `set_secret`, `get_secret`, and `delete_credential` are the reviewed calls. Keyring I/O is synchronous and must run outside UI/render; no mock/default storage fallback is accepted for production.
 - GPUI headless recipes y APIs: fuente v0.7.0 indicada arriba.
 - MSRV/toolchain: https://doc.rust-lang.org/cargo/reference/rust-version.html
 - GitHub Actions permissions: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication
