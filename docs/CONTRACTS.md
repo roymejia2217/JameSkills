@@ -465,7 +465,89 @@ pub trait AgentPort: Send + Sync {
 
 // T029.a se limita a profile/detect. render_export y verify_install se añaden
 // junto con sus Bundle/Receipt tipados; no declarar éxitos vacíos.
+~~~
 
+## Sync v1 in-memory DTO boundary (T051.a)
+
+`SecretInput::new(Vec<u8>) -> AppResult<SecretInput>` accepts 1..=1024 bytes;
+the type has no `Clone`, `Serialize` or content-bearing `Debug`, implements
+`Drop` with `Zeroize`, and exposes bytes only by a borrowed accessor. It is a
+transient passphrase/keyring input and is never sent in a UI event or process
+argument.
+
+`VaultId`, `SnapshotId` and opaque `DeviceId` wrap UUIDs and do not identify
+accounts, hostnames or devices by name. `SnapshotRevision` carries revision ID,
+skill ID, causal parents, `Content | Tombstone { observed_heads }`, optional
+bundle hash and SemVer. `SnapshotHead` maps one skill ID to its sorted unique
+head revision IDs. `SnapshotBundle` contains a canonical content hash plus the
+bounded `.jskill` archive bytes; it has no filesystem path. The first bounded
+payload DTO is:
+
+~~~rust
+struct SnapshotPayload {
+    vault_id: VaultId,
+    snapshot_id: SnapshotId,
+    parents: Vec<SnapshotId>, // sorted unique
+    device_id: DeviceId,
+    library_generation: u64,
+    created_at: String,       // display metadata only
+    canonical_hash_version: u16,
+    revisions: Vec<SnapshotRevision>,
+    heads: Vec<SnapshotHead>,
+    bundles: Vec<SnapshotBundle>, // canonical hash + bounded .jskill bytes
+}
+~~~
+
+`SnapshotPayload::new` enforces in-memory resource/identity-list bounds: at most
+100,000 metadata entries and nested revision/head references globally, 100,000
+snapshot parents, 128 causal revision/head references per skill, SemVer text
+<=128 bytes, 22 MiB per portable bundle archive and 256 MiB aggregate archive
+bytes; IDs/heads and bundle descriptors are deterministically ordered and
+duplicate keys rejected. `verify(self)` then
+revalidates each revision ID/SemVer, same-skill parent references, acyclic
+revision DAG, exact current leaves/heads, tombstone observed-head equality, and
+each stored `.jskill` archive against its canonical bundle hash and manifest
+identity/version. Only successful validation constructs `VerifiedSnapshot`;
+restore/merge consumers never accept an unchecked payload.
+DTOs containing archive bytes are neither logged nor formatted with `Debug`.
+`SnapshotPayload` is an in-memory input to CryptoPort and is not generically
+Serde-deserializable; future ciphertext open must authenticate first and run
+the complete snapshot validator before it can produce `VerifiedSnapshot`.
+
+`infra::snapshot_archive::encode(&SnapshotPayload)` emits ZIP64-compatible
+Stored entries `snapshot.json` and `bundles/<canonical-hash>.jskill`, with a
+fixed 1980 timestamp and no ZIP encryption/compression. `decode(&[u8])` returns
+an unverified `SnapshotPayload`, never `VerifiedSnapshot`; it preflights the
+EOCD/ZIP64 directory count+size and total archive cap before constructing
+`ZipArchive`, rejects duplicate/unexpected paths, compressed/encrypted/non-file
+entries, and enforces 100,001 entries, 64 MiB snapshot.json, 22 MiB per .jskill,
+256 MiB aggregate uncompressed bytes and a stored ZIP no larger than the 256 MiB
+ciphertext ceiling minus its 16-byte AEAD tag before reads/reserves. CRCs are
+checked by reading every stored entry fully. The caller authenticates the enclosing AEAD
+before calling decode and must call `SnapshotPayload::verify` before restore.
+
+The serialization envelope/ZIP codec is introduced with the first real crypto
+provider (T051/T052), not with generic Serde on `SecretInput` or unchecked
+`SnapshotPayload` deserialization.
+
+`BackupHeaderV1::parse(&[u8])` accepts exactly 176 bytes. The encoder/parser use
+the byte offsets from SPEC-cloud-sync verbatim: magic `JSKSBK01`; version u16BE;
+cipher/KDF IDs; fixed Argon2id v19 params (65536 KiB, 3, 1); salt16; raw VaultId
+and SnapshotId UUIDs; wrap nonce24; payload nonce24; wrapped master48; and
+ciphertext length u64BE including the AEAD tag. Unknown versions/IDs/parameters,
+truncation, trailing header bytes, lengths below the 16-byte tag or beyond
+256 MiB return a bounded validation error before KDF/allocation. `wrap_aad()`
+returns bytes0..120 concatenated with bytes168..176; `payload_aad()` is the
+canonical 176-byte encoding. The separate ciphertext length/actual payload
+equality check belongs to `EncryptedSnapshot` assembly/open in T052.
+
+`WrappingKey` is a 32-byte non-Clone secret wrapper, redacted from Debug and
+zeroized on Drop. `CryptoPort`'s KDF operation accepts only `SecretInput` and a
+fixed 16-byte salt; the provider does not accept memory/iteration/parallelism
+from the caller. It is synchronous CPU work and callers must use
+`spawn_blocking`, not a UI/render thread.
+
+~~~rust
 #[async_trait::async_trait]
 pub trait RemoteSnapshotPort: Send + Sync {
     async fn list_page(&self, page: Option<String>) -> AppResult<RemotePage>;
@@ -474,6 +556,7 @@ pub trait RemoteSnapshotPort: Send + Sync {
 }
 
 pub trait CryptoPort: Send + Sync {
+    fn derive_wrapping_key(&self, password: &SecretInput, salt: &[u8; 16]) -> AppResult<WrappingKey>;
     fn create_vault(&self, password: &SecretInput) -> AppResult<UnlockedVault>;
     fn unlock_vault(&self, data: &EncryptedSnapshot, password: &SecretInput) -> AppResult<UnlockedVault>;
     fn open_with_vault(&self, data: &EncryptedSnapshot, key: &UnlockedVault) -> AppResult<VerifiedSnapshot>;

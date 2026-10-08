@@ -21,9 +21,10 @@ Datos externos nunca autorizan ejecución/redirección/privilegios/trust automá
 | Host | falsa protección/stale CI | effective rulesets/classic+bypass+SHA exact, Unknown no pass | github denied/bypass fixtures |
 | Install | overwrite/TOCTOU/crash | owner hashes, locks, no-follow handles, journal recovery | failpoints+interprocess |
 | SQLite | injection/stale save | bind params, transactions, expected-head, migration backup | storage real tests |
+| Repository bindings | project path/head/facts se filtran o quedan stale | binding/report en tablas SQLite local-only, revisión suite exacta, root/head/environment fingerprint revalidado; ausentes de bundle/backup/snapshot | bindings cambia root, WSL, suite revision y conserva resultados solo como stale |
 | OAuth | interception/CSRF/leak | browser PKCE/state/loopback oneuse, keyring | oauth attack fake localhost |
 | Drive | SSRF/lost writes/duplicates | fixed HTTPS hosts, pagination, snapshots inmutables+DAG | reordered fake remote |
-| Crypto | tamper/KDF DoS/OS-tied restore | RustCrypto, fixed params before KDF, AAD, passphrase wrap | header176 tamper vectors |
+| Crypto | tamper/KDF DoS/OS-tied restore | RustCrypto, fixed params before KDF, independent OS-random nonces, AAD, passphrase wrap, authenticate-before-decode | per-header-field/wrapped-key/payload tamper, wrong passphrase, RNG failure, immutable retry bytes |
 | UI jobs | stale mutations/cancel falso | request+generation+revision, durable receipts | reducer concurrency |
 | Logs/exports | secrets leak | typed redaction, allowlist payload, sin paths/creds | canary absent serialization |
 | Release | supply chain/binary altered | locked deps, pinned Actions, scopes, checksum/signature | CI+package verify |
@@ -52,6 +53,7 @@ SPEC-cloud-sync fija header176/AAD/KDF/wrap/encrypted ZIP. No variante paralela 
 Salt estable vault normal; wrap/payload nonces fresh independientes. RNG fallo aborta.
 Replay ancestor no reduce heads; vaultID binding evita cross-vault merge.
 Rotación contraseña usa nuevo vault/master; old exports no se revocan mágicamente. Google ve IDs opacos/tamaños ciphertext, no contenido/nombres skill.
+`CryptoProvider` usa Argon2id v19 con parámetros fijos, XChaCha20Poly1305 y los AAD byte-exactos del header v1. Wrong passphrase, wrap/tag/payload/header tamper comparten `CryptoInvalid`; no se llama al ZIP decoder hasta que la autenticación de todo el payload haya pasado. Las claves y buffers de plaintext de sesión son `Zeroizing`; cada error de OS CSPRNG aborta la operación sin reutilizar nonces.
 
 ## Red y procesos
 
