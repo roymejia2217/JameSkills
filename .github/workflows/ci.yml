@@ -100,7 +100,11 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run domain and CLI suites
+      - name: Check CLI against an imported fixture in isolated storage
+        run: cargo test -p jameskills-cli --locked --test check_command
+      - name: Check portable library export with isolated storage
+        run: cargo test -p jameskills-cli --locked --test library_export_command
+      - name: Run domain, infra and CLI suites
         run: cargo test -p jameskills-core -p jameskills-infra -p jameskills-cli --locked
 
   build-linux:

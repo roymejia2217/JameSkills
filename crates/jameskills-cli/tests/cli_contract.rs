@@ -76,22 +76,15 @@ fn secrets_are_not_accepted_as_command_line_flags_or_echoed() {
 }
 
 #[test]
-fn check_accepts_typed_profile_and_strict_flags_but_stays_unsupported() {
-    let output = run(&[
-        "check",
-        "--repo",
-        ".",
-        "--skill",
-        "550e8400-e29b-41d4-a716-446655440000",
-        "--profile",
-        "rust",
-        "--strict",
-        "--json",
-    ]);
-    assert_eq!(output.status.code(), Some(3));
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["command"], "check");
-    assert_eq!(value["error"]["code"], "capability.unsupported");
+fn check_help_lists_typed_flags_without_initializing_user_runtime() {
+    let output = run(&["check", "--help"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--repo <REPO>"));
+    assert!(stdout.contains("--skill <SKILL>"));
+    assert!(stdout.contains("--profile <PROFILE>"));
+    assert!(stdout.contains("--approve-tool <TOOL=SHA256>"));
+    assert!(stdout.contains("--strict"));
 }
 
 #[test]

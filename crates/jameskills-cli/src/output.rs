@@ -1,4 +1,7 @@
-use jameskills_core::{AppError, Diagnostic};
+use jameskills_core::{
+    AppError, Diagnostic,
+    domain::policy::{CheckReport, CheckStatus, Enforcement, Policy, Severity},
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -53,29 +56,67 @@ impl CliResponse {
         response
     }
 
-    // Wired when the policy check provider is implemented; this pure mapping is exercised now.
-    #[allow(dead_code)]
-    pub fn check_result(
+    pub fn check_reports(
         command: impl Into<String>,
-        data: Value,
+        reports: &[(&Policy, &CheckReport)],
         strict: bool,
-        required_checks_passed: bool,
     ) -> Self {
-        if strict && !required_checks_passed {
-            Self {
-                schema_version: 1,
-                command: command.into(),
-                operation_id: None,
-                data: Some(data),
-                error: Some(CliError {
-                    code: "checks.failed",
-                    message: "One or more required checks did not pass.",
-                }),
-                exit_code: 1,
-            }
-        } else {
-            Self::success(command, data)
+        let required_passed = reports.iter().all(|(_, report)| report.strict_exit() == 0);
+        let policies = reports
+            .iter()
+            .map(|(policy, report)| {
+                let results = report
+                    .results()
+                    .iter()
+                    .map(|result| {
+                        json!({
+                            "requirement_id": result.requirement_id(),
+                            "required": report.required_ids().contains(result.requirement_id()),
+                            "severity": severity_name(result.severity()),
+                            "status": check_status_name(result.status()),
+                            "enforcement": result.enforcement().map(enforcement_name),
+                            "guidance_id": result.guidance_id(),
+                            "evidence": result.evidence().iter().map(|evidence| json!({
+                                "source_id": evidence.source_id(),
+                                "observed_at": evidence.observed_at(),
+                                "revision_id": evidence.revision().map(|revision| revision.as_str()),
+                                "environment_fingerprint": evidence.environment_fingerprint(),
+                                "summary": evidence.summary(),
+                            })).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                json!({ "profile": policy.profile(), "required_passed": report.strict_exit() == 0, "results": results })
+            })
+            .collect::<Vec<_>>();
+        let results = policies
+            .iter()
+            .flat_map(|policy| {
+                policy["results"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|result| {
+                        let mut result = result.clone();
+                        result["policy_profile"] = policy["profile"].clone();
+                        result
+                    })
+            })
+            .collect::<Vec<_>>();
+        let data = json!({
+            "required_passed": required_passed,
+            "policies": policies,
+            "results": results,
+        });
+        let mut response = Self::success(command, data);
+        if strict && !required_passed {
+            response.error = Some(CliError {
+                code: "checks.failed",
+                message: "One or more required checks did not pass.",
+            });
+            response.exit_code = 1;
         }
+        response
     }
 
     pub fn error(
@@ -92,6 +133,35 @@ impl CliResponse {
             error: Some(CliError { code, message }),
             exit_code,
         }
+    }
+}
+
+fn check_status_name(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "pass",
+        CheckStatus::Fail => "fail",
+        CheckStatus::Blocked => "blocked",
+        CheckStatus::Unknown => "unknown",
+        CheckStatus::Unsupported => "unsupported",
+        CheckStatus::NotApplicable => "not-applicable",
+    }
+}
+
+fn severity_name(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Info => "info",
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+}
+
+fn enforcement_name(enforcement: Enforcement) -> &'static str {
+    match enforcement {
+        Enforcement::Instruction => "instruction",
+        Enforcement::LocalCheck => "local-check",
+        Enforcement::LocalHook => "local-hook",
+        Enforcement::RequiredCi => "required-ci",
+        Enforcement::HostRule => "host-rule",
     }
 }
 
@@ -176,6 +246,41 @@ pub fn render_text(response: &CliResponse) -> String {
                 .as_str()
                 .unwrap_or("Input is invalid.");
             text.push_str(&format!("\n  {path}{line}: {code}: {message}"));
+        }
+        return text;
+    }
+    if response.command == "check"
+        && let Some(data) = &response.data
+        && let Some(results) = data["results"].as_array()
+    {
+        let mut text = format!(
+            "Policy check (profile {}, required passed: {}):",
+            data["requested_profile"].as_str().unwrap_or("unknown"),
+            data["required_passed"].as_bool().unwrap_or(false),
+        );
+        for result in results {
+            let requirement = result["requirement_id"].as_str().unwrap_or("unknown");
+            let status = result["status"].as_str().unwrap_or("unknown");
+            let scope = if result["required"].as_bool() == Some(true) {
+                "required"
+            } else {
+                "recommended"
+            };
+            let severity = result["severity"].as_str().unwrap_or("unknown");
+            let enforcement = result["enforcement"].as_str().unwrap_or("unknown");
+            text.push_str(&format!(
+                "\n  {requirement}: {status} ({scope}, {severity}, {enforcement})"
+            ));
+            if let Some(evidence) = result["evidence"].as_array() {
+                for item in evidence {
+                    if let Some(summary) = item["summary"].as_str() {
+                        text.push_str(&format!("\n    Evidence: {summary}"));
+                    }
+                }
+            }
+        }
+        if let Some(error) = &response.error {
+            text.push_str(&format!("\n{} ({})", error.message, error.code));
         }
         return text;
     }
@@ -366,6 +471,51 @@ pub fn render_text(response: &CliResponse) -> String {
             data["revision_id"].as_str().unwrap_or("unknown"),
         );
     }
+    if response.command == "library export"
+        && let Some(data) = &response.data
+        && data["phase"] == "preview"
+    {
+        let mut text = format!(
+            "Export preview: revision {} (content SHA-256 {})\nArchive: {} bytes\nDestination: {}",
+            data["revision_id"].as_str().unwrap_or("unknown"),
+            data["content_hash"].as_str().unwrap_or("unknown"),
+            data["archive_bytes"].as_u64().unwrap_or_default(),
+            data["destination"]["kind"].as_str().unwrap_or("unknown"),
+        );
+        if let Some(hash) = data["destination"]["sha256"].as_str() {
+            text.push_str(&format!(" (existing SHA-256 {hash})"));
+        }
+        text.push_str("\nApply only after reviewing the selected revision and destination:");
+        text.push_str(&format!(
+            "\n  jameskills library export --skill {} --revision {} --output <same-path.jskill> --apply",
+            data["skill_id"].as_str().unwrap_or("<skill-uuid>"),
+            data["revision_id"].as_str().unwrap_or("<revision-id>"),
+        ));
+        if data["overwrite_required"] == true {
+            text.push_str(" --overwrite");
+        }
+        text.push_str(&format!(
+            " --confirmation-digest {}",
+            data["confirmation_digest"].as_str().unwrap_or("unknown"),
+        ));
+        return text;
+    }
+    if response.command == "library export"
+        && let Some(data) = &response.data
+        && data["phase"] == "applied"
+    {
+        return format!(
+            "Exported revision {} as .jskill (content SHA-256 {}, {} bytes).{}",
+            data["revision_id"].as_str().unwrap_or("unknown"),
+            data["content_hash"].as_str().unwrap_or("unknown"),
+            data["archive_bytes"].as_u64().unwrap_or_default(),
+            if data["overwritten"].as_bool() == Some(true) {
+                " Existing destination was replaced after confirmation."
+            } else {
+                ""
+            },
+        );
+    }
 
     format!("{} completed", response.command)
 }
@@ -373,8 +523,73 @@ pub fn render_text(response: &CliResponse) -> String {
 #[cfg(test)]
 mod tests {
     use super::{CliResponse, map_exit_code, render_json, render_text, response_for_app_error};
-    use jameskills_core::AppError;
+    use jameskills_core::{AppError, application::policy::CheckRequest, domain::parse_policy};
+    use jameskills_infra::{composition::build_services, platform::UserDirectories};
     use serde_json::json;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_CHECK_ROOT: AtomicU64 = AtomicU64::new(0);
+
+    fn unavailable_check_report() -> (
+        jameskills_core::domain::policy::Policy,
+        jameskills_core::domain::policy::CheckReport,
+    ) {
+        const POLICY: &str = r#"
+schema_version = 1
+profile = "cli-check-output"
+
+[[requirements]]
+id = "required-readme"
+description = "The README has a start section."
+severity = "error"
+required = true
+phase = "pre-install"
+enforcement = "local-check"
+depends_on = []
+[requirements.check]
+kind = "readme-sections"
+path = "README.md"
+headings = ["Start"]
+
+[[requirements]]
+id = "recommended-structure"
+description = "The README has a usage section."
+severity = "warning"
+required = false
+phase = "pre-install"
+enforcement = "instruction"
+depends_on = []
+[requirements.check]
+kind = "readme-sections"
+path = "README.md"
+headings = ["Usage"]
+"#;
+        let root = std::env::temp_dir().join(format!(
+            "jameskills-cli-check-report-{}-{}",
+            std::process::id(),
+            NEXT_CHECK_ROOT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let runtime = build_services(UserDirectories {
+            config: root.join("config"),
+            data: root.join("data"),
+            cache: root.join("cache"),
+        })
+        .unwrap();
+        let policy = parse_policy(POLICY.as_bytes()).unwrap();
+        let report = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(
+                runtime
+                    .policy()
+                    .check(CheckRequest::new(policy.clone(), Default::default())),
+            )
+            .unwrap();
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(root);
+        (policy, report)
+    }
 
     #[test]
     fn operational_errors_map_to_documented_exit_code_classes() {
@@ -410,11 +625,42 @@ mod tests {
 
     #[test]
     fn strict_check_failure_keeps_report_and_uses_exit_code_one() {
-        let response =
-            CliResponse::check_result("check", json!({ "required_passed": false }), true, false);
+        let (policy, report) = unavailable_check_report();
+        let response = CliResponse::check_reports("check", &[(&policy, &report)], true);
         assert_eq!(response.exit_code, 1);
-        assert_eq!(response.data.unwrap()["required_passed"], false);
+        let text = render_text(&response);
+        assert!(text.contains("required-readme: unknown (required, error"));
+        assert!(text.contains("One or more required checks did not pass."));
+        assert_eq!(response.data.as_ref().unwrap()["required_passed"], false);
+        assert_eq!(response.data.unwrap()["results"][0]["status"], "unknown");
         assert_eq!(response.error.unwrap().code, "checks.failed");
+    }
+
+    #[test]
+    fn check_report_preserves_required_and_recommended_unknowns_and_strict_exit() {
+        let (policy, report) = unavailable_check_report();
+
+        let strict = CliResponse::check_reports("check", &[(&policy, &report)], true);
+        assert_eq!(strict.exit_code, 1);
+        let data = strict.data.unwrap();
+        assert_eq!(data["required_passed"], false);
+        assert_eq!(data["results"].as_array().unwrap().len(), 2);
+        assert_eq!(data["results"][0]["requirement_id"], "required-readme");
+        assert_eq!(data["results"][0]["policy_profile"], "cli-check-output");
+        assert_eq!(data["results"][0]["required"], true);
+        assert_eq!(data["results"][0]["status"], "unknown");
+        assert!(data["results"][0].get("description").is_none());
+        assert_eq!(
+            data["results"][1]["requirement_id"],
+            "recommended-structure"
+        );
+        assert_eq!(data["results"][1]["required"], false);
+        assert_eq!(data["results"][1]["severity"], "warning");
+        assert_eq!(data["results"][1]["status"], "unknown");
+
+        let informational = CliResponse::check_reports("check", &[(&policy, &report)], false);
+        assert_eq!(informational.exit_code, 0);
+        assert_eq!(informational.data.unwrap()["required_passed"], false);
     }
 
     #[test]
@@ -469,5 +715,33 @@ mod tests {
         let text = render_text(&applied);
         assert!(text.contains("quarantined draft"));
         assert!(text.contains("Not published"));
+    }
+
+    #[test]
+    fn library_export_text_reuses_preview_revision_and_overwrite_confirmation() {
+        let preview = CliResponse::success(
+            "library export",
+            json!({
+                "phase": "preview",
+                "skill_id": "11111111-1111-4111-8111-111111111111",
+                "revision_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "archive_bytes": 512,
+                "destination": { "kind": "existing", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+                "overwrite_required": true,
+                "confirmation_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            }),
+        );
+        let text = render_text(&preview);
+        assert!(text.contains("--skill 11111111-1111-4111-8111-111111111111"));
+        assert!(text.contains(
+            "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        assert!(text.contains("--output <same-path.jskill>"));
+        assert!(text.contains("--overwrite"));
+        assert!(text.contains(
+            "--confirmation-digest dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        ));
+        assert!(!text.contains("C:\\Users\\"));
     }
 }
