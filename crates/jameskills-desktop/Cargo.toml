@@ -11,6 +11,8 @@ test-support = ["gpui-kit/test-support"]
 gpui-kit = { version = "=0.7.0", default-features = true }
 jameskills-core = { path = "../jameskills-core" }
 jameskills-infra = { path = "../jameskills-infra" }
+rfd = { version = "=0.17.2", default-features = true }
+tokio = { version = "=1.53.1", default-features = false, features = ["rt"] }
 
 [lints]
 workspace = true
