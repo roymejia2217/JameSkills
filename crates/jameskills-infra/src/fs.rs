@@ -4,7 +4,10 @@ use crate::platform::{
     load_tool_profiles, parse_tool_version_output, probe_registered_tool_version,
 };
 use async_trait::async_trait;
-use cap_std::{ambient_authority, fs::Dir as RootedDir};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir as RootedDir, OpenOptions as CapOpenOptions},
+};
 use jameskills_core::{
     AppError, AppResult, Diagnostic, OperationId,
     application::{
@@ -22,12 +25,12 @@ use jameskills_core::{
             CheckEvidence, CheckObservation, CheckStatus, Enforcement, RepositoryHead,
             TestSuiteDeclaration, TestSuiteExecution, TestSuiteKind, TestSuiteRunResult,
         },
-        validate_bundle_inventory,
+        validate_bundle, validate_bundle_inventory,
     },
     ports::ImportScanPort,
     ports::filesystem::{
-        BundleFiles, FileSystemPort, bundle_entry_from_path, extract_archive_files,
-        validate_archive_entries,
+        BundleFiles, ExportDestinationState, FileSystemPort, bundle_entry_from_path,
+        extract_archive_files, validate_archive_entries,
     },
     ports::process::{
         ApprovedEnv, ApprovedExecutable, ApprovedRoot, ApprovedScript, CancellationToken,
@@ -588,10 +591,201 @@ impl Drop for PrivateImportScanStage {
 
 static NEXT_IMPORT_SCAN_ID: AtomicU64 = AtomicU64::new(0);
 
-const MAX_BUNDLE_ARCHIVE_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_BUNDLE_ARCHIVE_BYTES: u64 = 22 * 1024 * 1024;
 const MAX_PLAIN_SKILL_SOURCE_BYTES: u64 = 256 * 1024;
+static NEXT_EXPORT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
+
+fn export_error(code: &'static str) -> AppError {
+    AppError::Validation(vec![Diagnostic::error(
+        code,
+        "Export archive or destination is invalid or exceeds its resource limits.",
+    )])
+}
+
+fn resolve_export_destination(destination: &Path) -> AppResult<(PathBuf, OsString)> {
+    let absolute = if destination.is_absolute() {
+        destination.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| AppError::NotFound)?
+            .join(destination)
+    };
+    let parent = absolute
+        .parent()
+        .ok_or_else(|| export_error("library.export.path.invalid"))?;
+    if path_has_linked_component(parent) {
+        return Err(AppError::PermissionDenied {
+            operation: "library.export.parent.linked".to_owned(),
+        });
+    }
+    let canonical_parent = std::fs::canonicalize(parent).map_err(|_| AppError::NotFound)?;
+    if !canonical_parent.is_dir() {
+        return Err(AppError::NotFound);
+    }
+    let file_name = absolute
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| export_error("library.export.path.invalid"))?;
+    let portable_name = file_name
+        .to_str()
+        .ok_or_else(|| export_error("library.export.path.invalid"))?;
+    PortablePath::new(portable_name.to_owned())
+        .map_err(|_| export_error("library.export.path.invalid"))?;
+    if !Path::new(file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jskill"))
+    {
+        return Err(export_error("library.export.extension.invalid"));
+    }
+    Ok((canonical_parent, file_name.to_os_string()))
+}
+
+fn inspect_export_destination(
+    destination: &Path,
+) -> AppResult<(PathBuf, OsString, ExportDestinationState)> {
+    let (parent, file_name) = resolve_export_destination(destination)?;
+    let target = parent.join(&file_name);
+    let metadata = match std::fs::symlink_metadata(&target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((parent, file_name, ExportDestinationState::Missing));
+        }
+        Err(_) => {
+            return Err(AppError::PermissionDenied {
+                operation: "library.export.destination.inspect".to_owned(),
+            });
+        }
+    };
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || source_is_reparse(&metadata)
+        || !source_has_single_link(&metadata)
+    {
+        return Err(AppError::PermissionDenied {
+            operation: "library.export.destination.not_regular".to_owned(),
+        });
+    }
+    let bytes =
+        read_import_source_file(&target, MAX_BUNDLE_ARCHIVE_BYTES).map_err(AppError::Validation)?;
+    let hash = ContentHash::from_digest(Sha256::digest(&bytes).into());
+    Ok((parent, file_name, ExportDestinationState::Existing(hash)))
+}
+
+fn cleanup_export_stage(
+    directory: &RootedDir,
+    stage_name: &str,
+    stage_path: &Path,
+    expected_bytes: &[u8],
+) {
+    let Ok(bytes) = read_import_source_file(stage_path, MAX_BUNDLE_ARCHIVE_BYTES) else {
+        return;
+    };
+    if Sha256::digest(&bytes).as_slice() == Sha256::digest(expected_bytes).as_slice() {
+        let _ = directory.remove_file(stage_name);
+    }
+}
 
 impl LocalFileSystem {
+    pub fn inspect_export_destination(
+        &self,
+        destination: &Path,
+    ) -> AppResult<ExportDestinationState> {
+        inspect_export_destination(destination).map(|(_, _, state)| state)
+    }
+
+    /// Writes a validated `.jskill` archive to a private same-directory stage.
+    /// Absent destinations commit create-only; overwrite revalidates the exact
+    /// previewed content hash before an atomic same-directory rename.
+    pub fn write_export_archive(
+        &self,
+        destination: &Path,
+        archive_bytes: &[u8],
+        expected_state: &ExportDestinationState,
+        overwrite: bool,
+    ) -> AppResult<()> {
+        if archive_bytes.is_empty() || archive_bytes.len() as u64 > MAX_BUNDLE_ARCHIVE_BYTES {
+            return Err(export_error("library.export.archive.invalid"));
+        }
+        let (_, files) = read_bundle(archive_bytes).map_err(AppError::Validation)?;
+        validate_bundle(&files).map_err(AppError::Validation)?;
+        let (parent, file_name, current_state) = inspect_export_destination(destination)?;
+        if &current_state != expected_state {
+            return Err(AppError::Conflict {
+                current: Vec::new(),
+            });
+        }
+        match (&current_state, overwrite) {
+            (ExportDestinationState::Missing, false) => {}
+            (ExportDestinationState::Existing(_), true) => {}
+            (ExportDestinationState::Existing(_), false) => {
+                return Err(AppError::PermissionDenied {
+                    operation: "library.export.overwrite.required".to_owned(),
+                });
+            }
+            (ExportDestinationState::Missing, true) => {
+                return Err(export_error("library.export.overwrite.unexpected"));
+            }
+        }
+
+        let directory =
+            RootedDir::open_ambient_dir(&parent, ambient_authority()).map_err(|_| {
+                AppError::PermissionDenied {
+                    operation: "library.export.destination.unavailable".to_owned(),
+                }
+            })?;
+        let stage_name = format!(
+            ".jameskills-export-{}-{}.tmp",
+            std::process::id(),
+            NEXT_EXPORT_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let stage_path = parent.join(&stage_name);
+        let mut options = CapOpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let staged = (|| -> std::io::Result<()> {
+            let mut file = directory.open_with(&stage_name, &options)?;
+            file.write_all(archive_bytes)?;
+            file.sync_all()
+        })();
+        if staged.is_err() {
+            let _ = directory.remove_file(&stage_name);
+            return Err(AppError::Storage {
+                code: "library.export.stage.failed".to_owned(),
+            });
+        }
+
+        let current_parent = resolve_export_destination(destination)?.0;
+        if current_parent != parent || inspect_export_destination(destination)?.2 != current_state {
+            cleanup_export_stage(&directory, &stage_name, &stage_path, archive_bytes);
+            return Err(AppError::Conflict {
+                current: Vec::new(),
+            });
+        }
+        let commit = match current_state {
+            ExportDestinationState::Missing => {
+                directory.hard_link(&stage_name, &directory, &file_name)
+            }
+            ExportDestinationState::Existing(_) => {
+                directory.rename(&stage_name, &directory, &file_name)
+            }
+        };
+        if commit.is_err() {
+            cleanup_export_stage(&directory, &stage_name, &stage_path, archive_bytes);
+            return Err(AppError::Conflict {
+                current: Vec::new(),
+            });
+        }
+        if matches!(expected_state, ExportDestinationState::Missing) {
+            let _ = directory.remove_file(&stage_name);
+        }
+        Ok(())
+    }
+
     pub fn inspect_bundle(&self, root: &Path) -> Result<ValidatedInventory, Vec<Diagnostic>> {
         validate_bundle_inventory(&inspect_bundle_tree(root)?)
     }
@@ -5220,6 +5414,26 @@ impl FileSystemPort for LocalFileSystem {
         }
         let archive = read_import_source_file(source, MAX_BUNDLE_ARCHIVE_BYTES)?;
         read_bundle(&archive).map(|(_, files)| files)
+    }
+
+    fn inspect_export_destination(&self, destination: &Path) -> AppResult<ExportDestinationState> {
+        LocalFileSystem::inspect_export_destination(self, destination)
+    }
+
+    fn write_export_archive(
+        &self,
+        destination: &Path,
+        archive_bytes: &[u8],
+        expected_state: &ExportDestinationState,
+        overwrite: bool,
+    ) -> AppResult<()> {
+        LocalFileSystem::write_export_archive(
+            self,
+            destination,
+            archive_bytes,
+            expected_state,
+            overwrite,
+        )
     }
 }
 

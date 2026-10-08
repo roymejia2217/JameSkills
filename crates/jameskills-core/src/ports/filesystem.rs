@@ -1,14 +1,22 @@
 use super::super::domain::{
-    BundleEntry, EntryKind, PathValidationError, PortablePath, ValidatedInventory,
+    BundleEntry, ContentHash, EntryKind, PathValidationError, PortablePath, ValidatedInventory,
     validate_bundle_inventory,
 };
-use crate::Diagnostic;
+use crate::{AppError, AppResult, Diagnostic};
 use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Raw bundle bytes keyed by canonical path: the single byte-map type shared
 /// by hashing, archives and staging, so no layer redefines the container.
 pub type BundleFiles = BTreeMap<PortablePath, Vec<u8>>;
+
+/// Content-addressed destination observation used to bind an export write to
+/// the exact prior state shown in its preview.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExportDestinationState {
+    Missing,
+    Existing(ContentHash),
+}
 
 /// Read-only filesystem seam used to assemble a candidate bundle. The
 /// infrastructure adapter owns path traversal, entry-kind checks and byte
@@ -17,6 +25,29 @@ pub trait FileSystemPort: Send + Sync {
     fn read_bundle_directory(&self, root: &Path) -> Result<BundleFiles, Vec<Diagnostic>>;
     /// Reads either a portable directory bundle or a bounded `.jskill` file.
     fn read_bundle_source(&self, source: &Path) -> Result<BundleFiles, Vec<Diagnostic>>;
+
+    /// Inspects a user-selected export destination without following links.
+    fn inspect_export_destination(&self, _destination: &Path) -> AppResult<ExportDestinationState> {
+        Err(AppError::CapabilityUnavailable {
+            id: "library.export.destination.unavailable".to_owned(),
+            guidance_id: "library.export.destination.setup".to_owned(),
+        })
+    }
+
+    /// Writes a prepared portable archive only if the destination still matches
+    /// the previewed state. Existing targets require explicit overwrite consent.
+    fn write_export_archive(
+        &self,
+        _destination: &Path,
+        _archive_bytes: &[u8],
+        _expected_state: &ExportDestinationState,
+        _overwrite: bool,
+    ) -> AppResult<()> {
+        Err(AppError::CapabilityUnavailable {
+            id: "library.export.destination.unavailable".to_owned(),
+            guidance_id: "library.export.destination.setup".to_owned(),
+        })
+    }
 }
 
 const LOCAL_HEADER_SIG: u32 = 0x0403_4b50;
@@ -27,6 +58,7 @@ const EOCD_MIN_LEN: usize = 22;
 const EOCD_MAX_COMMENT: usize = 65_535;
 const CENTRAL_HEADER_LEN: usize = 46;
 const MAX_FILES: usize = 2_000;
+const MAX_ARCHIVE_BYTES: usize = 22 * 1024 * 1024;
 const METHOD_STORED: u16 = 0;
 const METHOD_DEFLATED: u16 = 8;
 const FLAG_ENCRYPTED: u16 = 1 << 0;
@@ -382,6 +414,12 @@ pub fn write_bundle_archive(files: &BundleFiles) -> Result<Vec<u8>, Vec<Diagnost
     push_u32(&mut out, central_end - central_start);
     push_u32(&mut out, central_start);
     push_u16(&mut out, 0);
+    if out.len() > MAX_ARCHIVE_BYTES {
+        return Err(vec![Diagnostic::error(
+            "bundle.archive.size_limit",
+            "Portable archive exceeds its bounded container size.",
+        )]);
+    }
     Ok(out)
 }
 
