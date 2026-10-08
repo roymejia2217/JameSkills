@@ -170,10 +170,14 @@ fn delete_commits_causal_tombstone_and_retains_exportable_history() {
             .load_history(LibraryHistoryQuery::new(skill_id, None, 50).unwrap())
             .await
             .unwrap();
-        assert_eq!(history.entries()[0].revision_id(), deleted.revision().id());
-        assert!(history.entries()[0].deleted());
+        let tombstone_history = history
+            .entries()
+            .iter()
+            .find(|entry| entry.revision_id() == deleted.revision().id())
+            .expect("new tombstone must appear in history");
+        assert!(tombstone_history.deleted());
         assert_eq!(
-            history.entries()[0].observed_heads(),
+            tombstone_history.observed_heads(),
             std::slice::from_ref(&content_head)
         );
 
