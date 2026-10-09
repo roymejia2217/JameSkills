@@ -1,6 +1,6 @@
 # TDD, XP y estrategia de verificación
 
-Pruebas futuras parte del plan; ninguna prueba de app ejecutada al redactarlo. El dossier se audita aparte: links/DAG/formatos/examples/cobertura.
+El dossier original definía pruebas antes de implementar la aplicación. El estado vigente y la evidencia ejecutada se registran aquí y en `tasks/RESUME.md`; el análisis documental del dossier sigue siendo distinto de los tests de producto.
 
 ## Ciclo TDD y XP
 
@@ -15,7 +15,7 @@ XP: slices verticales, integración frecuente, ownership con contratos, diseño 
 
 ## Herramientas
 
-Rust built-in tests + tokio::test; proptest para DAG/paths; tempfile/SQLite reales; wiremock o httpmock localhost; ClockPort fake; fake keyring. GPUI Kit test-support headless y evidencia nativa separada.
+Rust built-in tests + tokio::test; proptest para DAG/paths; tempfile/SQLite reales; wiremock o httpmock localhost; ClockPort fake; fake keyring. GPUI Kit `test-support` prueba la vista y sus servicios con SQLite temporal; Windows usa además MSTest + FlaUI UIA3 para automatizar la ventana nativa a través del árbol de accesibilidad de AccessKit/UI Automation.
 cargo-llvm-cov compatible baseline para coverage; nextest opcional. cargo-fuzz parser/archive en nightly separado app stable; fuzz prioritario inputs untrusted, no buttons triviales.
 Criterion domain/SQL, Kit profiler opt-in frames; benchmarks release hardware registrado.
 Exact versiones herramientas desde registry fuente T001; commands actualizados si ayuda oficial cambia.
@@ -64,6 +64,8 @@ cargo test -p jameskills-infra --locked
 cargo test -p jameskills-cli --locked
 cargo test -p jameskills-desktop --features test-support --locked
 cargo test --workspace --features jameskills-desktop/test-support --locked
+dotnet restore tests/native-ui/JameSkills.NativeUiTests.csproj --locked-mode
+dotnet test tests/native-ui/JameSkills.NativeUiTests.csproj --no-restore
 cargo build -p jameskills-cli --release --locked
 cargo build -p jameskills-desktop --release --locked
 cargo llvm-cov -p jameskills-core --locked --html
@@ -71,6 +73,8 @@ cargo deny --locked check
 cargo audit --file Cargo.lock
 ~~~
 Desktop feature test-support forwards Kit y UI tests required-features; CI invoca esa feature explícita. Kit glob puede shadow built-in test: imports explícitos; UI #[gpui_kit::test], dominio #[test].
+
+La prueba nativa Windows inicia `native_smoke` con una raíz temporal explícita; usa una biblioteca SQLite real y fixtures portables, y elimina esa raíz al terminar. FlaUI 5.0.0 opera botones y campos por UI Automation (sin coordenadas ni scripts de entrada); MSTest 4.5.1 y el grafo NuGet exacto están fijados en `tests/native-ui/packages.lock.json`. Debe ejecutarse en una sesión Windows interactiva con Cargo/Rust 1.95; runners headless/service no sustituyen esta evidencia. Las pruebas GPUI headless verifican además los previews/applies de import/export con el mismo servicio y almacenamiento reales.
 Audit/deny syntax comprobar help pin T001; actualizar scripts/docs/CI juntos. No repetir suite sin cambio/fallo/concern nuevo.
 
 ## Evidencia

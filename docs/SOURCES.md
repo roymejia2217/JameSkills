@@ -1,6 +1,6 @@
 # Fuentes y decisiones verificadas — JameSkills
 
-Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UTC en Linux x86_64. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. Checkpoints C014/C015 verificaron compilación y pruebas GPUI headless en Windows MSVC; no se afirma smoke visual nativo.
+Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UTC en Linux x86_64. Estas fuentes describen contratos externos; la especificación de JameSkills es una propuesta propia. Checkpoints C014/C015 verificaron compilación y pruebas GPUI headless en Windows MSVC; T046 añadió smoke nativo automatizado por UI Automation en Windows.
 
 ## Plataforma nativa
 
@@ -19,6 +19,16 @@ Consulta inicial: 2026-10-02 UTC. Verificación de bootstrap T001: 2026-10-02 UT
 | https://docs.rs/rfd/0.17.2/rfd/struct.AsyncFileDialog.html | API versionada: `pick_file`, `pick_folder`, `save_file`, `set_file_name`, filtros; Windows/Linux/macOS | Acciones de UI esperan selección/cancel sin bloquear render |
 | https://docs.rs/rfd/0.17.2/rfd/struct.FileHandle.html | `FileHandle::path()` devuelve ruta nativa en desktop | Pasar la ruta al preview/apply tipado; no abrir contenido del picker en el renderer |
 | https://docs.rs/rfd/0.17.2/rfd/ | Default features `xdg-portal` + `wayland`; Linux portal usa backend del desktop, `libdbus`/Zenity como fallback según runtime | Linux package/runtime documenta portal y Zenity; no sustituir por GTK ni mock web |
+
+## Accesibilidad y automatización UI nativa Windows
+
+| Fuente oficial consultada | Evidencia | Decisión |
+|---|---|---|
+| https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/ | Microsoft UI Automation es la interfaz Windows de accesibilidad y automatización de pruebas | La prueba inspecciona nombres, roles y acciones expuestos por la aplicación, no coordenadas ni píxeles |
+| https://github.com/FlaUI/FlaUI | FlaUI envuelve UI Automation de Microsoft y documenta UIA3 como backend moderno | Usar FlaUI para interacción nativa del test, no scripts de SendInput/SendKeys propios |
+| https://www.nuget.org/packages/FlaUI.UIA3/5.0.0 | FlaUI.UIA3 5.0.0; dependencias y checksum resueltos en `tests/native-ui/packages.lock.json` | Fijar la versión del adaptador UIA3 |
+| https://www.nuget.org/packages/MSTest/4.5.1 | MSTest 4.5.1, framework de pruebas soportado por Microsoft | Usar MSTest para discover/run desde `dotnet test` |
+| https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.1 | Test SDK resuelto transitivamente por MSTest 4.5.1 | Mantener restore reproducible en package lock, sin incorporarlo al workspace Rust |
 
 Directorios nativos: crate `directories = "=6.0.0"`, MIT OR Apache-2.0,
 [`BaseDirs`](https://docs.rs/directories/6.0.0/directories/struct.BaseDirs.html)

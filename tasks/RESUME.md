@@ -1,11 +1,21 @@
 # Reanudación JameSkills
 
-Fecha UTC: 2026-10-07
-Rama / commit observado: `main` / `0381a15` (checkpoint previo a esta actualización).
-Base: `main`=`0381a15`, merge squash secuencial de PRs #22–#27 desde la base #21.
-PR / CI remota: PRs #22–#27 están MERGED. CI, Required CI y Governance SUCCESS en el head respectivo de cada PR. La rama local `feat/t020-commit-test-checks` se había restaurado a `c976f02` antes de la integración.
+Fecha UTC: 2026-10-09
+Rama / commit observado: `feat/desktop-library-workflows` / `3284652`.
+Base: `main`=`5aa506b`; PRs #30–#34 integradas, checks remotos requeridos SUCCESS.
+Incremento vigente: T046 cerrada localmente con GPUI/SQLite headless e UI Automation nativa FlaUI; aún sin PR.
 
-## PRs #22–#27 integradas; T042.e espera wiring de selección aprobada
+## Checkpoint vigente — T046 verificada; siguiente elegible T047
+
+- T043/T044 integradas mediante PR #31; T045 mediante #33; T051/T052 mediante #32. `tasks/todo.md` se reconcilió contra esos commits y checks.
+- T046 recuperada selectivamente desde stash y comprometida en cuatro commits semánticos de ≤5 archivos: `97373bc`, `55c5194`, `1d9e272`, `3284652`. El resto de los stashes sigue intacto.
+- Desktop Windows MSVC: `cargo test -p jameskills-desktop --all-targets --features test-support --locked` — 22 unit, 2 async lifecycle, 9 `library_flow`; Clippy `-D warnings`, check all-targets, fmt y diff-check pasan.
+- Native UI: `dotnet restore tests/native-ui/JameSkills.NativeUiTests.csproj --locked-mode`, `dotnet format ... --verify-no-changes --no-restore` y `dotnet test ... --no-restore` pasan. MSTest 4.5.1 + FlaUI.UIA3 5.0.0; package lock reproducible. La app se inicia con una raíz temp inyectada y la prueba usa UIA para inspeccionar/operar la ventana y los pickers nativos; create/search/select/delete/history/restore se verifican por UIA, import/export preview/apply por GPUI headless y SQLite reales.
+- Se añadieron roles GPUI Heading/Status al título y estado del catálogo tras comprobar que la UIA tree no los exponía. FlaUI ve ahora ambos, botones/inputs y estados de acción.
+- Un primer launch diagnóstico de la app normal pasó por Windows Known Folders y abrió la base configurada del perfil; no se hicieron operaciones CRUD. Se informó al usuario y se cerró. Todos los tests posteriores usan `native_smoke` con DB/fixtures debajo de una carpeta temporal exclusiva, limpiada al terminar.
+- Siguiente acción exacta: push de `feat/desktop-library-workflows`, abrir PR de T046 con el template obligatorio, esperar Governance/Required CI + Linux/Windows, integrar con squash solo en verde. Después, primera tarea elegible T047 (editor/assets/policies/history UI). T053 keyring viene más adelante en el DAG; su prueba nativa desechable está autorizada, pero no sustituye T047.
+
+## Historial anterior — PRs #22–#27 integradas; T042.e espera wiring de selección aprobada
 
 - T020 está marcada completa en `tasks/todo.md`; PR #22 se integró primero a `main`. La rama T020 ya no contiene los cambios posteriores que pertenecen a T022–T042.
 - Se integraron en orden #22, #23, #24, #25, #26 y #27. #27 incorporó T039–T042 con commits funcionales; T042.e sigue explícitamente pendiente de verificación/wiring nativo, y el fallback permanece `Unavailable`/quarantined.
