@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
+use crate::views::library::LibraryPageDisposition;
 use crate::{routes::Route, state::AppState};
+use jameskills_core::ports::{LibraryHistoryPage, LibraryHistoryQuery, LibraryPage, LibraryQuery};
 
 /// Tope del diario de actividad según ARCHITECTURE (cola acotada del bridge).
 /// Al llenarse se expulsa lo más antiguo y se cuenta en `dropped_activity`;
@@ -8,7 +10,7 @@ use crate::{routes::Route, state::AppState};
 pub const MAX_ACTIVITY: usize = 64;
 
 /// Sobre con la identidad de un comando de UI (ARCHITECTURE: `CommandEnvelope`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandEnvelope {
     /// Id monótono acuñado por [`UiBridge::next_request_id`]; 0 está reservado.
     pub request_id: u64,
@@ -17,12 +19,34 @@ pub struct CommandEnvelope {
     pub command: UiCommand,
 }
 
-/// Comandos que la shell puede despachar hoy. Los de biblioteca, instalación
-/// y sync llegan con sus servicios (T046/T050/cloud-sync); no se declaran
-/// variantes sin productor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Comandos conectados de navegación/búsqueda/acciones de biblioteca. Cada
+/// mutación despachada representa una operación UI real con generation guard.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiCommand {
     Navigate(Route),
+    SearchLibrary {
+        generation: u64,
+        query: LibraryQuery,
+    },
+    LibraryAction {
+        operation_generation: u64,
+        action: LibraryActionKind,
+    },
+    LoadLibraryHistory {
+        operation_generation: u64,
+        query: LibraryHistoryQuery,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryActionKind {
+    Create,
+    PreviewImport,
+    ApplyImport,
+    PreviewExport,
+    ApplyExport,
+    Delete,
+    Restore,
 }
 
 /// Resultado de aplicar un comando o de un cómputo asíncrono. Los estados
@@ -46,6 +70,54 @@ pub enum UiEvent {
         route: Route,
         generation: u64,
     },
+    LibrarySearchStarted {
+        request_id: u64,
+        query_generation: u64,
+    },
+    LibraryActionStarted {
+        request_id: u64,
+        operation_generation: u64,
+        action: LibraryActionKind,
+    },
+    LibraryActionCompleted {
+        request_id: u64,
+        operation_generation: u64,
+        action: LibraryActionKind,
+    },
+    LibraryActionFailed {
+        request_id: u64,
+        operation_generation: u64,
+        action: LibraryActionKind,
+        failure: LibraryQueryFailure,
+    },
+    LibraryHistoryStarted {
+        request_id: u64,
+        operation_generation: u64,
+    },
+    LibraryHistoryLoaded {
+        request_id: u64,
+        route_generation: u64,
+        operation_generation: u64,
+        page: LibraryHistoryPage,
+    },
+    LibraryHistoryFailed {
+        request_id: u64,
+        route_generation: u64,
+        operation_generation: u64,
+        failure: LibraryQueryFailure,
+    },
+    LibraryPageLoaded {
+        request_id: u64,
+        route_generation: u64,
+        query_generation: u64,
+        page: LibraryPage,
+    },
+    LibraryPageFailed {
+        request_id: u64,
+        route_generation: u64,
+        query_generation: u64,
+        failure: LibraryQueryFailure,
+    },
     CommandRejected {
         request_id: u64,
         reason: RejectReason,
@@ -59,11 +131,19 @@ pub enum RejectReason {
     StaleRequestId,
     /// La vista despachó con una generación que ya no es la actual.
     StaleGeneration,
+    /// A library command was sent after the view had left the library route.
+    WrongRoute,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryQueryFailure {
+    Unavailable,
 }
 
 /// Estado terminal conocido de un comando.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandStatus {
+    Pending,
     Committed,
     Failed,
     Cancelled,
@@ -132,6 +212,29 @@ impl UiBridge {
             UiEvent::NavigationCancelled { request_id, .. } => {
                 (*request_id, CommandStatus::Cancelled)
             }
+            UiEvent::LibrarySearchStarted { request_id, .. } => {
+                (*request_id, CommandStatus::Pending)
+            }
+            UiEvent::LibraryActionStarted { request_id, .. } => {
+                (*request_id, CommandStatus::Pending)
+            }
+            UiEvent::LibraryActionCompleted { request_id, .. } => {
+                (*request_id, CommandStatus::Committed)
+            }
+            UiEvent::LibraryActionFailed { request_id, .. } => (*request_id, CommandStatus::Failed),
+            UiEvent::LibraryHistoryStarted { request_id, .. } => {
+                (*request_id, CommandStatus::Pending)
+            }
+            UiEvent::LibraryHistoryLoaded { request_id, .. } => {
+                (*request_id, CommandStatus::Committed)
+            }
+            UiEvent::LibraryHistoryFailed { request_id, .. } => {
+                (*request_id, CommandStatus::Failed)
+            }
+            UiEvent::LibraryPageLoaded { request_id, .. } => {
+                (*request_id, CommandStatus::Committed)
+            }
+            UiEvent::LibraryPageFailed { request_id, .. } => (*request_id, CommandStatus::Failed),
             UiEvent::CommandRejected { request_id, .. } => (*request_id, CommandStatus::Rejected),
         };
         self.statuses.insert(status.0, status.1);
@@ -160,6 +263,14 @@ pub fn dispatch_command(
         Some(RejectReason::StaleRequestId)
     } else if envelope.route_generation != state.route_generation {
         Some(RejectReason::StaleGeneration)
+    } else if matches!(
+        &envelope.command,
+        UiCommand::SearchLibrary { .. }
+            | UiCommand::LibraryAction { .. }
+            | UiCommand::LoadLibraryHistory { .. }
+    ) && state.route != Route::Library
+    {
+        Some(RejectReason::WrongRoute)
     } else {
         None
     };
@@ -182,12 +293,31 @@ pub fn dispatch_command(
                 generation: state.route_generation,
             }
         }
+        UiCommand::SearchLibrary { generation, .. } => UiEvent::LibrarySearchStarted {
+            request_id: envelope.request_id,
+            query_generation: generation,
+        },
+        UiCommand::LibraryAction {
+            operation_generation,
+            action,
+        } => UiEvent::LibraryActionStarted {
+            request_id: envelope.request_id,
+            operation_generation,
+            action,
+        },
+        UiCommand::LoadLibraryHistory {
+            operation_generation,
+            ..
+        } => UiEvent::LibraryHistoryStarted {
+            request_id: envelope.request_id,
+            operation_generation,
+        },
     };
     bridge.record(event.clone());
     vec![event]
 }
 
-/// Reductor puro para eventos de cómputos asíncronos (servicios en T046+).
+/// Reductor puro para eventos de cómputos asíncronos del catálogo.
 /// Una completitud tardía no mueve la ruta —la ruta nueva se preserva— pero
 /// sí queda en el diario: ningún recibo se pierde porque la vista cambiara.
 pub fn apply_event(state: &mut AppState, bridge: &mut UiBridge, event: UiEvent) {
@@ -207,6 +337,78 @@ pub fn apply_event(state: &mut AppState, bridge: &mut UiBridge, event: UiEvent) 
         UiEvent::NavigationCancelled { .. } => {
             bridge.last_notice = None;
         }
+        UiEvent::LibraryPageLoaded {
+            route_generation,
+            query_generation,
+            page,
+            ..
+        } => {
+            if state.route == Route::Library
+                && *route_generation == state.route_generation
+                && state.library.apply_page(*query_generation, page.clone())
+                    == LibraryPageDisposition::Applied
+            {
+                bridge.last_notice = None;
+            }
+        }
+        UiEvent::LibraryPageFailed {
+            route_generation,
+            query_generation,
+            ..
+        } => {
+            if state.route == Route::Library
+                && *route_generation == state.route_generation
+                && state.library.apply_failure(*query_generation) == LibraryPageDisposition::Applied
+            {
+                bridge.last_notice =
+                    Some("No se pudo cargar la biblioteca; inténtelo de nuevo.".to_owned());
+            }
+        }
+        UiEvent::LibrarySearchStarted { .. } => {}
+        UiEvent::LibraryHistoryStarted { .. } => {}
+        UiEvent::LibraryActionStarted { .. } => {}
+        UiEvent::LibraryActionCompleted {
+            operation_generation,
+            ..
+        } => {
+            state.library_operation.complete(*operation_generation);
+            bridge.last_notice = None;
+        }
+        UiEvent::LibraryActionFailed {
+            operation_generation,
+            ..
+        } => {
+            state.library_operation.fail(*operation_generation);
+            bridge.last_notice =
+                Some("No se pudo completar la operación de biblioteca.".to_owned());
+        }
+        UiEvent::LibraryHistoryLoaded {
+            route_generation,
+            operation_generation,
+            page,
+            ..
+        } => {
+            if state.route == Route::Library
+                && *route_generation == state.route_generation
+                && state
+                    .library_operation
+                    .set_history_page(*operation_generation, page.clone())
+            {
+                bridge.last_notice = None;
+            }
+        }
+        UiEvent::LibraryHistoryFailed {
+            route_generation,
+            operation_generation,
+            ..
+        } => {
+            if state.route == Route::Library
+                && *route_generation == state.route_generation
+                && state.library_operation.fail(*operation_generation)
+            {
+                bridge.last_notice = Some("No se pudo cargar el historial de la skill.".to_owned());
+            }
+        }
         UiEvent::CommandRejected { .. } => {}
     }
     bridge.record(event);
@@ -215,10 +417,14 @@ pub fn apply_event(state: &mut AppState, bridge: &mut UiBridge, event: UiEvent) 
 #[cfg(test)]
 mod tests {
     use crate::routes::Route;
+    use jameskills_core::{
+        domain::{RevisionId, SkillId},
+        ports::{LibraryHistoryPage, LibraryPage, LibrarySkillSummary},
+    };
 
     use super::{
-        CommandEnvelope, CommandStatus, MAX_ACTIVITY, RejectReason, UiBridge, UiCommand, UiEvent,
-        apply_event, dispatch_command,
+        CommandEnvelope, CommandStatus, LibraryActionKind, LibraryQueryFailure, MAX_ACTIVITY,
+        RejectReason, UiBridge, UiCommand, UiEvent, apply_event, dispatch_command,
     };
     use crate::state::AppState;
 
@@ -228,6 +434,234 @@ mod tests {
             route_generation: state.route_generation,
             command,
         }
+    }
+
+    fn summary(skill_id: SkillId) -> LibrarySkillSummary {
+        LibrarySkillSummary::new(
+            skill_id,
+            "demo".to_owned(),
+            "Demo".to_owned(),
+            Vec::new(),
+            Vec::new(),
+            vec![jameskills_core::ports::LibraryHeadSummary::new(
+                RevisionId::from_digest([1; 32]),
+                "1.0.0".to_owned(),
+                false,
+            )],
+        )
+    }
+
+    #[test]
+    fn library_search_is_a_pending_command_and_is_rejected_off_route() {
+        let mut state = AppState::new();
+        let mut bridge = UiBridge::new();
+        let query = state.library.begin_search("demo".to_owned()).unwrap();
+        let search = envelope(
+            &mut bridge,
+            &state,
+            UiCommand::SearchLibrary {
+                generation: query.generation(),
+                query: query.query().clone(),
+            },
+        );
+        let queued = dispatch_command(&mut state, &mut bridge, search);
+        assert_eq!(bridge.status_of(1), Some(CommandStatus::Pending));
+        assert_eq!(
+            queued,
+            vec![UiEvent::LibrarySearchStarted {
+                request_id: 1,
+                query_generation: query.generation(),
+            }]
+        );
+
+        let navigate = envelope(&mut bridge, &state, UiCommand::Navigate(Route::Agents));
+        dispatch_command(&mut state, &mut bridge, navigate);
+        let request = bridge.next_request_id();
+        let route_generation = state.route_generation;
+        let rejected = dispatch_command(
+            &mut state,
+            &mut bridge,
+            CommandEnvelope {
+                request_id: request,
+                route_generation,
+                command: UiCommand::SearchLibrary {
+                    generation: query.generation(),
+                    query: query.query().clone(),
+                },
+            },
+        );
+        assert!(matches!(
+            rejected[0],
+            UiEvent::CommandRejected {
+                reason: RejectReason::WrongRoute,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn library_mutation_actions_are_route_guarded_and_record_completion_receipts() {
+        let mut state = AppState::new();
+        let mut bridge = UiBridge::new();
+        let generation = state.library_operation.begin_create().unwrap();
+        assert!(state.library_operation.begin_create_apply(generation));
+        let start_envelope = envelope(
+            &mut bridge,
+            &state,
+            UiCommand::LibraryAction {
+                operation_generation: generation,
+                action: LibraryActionKind::Create,
+            },
+        );
+        let started = dispatch_command(&mut state, &mut bridge, start_envelope);
+        assert!(matches!(
+            started.as_slice(),
+            [UiEvent::LibraryActionStarted {
+                action: LibraryActionKind::Create,
+                ..
+            }]
+        ));
+        let request_id = match &started[0] {
+            UiEvent::LibraryActionStarted { request_id, .. } => *request_id,
+            _ => unreachable!(),
+        };
+        assert_eq!(bridge.status_of(request_id), Some(CommandStatus::Pending));
+        apply_event(
+            &mut state,
+            &mut bridge,
+            UiEvent::LibraryActionCompleted {
+                request_id,
+                operation_generation: generation,
+                action: LibraryActionKind::Create,
+            },
+        );
+        assert_eq!(bridge.status_of(request_id), Some(CommandStatus::Committed));
+        assert_eq!(
+            state.library_operation.phase(),
+            crate::views::library::LibraryOperationPhase::Complete
+        );
+
+        state.navigate(Route::Agents);
+        let rejected_envelope = envelope(
+            &mut bridge,
+            &state,
+            UiCommand::LibraryAction {
+                operation_generation: generation,
+                action: LibraryActionKind::Create,
+            },
+        );
+        let rejected = dispatch_command(&mut state, &mut bridge, rejected_envelope);
+        assert!(matches!(
+            rejected[0],
+            UiEvent::CommandRejected {
+                reason: RejectReason::WrongRoute,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn history_queries_reduce_only_for_the_current_route_and_operation_generation() {
+        let mut state = AppState::new();
+        let mut bridge = UiBridge::new();
+        let skill_id = SkillId::new();
+        let (generation, query) = state.library_operation.begin_history(skill_id).unwrap();
+        let request = envelope(
+            &mut bridge,
+            &state,
+            UiCommand::LoadLibraryHistory {
+                operation_generation: generation,
+                query,
+            },
+        );
+        let started = dispatch_command(&mut state, &mut bridge, request);
+        let request_id = match &started[0] {
+            UiEvent::LibraryHistoryStarted { request_id, .. } => *request_id,
+            other => panic!("unexpected event: {other:?}"),
+        };
+        let route_generation = state.route_generation;
+        apply_event(
+            &mut state,
+            &mut bridge,
+            UiEvent::LibraryHistoryLoaded {
+                request_id,
+                route_generation,
+                operation_generation: generation,
+                page: LibraryHistoryPage::new(Vec::new(), None),
+            },
+        );
+        assert_eq!(bridge.status_of(request_id), Some(CommandStatus::Committed));
+        assert_eq!(
+            state.library_operation.phase(),
+            crate::views::library::LibraryOperationPhase::HistoryReady
+        );
+
+        state.navigate(Route::Agents);
+        let (stale_generation, stale_query) =
+            state.library_operation.begin_history(skill_id).unwrap();
+        let stale_request = envelope(
+            &mut bridge,
+            &state,
+            UiCommand::LoadLibraryHistory {
+                operation_generation: stale_generation,
+                query: stale_query,
+            },
+        );
+        let rejected = dispatch_command(&mut state, &mut bridge, stale_request);
+        assert!(matches!(
+            rejected[0],
+            UiEvent::CommandRejected {
+                reason: RejectReason::WrongRoute,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn stale_library_completion_keeps_uuid_selection_and_current_failure_is_visible() {
+        let mut state = AppState::new();
+        let mut bridge = UiBridge::new();
+        let selected = SkillId::new();
+        let previous = state.library.begin_search("first".to_owned()).unwrap();
+        state.library.apply_page(
+            previous.generation(),
+            LibraryPage::new(vec![summary(selected)], None),
+        );
+        assert!(state.library.select_skill(selected));
+        let current = state.library.begin_search("second".to_owned()).unwrap();
+
+        let route_generation = state.route_generation;
+        apply_event(
+            &mut state,
+            &mut bridge,
+            UiEvent::LibraryPageLoaded {
+                request_id: 1,
+                route_generation,
+                query_generation: previous.generation(),
+                page: LibraryPage::new(vec![summary(SkillId::new())], None),
+            },
+        );
+        assert_eq!(state.library.generation(), current.generation());
+        assert_eq!(state.library.items()[0].skill_id(), selected);
+        assert_eq!(state.library.selected_skill(), Some(selected));
+
+        let route_generation = state.route_generation;
+        apply_event(
+            &mut state,
+            &mut bridge,
+            UiEvent::LibraryPageFailed {
+                request_id: 2,
+                route_generation,
+                query_generation: current.generation(),
+                failure: LibraryQueryFailure::Unavailable,
+            },
+        );
+        assert_eq!(
+            state.library.load_state(),
+            crate::views::library::LibraryLoadState::Error
+        );
+        assert_eq!(state.library.items()[0].skill_id(), selected);
+        assert!(bridge.last_notice().is_some());
     }
 
     #[test]

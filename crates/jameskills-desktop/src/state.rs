@@ -1,15 +1,17 @@
-use crate::routes::Route;
+use crate::{
+    routes::Route,
+    views::library::{LibraryCatalogState, LibraryOperationState},
+};
 
 /// Estado local de la shell según SPEC-desktop-app.
 ///
 /// `operations`, `agent_detection`, `sync_state` y `notices` llegan con el
-/// bridge y los servicios (T008.b); aquí solo vive lo que la navegación
-/// necesita hoy: ruta, generación, búsqueda y selección.
+/// bridge y los servicios (T008.b); las vistas mantienen sus modelos locales.
 pub struct AppState {
     pub route: Route,
     pub route_generation: u64,
-    pub library_query: String,
-    pub selected_skill: Option<String>,
+    pub library: LibraryCatalogState,
+    pub library_operation: LibraryOperationState,
 }
 
 impl AppState {
@@ -17,8 +19,8 @@ impl AppState {
         Self {
             route: Route::default(),
             route_generation: 0,
-            library_query: String::new(),
-            selected_skill: None,
+            library: LibraryCatalogState::new(),
+            library_operation: LibraryOperationState::new(),
         }
     }
 
@@ -50,8 +52,6 @@ mod tests {
         let state = AppState::new();
         assert_eq!(state.route, Route::Library);
         assert_eq!(state.route_generation, 0);
-        assert!(state.library_query.is_empty());
-        assert_eq!(state.selected_skill, None);
     }
 
     #[test]
