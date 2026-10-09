@@ -4,14 +4,21 @@ use jameskills_core::domain::{
     guidance::{ToolAvailability, ToolCapabilitySupport, ToolDetection, ToolVersionStatus},
 };
 use jameskills_core::{
-    SkillId,
-    application::PublishDraft,
-    ports::{LibraryCursor, LibraryItemState, LibraryQuery},
+    AppError, AppResult, Diagnostic, SkillId,
+    application::{PublishDraft, policy::CheckRequest},
+    domain::{ValidatedBundle, validate_bundle},
+    ports::{
+        LibraryCursor, LibraryItemState, LibraryQuery,
+        process::{ApprovedExecutable, ApprovedScript, ExecutableFingerprint},
+    },
 };
 use jameskills_infra::{
-    composition::RuntimeServices,
+    composition::{
+        RepositoryCheckTools, RuntimeServices, build_services, build_services_with_gitleaks,
+    },
     platform::{
-        HostPlatform, Observation, ToolCandidateKind, find_tool_candidates, load_tool_profiles,
+        HostPlatform, Observation, PlatformFacts, ToolCandidateKind, UserDirectories,
+        find_tool_candidates, load_tool_profiles,
     },
 };
 use serde_json::json;
@@ -27,6 +34,9 @@ pub struct Cli {
     /// Emit the stable JSON response envelope.
     #[arg(long, global = true)]
     pub json: bool,
+    /// Store local config, library and cache below an explicitly selected directory.
+    #[arg(long, global = true, value_name = "DIR")]
+    pub app_data_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Option<CliCommand>,
@@ -59,6 +69,10 @@ pub enum CliCommand {
         skill: SkillId,
         #[arg(long, value_enum, default_value_t = Profile::Generic)]
         profile: Profile,
+        /// Approve a registered native PATH candidate using its lowercase SHA-256.
+        /// Repeat for each tool, e.g. --approve-tool git=<sha256>.
+        #[arg(long = "approve-tool", value_name = "TOOL=SHA256")]
+        approved_tools: Vec<String>,
         /// Return failure unless every required check passes.
         #[arg(long)]
         strict: bool,
@@ -138,6 +152,12 @@ pub enum LibraryCommand {
         /// Bundle directory, .jskill archive, or standalone SKILL.md.
         #[arg(long)]
         path: PathBuf,
+        /// Explicitly select an absolute, native Gitleaks executable for this import.
+        #[arg(long, requires = "gitleaks_sha256")]
+        gitleaks_executable: Option<PathBuf>,
+        /// Confirm the selected Gitleaks executable's lowercase SHA-256 fingerprint.
+        #[arg(long, requires = "gitleaks_executable")]
+        gitleaks_sha256: Option<String>,
         /// Apply the choice confirmed by a previous preview.
         #[arg(long, requires_all = ["resolution", "confirmation_digest"])]
         apply: bool,
@@ -155,8 +175,20 @@ pub enum LibraryCommand {
     Export {
         #[arg(long)]
         skill: SkillId,
+        /// Export a selected stored revision; required when heads conflict.
+        #[arg(long)]
+        revision: Option<String>,
         #[arg(long)]
         output: PathBuf,
+        /// Write only after reviewing the preview confirmation digest.
+        #[arg(long, requires = "confirmation_digest")]
+        apply: bool,
+        /// Replace the exact existing file state shown in preview.
+        #[arg(long, requires = "apply")]
+        overwrite: bool,
+        /// Exact confirmation digest from a previous export preview.
+        #[arg(long, requires = "apply")]
+        confirmation_digest: Option<String>,
     },
 }
 
@@ -165,6 +197,56 @@ pub enum ImportResolutionArg {
     KeepExisting,
     AddConcurrentRoot,
     CreateQuarantinedDraft,
+}
+
+/// Return a Gitleaks selection only when both explicit CLI values are present
+/// and the digest has the canonical lowercase SHA-256 form.
+pub fn gitleaks_selection(cli: &Cli) -> Result<Option<(PathBuf, ExecutableFingerprint)>, ()> {
+    let Some(CliCommand::Library {
+        command:
+            LibraryCommand::Import {
+                gitleaks_executable,
+                gitleaks_sha256,
+                ..
+            },
+    }) = cli.command.as_ref()
+    else {
+        return Ok(None);
+    };
+    match (gitleaks_executable, gitleaks_sha256) {
+        (None, None) => Ok(None),
+        (Some(path), Some(hex)) if path.is_absolute() && hex.len() == 64 && hex.is_ascii() => {
+            let mut digest = [0; 32];
+            for (index, byte) in digest.iter_mut().enumerate() {
+                let offset = index * 2;
+                let pair = &hex[offset..offset + 2];
+                if !pair
+                    .bytes()
+                    .all(|value| value.is_ascii_digit() || (b'a'..=b'f').contains(&value))
+                {
+                    return Err(());
+                }
+                *byte = u8::from_str_radix(pair, 16).map_err(|_| ())?;
+            }
+            Ok(Some((
+                path.clone(),
+                ExecutableFingerprint::from_sha256(digest),
+            )))
+        }
+        _ => Err(()),
+    }
+}
+
+/// Construct a CLI runtime with only the explicit selection parsed for this
+/// invocation; the default factory remains scanner-unavailable.
+pub fn build_runtime(
+    directories: UserDirectories,
+    selection: Option<(PathBuf, ExecutableFingerprint)>,
+) -> AppResult<RuntimeServices> {
+    match selection {
+        Some((path, fingerprint)) => build_services_with_gitleaks(directories, &path, fingerprint),
+        None => build_services(directories),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
@@ -291,6 +373,18 @@ pub fn dispatch_cli(cli: Cli, runtime: Option<&RuntimeServices>) -> super::outpu
     };
 
     match command {
+        CliCommand::Check {
+            repo,
+            skill,
+            profile,
+            approved_tools,
+            strict,
+        } => {
+            let Some(runtime) = runtime else {
+                return super::output::CliResponse::unsupported("check");
+            };
+            dispatch_check(runtime, &repo, skill, profile, &approved_tools, strict)
+        }
         CliCommand::Doctor => {
             let Some(runtime) = runtime else {
                 return super::output::CliResponse::unsupported("doctor");
@@ -355,6 +449,258 @@ pub fn dispatch_cli(cli: Cli, runtime: Option<&RuntimeServices>) -> super::outpu
     }
 }
 
+fn dispatch_check(
+    runtime: &RuntimeServices,
+    repository: &std::path::Path,
+    skill_id: SkillId,
+    profile: Profile,
+    approved_tools: &[String],
+    strict: bool,
+) -> super::output::CliResponse {
+    use super::output::{CliResponse, response_for_app_error};
+
+    let executor = match tokio::runtime::Builder::new_current_thread().build() {
+        Ok(executor) => executor,
+        Err(_) => {
+            return CliResponse::error(
+                "check",
+                "runtime.unavailable",
+                "The policy check runtime is unavailable.",
+                3,
+            );
+        }
+    };
+    let tools = match resolve_check_tools(approved_tools) {
+        Ok(tools) => tools,
+        Err(error) => return response_for_app_error("check", &error),
+    };
+    let check_service = match runtime.policy_for_repository(repository, tools) {
+        Ok(service) => service,
+        Err(error) => return response_for_app_error("check", &error),
+    };
+    let context = match runtime.repository_check_context(repository, profile_name(profile)) {
+        Ok(context) => context,
+        Err(error) => return response_for_app_error("check", &error),
+    };
+    let detail = match executor.block_on(runtime.library().load_skill(skill_id)) {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return response_for_app_error("check", &AppError::NotFound),
+        Err(error) => return response_for_app_error("check", &error),
+    };
+    if detail.heads().len() != 1 || detail.heads()[0].summary().deleted() {
+        let heads = detail
+            .heads()
+            .iter()
+            .map(|head| head.summary().revision_id().clone())
+            .collect();
+        return response_for_app_error("check", &AppError::Conflict { current: heads });
+    }
+    let Some(files) = detail.heads()[0].files() else {
+        return response_for_app_error("check", &AppError::NotFound);
+    };
+    let bundle: ValidatedBundle = match validate_bundle(files) {
+        Ok(bundle) if bundle.manifest().id() == skill_id => bundle,
+        Ok(_) => {
+            return response_for_app_error(
+                "check",
+                &AppError::Validation(vec![Diagnostic::error(
+                    "library.skill_id.mismatch",
+                    "Selected skill identity does not match its validated bundle.",
+                )]),
+            );
+        }
+        Err(diagnostics) => {
+            return response_for_app_error("check", &AppError::Validation(diagnostics));
+        }
+    };
+    if bundle.policies().is_empty() {
+        return response_for_app_error(
+            "check",
+            &AppError::CapabilityUnavailable {
+                id: "policy.bundle.empty".to_owned(),
+                guidance_id: "policy.bundle.setup".to_owned(),
+            },
+        );
+    }
+    let mut reports = Vec::with_capacity(bundle.policies().len());
+    for policy in bundle.policies() {
+        match executor
+            .block_on(check_service.check(CheckRequest::new(policy.clone(), context.clone())))
+        {
+            Ok(report) => reports.push(report),
+            Err(error) => return response_for_app_error("check", &error),
+        }
+    }
+    let report_refs = bundle
+        .policies()
+        .iter()
+        .zip(reports.iter())
+        .collect::<Vec<_>>();
+    let mut response = CliResponse::check_reports("check", &report_refs, strict);
+    if let Some(data) = response.data.as_mut() {
+        data["skill_id"] = json!(skill_id.as_uuid().to_string());
+        data["requested_profile"] = json!(profile_name(profile));
+    }
+    response
+}
+
+fn resolve_check_tools(approvals: &[String]) -> AppResult<RepositoryCheckTools> {
+    let search_paths = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    resolve_check_tools_at(approvals, &search_paths, PlatformFacts::detect().platform)
+}
+
+fn resolve_check_tools_at(
+    approvals: &[String],
+    search_paths: &[PathBuf],
+    platform: HostPlatform,
+) -> AppResult<RepositoryCheckTools> {
+    use jameskills_infra::fs::{
+        ApprovedCommitlint, ApprovedCommitlintNode, commitlint_cli_entrypoint_for_candidate,
+    };
+
+    let profiles = load_tool_profiles().map_err(AppError::Validation)?;
+    let mut fingerprints = std::collections::BTreeMap::new();
+    let mut tools = RepositoryCheckTools::default();
+    for approval in approvals {
+        let Some((tool_name, sha256)) = approval.split_once('=') else {
+            return Err(invalid_check_tool_approval());
+        };
+        if fingerprints.contains_key(tool_name) {
+            return Err(invalid_check_tool_approval());
+        }
+        let fingerprint = parse_check_fingerprint(sha256)?;
+        fingerprints.insert(tool_name, fingerprint);
+    }
+    if fingerprints.contains_key("node") && !fingerprints.contains_key("commitlint") {
+        return Err(invalid_check_tool_approval());
+    }
+
+    for (tool_name, fingerprint) in &fingerprints {
+        let tool_id = match *tool_name {
+            "git" => ToolId::Git,
+            "gitleaks" => ToolId::Gitleaks,
+            "gh" => ToolId::Gh,
+            "commitlint" => ToolId::Commitlint,
+            "node" => ToolId::Node,
+            _ => return Err(invalid_check_tool_approval()),
+        };
+        if tool_id == ToolId::Node {
+            continue;
+        }
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.tool_id() == tool_id)
+            .ok_or_else(invalid_check_tool_approval)?;
+        let candidate = find_tool_candidates(std::slice::from_ref(profile), search_paths, platform)
+            .into_iter()
+            .next()
+            .ok_or_else(invalid_check_tool_approval)?;
+        if tool_id == ToolId::Commitlint {
+            let node_fingerprint = fingerprints.get("node").copied();
+            let entrypoint = commitlint_cli_entrypoint_for_candidate(&candidate);
+            let needs_node = candidate.kind() == ToolCandidateKind::CommandShim
+                || node_fingerprint.is_some()
+                || candidate.path().is_some_and(|path| {
+                    path.extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
+                });
+            tools = if !needs_node && candidate.kind() == ToolCandidateKind::NativeExecutable {
+                let tool = approve_native_candidate(&candidate, *fingerprint)?;
+                tools.with_commitlint(ApprovedCommitlint::Native(tool))
+            } else {
+                let Some(node_fingerprint) = node_fingerprint else {
+                    return Err(invalid_check_tool_approval());
+                };
+                let node_profile = profiles
+                    .iter()
+                    .find(|profile| profile.tool_id() == ToolId::Node)
+                    .ok_or_else(invalid_check_tool_approval)?;
+                let node_candidate = find_tool_candidates(
+                    std::slice::from_ref(node_profile),
+                    search_paths,
+                    platform,
+                )
+                .into_iter()
+                .next()
+                .ok_or_else(invalid_check_tool_approval)?;
+                let node = approve_native_candidate(&node_candidate, node_fingerprint)?;
+                let entrypoint = entrypoint.ok_or_else(invalid_check_tool_approval)?;
+                let entrypoint_fingerprint =
+                    jameskills_infra::process::fingerprint_executable(&entrypoint)?;
+                if entrypoint_fingerprint.as_bytes() != fingerprint.as_bytes() {
+                    return Err(invalid_check_tool_approval());
+                }
+                let script =
+                    ApprovedScript::from_absolute_path(entrypoint).map_err(AppError::Validation)?;
+                tools.with_commitlint(ApprovedCommitlint::Node(ApprovedCommitlintNode::new(
+                    node,
+                    script,
+                    entrypoint_fingerprint,
+                )))
+            };
+            continue;
+        }
+        let tool = approve_native_candidate(&candidate, *fingerprint)?;
+        tools = match tool_id {
+            ToolId::Git => tools.with_git(tool),
+            ToolId::Gitleaks => tools.with_gitleaks(tool),
+            ToolId::Gh => tools.with_github_cli(tool),
+            _ => return Err(invalid_check_tool_approval()),
+        };
+    }
+    if fingerprints.contains_key("node") && !fingerprints.contains_key("commitlint") {
+        return Err(invalid_check_tool_approval());
+    }
+    Ok(tools)
+}
+
+fn approve_native_candidate(
+    candidate: &jameskills_infra::platform::ToolCandidate,
+    fingerprint: ExecutableFingerprint,
+) -> AppResult<jameskills_infra::fs::ApprovedRepositoryTool> {
+    if candidate.kind() != ToolCandidateKind::NativeExecutable {
+        return Err(invalid_check_tool_approval());
+    }
+    let path = candidate.path().ok_or_else(invalid_check_tool_approval)?;
+    let executable =
+        ApprovedExecutable::from_absolute_path(path.to_path_buf()).map_err(AppError::Validation)?;
+    let observed = jameskills_infra::process::fingerprint_executable(executable.path())?;
+    if observed.as_bytes() != fingerprint.as_bytes() {
+        return Err(invalid_check_tool_approval());
+    }
+    Ok(jameskills_infra::fs::ApprovedRepositoryTool::new(
+        executable,
+        fingerprint,
+    ))
+}
+
+fn parse_check_fingerprint(value: &str) -> AppResult<ExecutableFingerprint> {
+    if value.len() != 64 || !value.is_ascii() {
+        return Err(invalid_check_tool_approval());
+    }
+    let mut digest = [0; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        let pair = &value[index * 2..index * 2 + 2];
+        if !pair
+            .bytes()
+            .all(|value| value.is_ascii_digit() || (b'a'..=b'f').contains(&value))
+        {
+            return Err(invalid_check_tool_approval());
+        }
+        *byte = u8::from_str_radix(pair, 16).map_err(|_| invalid_check_tool_approval())?;
+    }
+    Ok(ExecutableFingerprint::from_sha256(digest))
+}
+
+fn invalid_check_tool_approval() -> AppError {
+    AppError::Validation(vec![Diagnostic::error(
+        "policy.tool.approval.invalid",
+        "Tool approval must identify one registered native PATH candidate and its lowercase SHA-256 fingerprint.",
+    )])
+}
+
 fn dispatch_library(
     runtime: &RuntimeServices,
     command: LibraryCommand,
@@ -367,7 +713,7 @@ fn dispatch_library(
         LibraryCommand::Create { .. } => "library create",
         LibraryCommand::Publish { .. } => "library publish",
         LibraryCommand::Import { .. } => "library import",
-        LibraryCommand::Export { .. } => return CliResponse::unsupported("library export"),
+        LibraryCommand::Export { .. } => "library export",
     };
     if let LibraryCommand::Import {
         path,
@@ -375,6 +721,7 @@ fn dispatch_library(
         resolution,
         confirmation_digest,
         skill_id,
+        ..
     } = &command
     {
         return dispatch_library_import(
@@ -384,6 +731,25 @@ fn dispatch_library(
             *resolution,
             confirmation_digest.as_deref(),
             skill_id.as_deref(),
+        );
+    }
+    if let LibraryCommand::Export {
+        skill,
+        revision,
+        output,
+        apply,
+        overwrite,
+        confirmation_digest,
+    } = &command
+    {
+        return dispatch_library_export(
+            runtime,
+            *skill,
+            revision.as_deref(),
+            output,
+            *apply,
+            *overwrite,
+            confirmation_digest.as_deref(),
         );
     }
     let executor = match tokio::runtime::Builder::new_current_thread().build() {
@@ -527,6 +893,140 @@ fn dispatch_library(
     match result {
         Ok(data) => CliResponse::success(command_name, data),
         Err(error) => response_for_app_error(command_name, &error),
+    }
+}
+
+fn dispatch_library_export(
+    runtime: &RuntimeServices,
+    skill_id: SkillId,
+    revision_id: Option<&str>,
+    destination: &std::path::Path,
+    apply: bool,
+    overwrite: bool,
+    supplied_digest: Option<&str>,
+) -> super::output::CliResponse {
+    use super::output::{CliResponse, response_for_app_error};
+    use jameskills_core::{
+        application::ExportRequest,
+        domain::{ContentHash, RevisionId},
+        ports::filesystem::ExportDestinationState,
+    };
+
+    let revision_id = match revision_id {
+        Some(revision_id) => match RevisionId::parse_hex(revision_id) {
+            Ok(revision_id) => Some(revision_id),
+            Err(_) => {
+                return CliResponse::error(
+                    "library export",
+                    "library.export.revision.invalid",
+                    "Revision must be a lowercase SHA-256 revision ID.",
+                    2,
+                );
+            }
+        },
+        None => None,
+    };
+    let executor = match tokio::runtime::Builder::new_current_thread().build() {
+        Ok(executor) => executor,
+        Err(_) => {
+            return CliResponse::error(
+                "library export",
+                "runtime.unavailable",
+                "The library export runtime is unavailable.",
+                3,
+            );
+        }
+    };
+    let preview = match executor.block_on(runtime.library().preview_export(
+        ExportRequest::new(skill_id, revision_id),
+        destination.to_path_buf(),
+    )) {
+        Ok(preview) => preview,
+        Err(error) => return response_for_app_error("library export", &error),
+    };
+    let destination_state = match preview.destination_state() {
+        ExportDestinationState::Missing => json!({ "kind": "missing" }),
+        ExportDestinationState::Existing(hash) => {
+            json!({ "kind": "existing", "sha256": hash.as_str() })
+        }
+    };
+    let overwrite_required = matches!(
+        preview.destination_state(),
+        ExportDestinationState::Existing(_)
+    );
+    let required_digest = match preview.confirmation_digest(overwrite_required) {
+        Ok(digest) => digest.clone(),
+        Err(error) => return response_for_app_error("library export", &error),
+    };
+    if !apply {
+        return CliResponse::success(
+            "library export",
+            json!({
+                "phase": "preview",
+                "applied": false,
+                "skill_id": preview.bundle().skill_id().as_uuid().to_string(),
+                "revision_id": preview.bundle().revision_id().as_str(),
+                "content_hash": preview.bundle().content_hash().as_str(),
+                "archive_bytes": preview.bundle().archive_bytes().len(),
+                "destination": destination_state,
+                "overwrite_required": overwrite_required,
+                "confirmation_digest": required_digest.as_str(),
+            }),
+        );
+    }
+    if overwrite != overwrite_required {
+        return CliResponse::error(
+            "library export",
+            "library.export.overwrite.confirmation",
+            "The selected overwrite option does not match the destination preview.",
+            2,
+        );
+    }
+    let Some(supplied_digest) = supplied_digest else {
+        return CliResponse::error(
+            "library export",
+            "library.export.confirmation.required",
+            "Apply requires the confirmation digest from an export preview.",
+            2,
+        );
+    };
+    let parsed_digest = match ContentHash::parse_hex(supplied_digest) {
+        Ok(digest) => digest,
+        Err(_) => {
+            return CliResponse::error(
+                "library export",
+                "library.export.confirmation.invalid",
+                "Confirmation digest must be a lowercase SHA-256 value.",
+                2,
+            );
+        }
+    };
+    if parsed_digest != required_digest {
+        return CliResponse::error(
+            "library export",
+            "library.export.confirmation.stale",
+            "The export destination or selected revision changed after preview.",
+            4,
+        );
+    }
+    match executor.block_on(
+        runtime
+            .library()
+            .apply_export(preview, overwrite, &parsed_digest),
+    ) {
+        Ok(exported) => CliResponse::success(
+            "library export",
+            json!({
+                "phase": "applied",
+                "applied": true,
+                "skill_id": exported.skill_id().as_uuid().to_string(),
+                "revision_id": exported.revision_id().as_str(),
+                "content_hash": exported.content_hash().as_str(),
+                "archive_bytes": exported.archive_bytes().len(),
+                "overwritten": overwrite,
+            }),
+        ),
+        Err(error) => response_for_app_error("library export", &error),
     }
 }
 
@@ -964,6 +1464,14 @@ fn platform_name(platform: HostPlatform) -> &'static str {
     }
 }
 
+fn profile_name(profile: Profile) -> &'static str {
+    match profile {
+        Profile::Rust => "rust",
+        Profile::Node => "node",
+        Profile::Generic => "generic",
+    }
+}
+
 fn observation_name(observation: Observation) -> &'static str {
     match observation {
         Observation::Present => "present",
@@ -974,11 +1482,18 @@ fn observation_name(observation: Observation) -> &'static str {
 
 #[cfg(test)]
 mod library_command_tests {
-    use super::{Cli, CliCommand, ImportResolutionArg, LibraryCommand, LibraryState, dispatch_cli};
+    use super::{
+        Cli, CliCommand, HostPlatform, ImportResolutionArg, LibraryCommand, LibraryState,
+        PlatformFacts, ToolCandidateKind, ToolId, build_runtime, dispatch_cli,
+        find_tool_candidates, gitleaks_selection, load_tool_profiles, resolve_check_tools,
+        resolve_check_tools_at,
+    };
     use jameskills_core::SkillId;
+    use jameskills_core::domain::{ImportResolution, ImportSourceKind};
+    use jameskills_core::ports::process::ExecutableFingerprint;
     use jameskills_infra::{composition::build_services, platform::UserDirectories};
-    use std::io::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::{io::Write as _, path::PathBuf};
 
     static CASE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -1056,6 +1571,8 @@ mod library_command_tests {
     ) -> LibraryCommand {
         LibraryCommand::Import {
             path,
+            gitleaks_executable: None,
+            gitleaks_sha256: None,
             apply,
             resolution,
             confirmation_digest,
@@ -1070,6 +1587,7 @@ mod library_command_tests {
         dispatch_cli(
             Cli {
                 json: true,
+                app_data_dir: None,
                 command: Some(CliCommand::Library { command }),
             },
             services,
@@ -1147,6 +1665,147 @@ mod library_command_tests {
         );
         assert_eq!(response.exit_code, 3);
         assert_eq!(response.error.unwrap().code, "capability.unsupported");
+    }
+
+    #[test]
+    fn check_dispatches_loaded_skill_policies_and_preserves_unknown_results() {
+        let case = runtime_case();
+        std::fs::write(
+            case.root.join("Cargo.toml"),
+            "[package]\nname = \"cli-check-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        let source = write_import_bundle(&case.root);
+        let runtime = case.services.as_ref().unwrap();
+        let executor = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let preview = executor
+            .block_on(
+                runtime
+                    .library()
+                    .preview_import(&source, ImportSourceKind::Directory),
+            )
+            .unwrap();
+        let skill_id = preview.skill_id();
+        executor
+            .block_on(
+                runtime
+                    .library()
+                    .apply_import(preview, ImportResolution::AddConcurrentRoot),
+            )
+            .unwrap();
+
+        let cli = Cli::parse([
+            "jameskills",
+            "check",
+            "--repo",
+            case.root.to_str().unwrap(),
+            "--skill",
+            &skill_id.as_uuid().to_string(),
+            "--profile",
+            "rust",
+            "--strict",
+            "--json",
+        ])
+        .unwrap();
+        let response = dispatch_cli(cli, Some(runtime));
+
+        assert_eq!(response.command, "check");
+        assert_eq!(response.exit_code, 1);
+        let data = response.data.unwrap();
+        assert_eq!(data["required_passed"], false);
+        assert_eq!(data["policies"][0]["profile"], "repository-foundation");
+        let results = data["results"].as_array().unwrap();
+        assert!(results.len() > 1);
+        assert!(results.iter().any(|result| result["status"] == "unknown"));
+        assert!(results.iter().any(|result| result["status"] == "fail"));
+        assert!(results.iter().all(|result| {
+            result["requirement_id"].is_string()
+                && result["policy_profile"].is_string()
+                && result["evidence"].is_array()
+                && result.get("description").is_none()
+        }));
+    }
+
+    #[test]
+    fn check_tool_approval_requires_registered_candidate_and_exact_fingerprint() {
+        let profile = load_tool_profiles()
+            .unwrap()
+            .into_iter()
+            .find(|profile| profile.tool_id() == ToolId::Git)
+            .unwrap();
+        let search_paths = std::env::var_os("PATH")
+            .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let candidate = find_tool_candidates(
+            std::slice::from_ref(&profile),
+            &search_paths,
+            PlatformFacts::detect().platform,
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        assert_eq!(candidate.kind(), ToolCandidateKind::NativeExecutable);
+        let path = candidate.path().unwrap();
+        let fingerprint = jameskills_infra::process::fingerprint_executable(path).unwrap();
+        let digest = fingerprint
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        assert!(resolve_check_tools(&[format!("git={digest}")]).is_ok());
+        assert!(resolve_check_tools(&[format!("git={}", "0".repeat(64))]).is_err());
+        assert!(resolve_check_tools(&[format!("unknown={digest}")]).is_err());
+        assert!(resolve_check_tools(&[format!("git={}", "AB".repeat(32))]).is_err());
+    }
+
+    #[test]
+    fn commitlint_shim_requires_node_and_fingerprinted_registered_entrypoint() {
+        let root = std::env::temp_dir().join(format!(
+            "jameskills-cli-check-tools-{}-{}",
+            std::process::id(),
+            CASE_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let tools_path = root.join("bin");
+        let entrypoint_path = root
+            .join("node_modules")
+            .join("@commitlint")
+            .join("cli")
+            .join("cli.js");
+        std::fs::create_dir_all(&tools_path).unwrap();
+        std::fs::create_dir_all(entrypoint_path.parent().unwrap()).unwrap();
+        let node_path = tools_path.join("node.exe");
+        let commitlint_shim = tools_path.join("commitlint.cmd");
+        std::fs::write(&node_path, b"synthetic node executable").unwrap();
+        std::fs::write(&commitlint_shim, b"@echo off\n").unwrap();
+        std::fs::write(&entrypoint_path, b"// inert cli fixture\n").unwrap();
+        let node_sha = jameskills_infra::process::fingerprint_executable(&node_path).unwrap();
+        let entrypoint_sha =
+            jameskills_infra::process::fingerprint_executable(&entrypoint_path).unwrap();
+        let to_hex = |fingerprint: &ExecutableFingerprint| {
+            fingerprint
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        let args = vec![
+            format!("node={}", to_hex(&node_sha)),
+            format!("commitlint={}", to_hex(&entrypoint_sha)),
+        ];
+        let search_paths = vec![tools_path];
+
+        assert!(resolve_check_tools_at(&args[..1], &search_paths, HostPlatform::Windows).is_err());
+        assert!(
+            resolve_check_tools_at(&args, &search_paths, HostPlatform::Windows).is_ok(),
+            "Node and the package-owned JavaScript entrypoint can be approved without executing the .cmd shim"
+        );
+        let mismatched = vec![args[0].clone(), format!("commitlint={}", "0".repeat(64))];
+        assert!(resolve_check_tools_at(&mismatched, &search_paths, HostPlatform::Windows).is_err());
+        drop(search_paths);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1306,5 +1965,198 @@ mod library_command_tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn library_export_preview_is_read_only_and_requires_exact_revision_selection_on_conflict() {
+        let case = runtime_case();
+        let source = write_import_bundle(&case.root);
+        let runtime = case.services.as_ref().unwrap();
+        let executor = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let preview = executor
+            .block_on(
+                runtime
+                    .library()
+                    .preview_import(&source, ImportSourceKind::Directory),
+            )
+            .unwrap();
+        let skill_id = preview.skill_id();
+        executor
+            .block_on(
+                runtime
+                    .library()
+                    .apply_import(preview, ImportResolution::AddConcurrentRoot),
+            )
+            .unwrap();
+        let output = case.root.join("exports").join("repository.jskill");
+        std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+
+        let response = dispatch_library(
+            LibraryCommand::Export {
+                skill: skill_id,
+                revision: None,
+                output: output.clone(),
+                apply: false,
+                overwrite: false,
+                confirmation_digest: None,
+            },
+            Some(runtime),
+        );
+        assert_eq!(response.exit_code, 0);
+        assert_eq!(response.data.as_ref().unwrap()["phase"], "preview");
+        assert!(
+            !response.data.as_ref().unwrap()["applied"]
+                .as_bool()
+                .unwrap()
+        );
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn library_import_gitleaks_selection_requires_absolute_path_and_canonical_sha256() {
+        let executable = std::env::current_exe().unwrap();
+        let digest = "ab".repeat(32);
+        let cli = Cli::parse([
+            "jameskills".to_owned(),
+            "library".to_owned(),
+            "import".to_owned(),
+            "--path".to_owned(),
+            "bundle".to_owned(),
+            "--gitleaks-executable".to_owned(),
+            executable.to_string_lossy().into_owned(),
+            "--gitleaks-sha256".to_owned(),
+            digest.clone(),
+        ])
+        .unwrap();
+        let selection = gitleaks_selection(&cli).unwrap().unwrap();
+        assert_eq!(selection.0, executable);
+        assert_eq!(selection.1.as_bytes(), &[0xab; 32]);
+
+        let malformed = Cli::parse([
+            "jameskills".to_owned(),
+            "library".to_owned(),
+            "import".to_owned(),
+            "--path".to_owned(),
+            "bundle".to_owned(),
+            "--gitleaks-executable".to_owned(),
+            executable.to_string_lossy().into_owned(),
+            "--gitleaks-sha256".to_owned(),
+            "AB".repeat(32),
+        ])
+        .unwrap();
+        assert!(gitleaks_selection(&malformed).is_err());
+        let non_ascii = Cli::parse([
+            "jameskills".to_owned(),
+            "library".to_owned(),
+            "import".to_owned(),
+            "--path".to_owned(),
+            "bundle".to_owned(),
+            "--gitleaks-executable".to_owned(),
+            executable.to_string_lossy().into_owned(),
+            "--gitleaks-sha256".to_owned(),
+            format!("{}a", "€".repeat(21)),
+        ])
+        .unwrap();
+        assert!(gitleaks_selection(&non_ascii).is_err());
+        assert!(
+            Cli::parse([
+                "jameskills",
+                "library",
+                "import",
+                "--path",
+                "bundle",
+                "--gitleaks-executable",
+                "gitleaks",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    #[ignore = "executes the explicitly approved Gitleaks binary against an inert import fixture"]
+    fn cli_selection_scans_through_runtime_and_preserves_quarantine() {
+        let executable = PathBuf::from(
+            std::env::var_os("JAMESKILLS_GITLEAKS_EXE")
+                .expect("set the explicitly approved absolute Gitleaks executable path"),
+        );
+        let approved_sha256 = std::env::var("JAMESKILLS_GITLEAKS_SHA256")
+            .expect("set the approved lowercase SHA-256 fingerprint");
+        let root = std::env::temp_dir().join(format!(
+            "jameskills-cli-gitleaks-{}-{}",
+            std::process::id(),
+            CASE_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let source = write_import_bundle(&root);
+        let cli = Cli::parse([
+            "jameskills".to_owned(),
+            "library".to_owned(),
+            "import".to_owned(),
+            "--path".to_owned(),
+            source.to_string_lossy().into_owned(),
+            "--gitleaks-executable".to_owned(),
+            executable.to_string_lossy().into_owned(),
+            "--gitleaks-sha256".to_owned(),
+            approved_sha256.clone(),
+        ])
+        .expect("parse explicit CLI scanner selection");
+        let selection = gitleaks_selection(&cli)
+            .expect("validate explicit CLI selection")
+            .unwrap();
+        let directories = UserDirectories {
+            config: root.join("config"),
+            data: root.join("data"),
+            cache: root.join("cache"),
+        };
+        let runtime = build_runtime(directories.clone(), Some(selection.clone()))
+            .expect("build CLI-selected runtime");
+        let preview_response = dispatch_cli(cli, Some(&runtime));
+        assert_eq!(preview_response.exit_code, 0);
+        let preview = preview_response.data.unwrap();
+        assert_eq!(preview["scan_status"], "no-findings");
+        assert_eq!(preview["trust_state"], "quarantined");
+        let confirmation_digest = preview["confirmations"][0]["digest"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        drop(runtime);
+
+        let apply_cli = Cli::parse([
+            "jameskills".to_owned(),
+            "library".to_owned(),
+            "import".to_owned(),
+            "--path".to_owned(),
+            source.to_string_lossy().into_owned(),
+            "--apply".to_owned(),
+            "--resolution".to_owned(),
+            "add-concurrent-root".to_owned(),
+            "--confirmation-digest".to_owned(),
+            confirmation_digest,
+            "--gitleaks-executable".to_owned(),
+            executable.to_string_lossy().into_owned(),
+            "--gitleaks-sha256".to_owned(),
+            approved_sha256,
+        ])
+        .expect("parse scanner-enabled apply");
+        let apply_selection = gitleaks_selection(&apply_cli)
+            .expect("validate scanner selection for apply")
+            .unwrap();
+        let apply_runtime = build_runtime(directories, Some(apply_selection))
+            .expect("build scanner-enabled apply runtime");
+        let applied = dispatch_cli(apply_cli, Some(&apply_runtime));
+        assert_eq!(applied.exit_code, 0);
+        let applied = applied.data.unwrap();
+        assert_eq!(applied["trust_state"], "quarantined");
+        assert_eq!(applied["published"], false);
+        assert!(
+            std::fs::read_dir(root.join("cache/import-scans"))
+                .unwrap()
+                .next()
+                .is_none()
+        );
+        drop(apply_runtime);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

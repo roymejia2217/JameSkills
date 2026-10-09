@@ -2,9 +2,9 @@ mod commands;
 mod output;
 
 use clap::{CommandFactory, error::ErrorKind};
-use commands::{Cli, CliCommand, dispatch_cli};
+use commands::{Cli, CliCommand, build_runtime, dispatch_cli, gitleaks_selection};
 use jameskills_core::AppError;
-use jameskills_infra::{composition::build_services, platform::resolve_user_dirs};
+use jameskills_infra::platform::{UserDirectories, resolve_user_dirs};
 use output::{CliResponse, render_json, render_text, response_for_app_error};
 use std::{env, ffi::OsString, process::ExitCode};
 
@@ -48,16 +48,29 @@ fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         return 0;
     };
 
+    let gitleaks = match gitleaks_selection(&cli) {
+        Ok(selection) => selection,
+        Err(()) => {
+            let response = CliResponse::error(
+                command.command_name(),
+                "tool.gitleaks.selection.invalid",
+                "Gitleaks selection requires an absolute executable and a lowercase SHA-256 fingerprint.",
+                2,
+            );
+            print_response(response, cli.json);
+            return 2;
+        }
+    };
+
     if matches!(
         command,
-        CliCommand::Doctor | CliCommand::Validate { .. } | CliCommand::Library { .. }
+        CliCommand::Doctor
+            | CliCommand::Validate { .. }
+            | CliCommand::Check { .. }
+            | CliCommand::Library { .. }
     ) {
-        let runtime = match resolve_user_dirs()
-            .map_err(|_| AppError::CapabilityUnavailable {
-                id: "platform.user_directories".to_owned(),
-                guidance_id: "setup.user_directories".to_owned(),
-            })
-            .and_then(build_services)
+        let runtime = match runtime_directories(&cli)
+            .and_then(|directories| build_runtime(directories, gitleaks))
         {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -77,6 +90,28 @@ fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
     let exit_code = response.exit_code as u8;
     print_response(response, json_requested);
     exit_code
+}
+
+fn runtime_directories(cli: &Cli) -> Result<UserDirectories, AppError> {
+    let Some(root) = cli.app_data_dir.as_ref() else {
+        return resolve_user_dirs().map_err(|_| AppError::CapabilityUnavailable {
+            id: "platform.user_directories".to_owned(),
+            guidance_id: "setup.user_directories".to_owned(),
+        });
+    };
+    if !root.is_absolute() || root.parent().is_none() {
+        return Err(AppError::Validation(vec![
+            jameskills_core::Diagnostic::error(
+                "config.app_data_dir.invalid",
+                "Application data directory must be an absolute path.",
+            ),
+        ]));
+    }
+    Ok(UserDirectories {
+        config: root.join("config"),
+        data: root.join("data"),
+        cache: root.join("cache"),
+    })
 }
 
 fn print_response(response: CliResponse, json: bool) {
