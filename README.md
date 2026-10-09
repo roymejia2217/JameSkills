@@ -70,9 +70,12 @@ Abrir la aplicación de escritorio:
 cargo run -p jameskills-desktop --locked
 ```
 
-La ventana muestra el rail de navegación (Biblioteca, Proyectos y checks,
-Agentes, Sincronización, Ajustes) y el contenido de la ruta activa con
-sus estados vacíos hasta conectar cada capacidad.
+La ventana conecta la Biblioteca al catálogo SQLite local: permite buscar,
+crear borradores, revisar imports en cuarentena, exportar revisiones,
+consultar el historial causal y eliminar/restaurar mediante nuevas revisiones.
+Los previews y sus confirmaciones se procesan por los servicios compartidos
+con la CLI. Proyectos y checks, Agentes, Sincronización y Ajustes todavía
+muestran sus estados no disponibles mientras se implementan esas capacidades.
 
 ### CLI
 

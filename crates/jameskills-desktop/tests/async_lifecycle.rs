@@ -1,19 +1,43 @@
 use gpui_kit::{AppContext as _, TestAppContext, test::TestWindowExt as _};
+use jameskills_desktop::services::DesktopServices;
 use jameskills_desktop::{
     bridge::{CommandEnvelope, UiBridge, UiCommand, UiEvent, apply_event, dispatch_command},
     routes::Route,
     state::AppState,
     views::shell::Shell,
 };
+use jameskills_infra::{composition::build_services, platform::UserDirectories};
+use std::{path::PathBuf, sync::Arc};
+
+fn services() -> Arc<DesktopServices> {
+    let root =
+        std::env::temp_dir().join(format!("jameskills-async-lifecycle-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let runtime = build_services(UserDirectories {
+        config: PathBuf::from(&root).join("config"),
+        data: PathBuf::from(&root).join("data"),
+        cache: PathBuf::from(&root).join("cache"),
+    })
+    .unwrap();
+    Arc::new(
+        DesktopServices::from_runtime_services(
+            runtime,
+            Arc::new(jameskills_desktop::file_dialog::NativeFileDialog),
+        )
+        .unwrap(),
+    )
+}
 
 /// Ciclo de vida completo: despacho en el hilo de UI, cómputo del servicio
 /// en el executor de fondo y aplicación tardía sin perder la ruta nueva.
 #[gpui_kit::test]
 async fn bridge_late_completion_keeps_newer_route(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    let services = services();
     let (window, _) = cx.update(|cx| {
-        gpui_kit::open_window(gpui_kit::WindowOptions::default(), cx, |_, cx| {
-            cx.new(|_| Shell::new())
+        gpui_kit::open_window(gpui_kit::WindowOptions::default(), cx, move |window, cx| {
+            cx.new(|cx| Shell::new(window, cx, services.clone()))
         })
         .expect("open shell window")
     });

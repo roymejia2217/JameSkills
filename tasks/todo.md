@@ -2014,9 +2014,9 @@ T040.e2 descompuesta para el límite de 5 archivos:
 
 ## T043 — Exportar suites desde biblioteca y CLI
 
-- [ ] **T043 completada y verificada**
+- [x] **T043 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T042, T009. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T042, T009. **Estado:** completada; integrada por PR #31 (`2b2dcf5`).
 
 **Implementación y funciones:** LibraryService::export_bundle(ExportRequest), library_export_command; head/revision explícita, portable .jskill y overwrite preview; CLI --skill UUID --output path --json. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2030,21 +2030,21 @@ T040.e2 descompuesta para el límite de 5 archivos:
 - `crates/jameskills-cli/tests/library_export_command.rs`
 
 **Aceptación:**
-- [ ] Artifact export portable carece DB/OAuth/paths privados y abre con herramientas estándar.
-- [ ] Overwrite/cancel/failure preservan archivo existente.
-- [ ] CLI library export y GUI usan mismo servicio; formato de archive documentado.
+- [x] Artifact export portable carece DB/OAuth/paths privados y abre con herramientas estándar.
+- [x] Overwrite/cancel/failure preservan archivo existente.
+- [x] CLI library export y GUI usan mismo servicio; formato de archive documentado.
 
 **Verificación:** cargo test -p jameskills-infra --locked library_export; cargo test -p jameskills-cli --locked library_export_command; validate export y comparar hash canonical.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** `library_export` infra y `library_export_command` CLI pasan en PR #31; la suite y gates remotos Linux/Windows obligatorios pasaron. GUI/CLI delegan al mismo `LibraryService`.
 
 <a id="t044"></a>
 
 ## T044 — Historial, rollback, fork y tombstones causales
 
-- [ ] **T044 completada y verificada**
+- [x] **T044 completada y verificada**
 
-**Módulo:** `skill-library`. **Dependencias:** T038, T040, T042. **Estado:** pendiente.
+**Módulo:** `skill-library`. **Dependencias:** T038, T040, T042. **Estado:** completada; integrada por PR #31 (`2b2dcf5`).
 
 **Implementación y funciones:** LibraryService::delete_skill; helpers list_revisions/restore_revision_as_new/fork_skill/restore_deleted_skill; RevisionKind::Tombstone descendiente de observed heads. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2058,21 +2058,21 @@ T040.e2 descompuesta para el límite de 5 archivos:
 - `crates/jameskills-infra/tests/library_tombstones.rs`
 
 **Aceptación:**
-- [ ] No reescribir historial ni borrar blobs necesarios para backup/conflict.
-- [ ] Soft delete/restore explícitos se modelan en graph y catalog.
-- [ ] Acciones requieren expected_heads y son reversibles mediante nueva revision, no reloj last-wins.
+- [x] No reescribir historial ni borrar blobs necesarios para backup/conflict.
+- [x] Soft delete/restore explícitos se modelan en graph y catalog.
+- [x] Acciones requieren expected_heads y son reversibles mediante nueva revision, no reloj last-wins.
 
 **Verificación:** cargo test -p jameskills-core --locked library_history; cargo test -p jameskills-infra --locked library_tombstones; revisar grafo esperado tras delete/recovery.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** `library_history` core y `library_tombstones` infra, integradas en PR #31; gates remotos requeridos SUCCESS. La UI de T046 ejercita el tombstone CAS e historial.
 
 <a id="t045"></a>
 
 ## T045 — Vincular repositorios y perfiles a suites
 
-- [ ] **T045 completada y verificada**
+- [x] **T045 completada y verificada**
 
-**Módulo:** `policy-engine`. **Dependencias:** T039, T044, T025. **Estado:** pendiente.
+**Módulo:** `policy-engine`. **Dependencias:** T039, T044, T025. **Estado:** completada; integrada por PR #33 (`c7551d9`).
 
 **Implementación y funciones:** bind_repository, list_bindings, evaluate_binding; configuración local paths/profile/strict con suite revision y fingerprint de entorno. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2086,31 +2086,31 @@ T040.e2 descompuesta para el límite de 5 archivos:
 - `crates/jameskills-core/src/domain/library.rs`
 
 **Aceptación:**
-- [ ] Bindings locales referencian suite/heads sin alterar canonical portable.
-- [ ] Rechecks usan facts vigentes del repo y profile Rust/Node soportado explícito.
-- [ ] Binding perdido/offline produce pasos y conserva resultados previos marcados obsoletos.
+- [x] Bindings locales referencian suite/heads sin alterar canonical portable.
+- [x] Rechecks usan facts vigentes del repo y profile Rust/Node soportado explícito.
+- [x] Binding perdido/offline produce pasos y conserva resultados previos marcados obsoletos.
 
 **Verificación:** cargo test -p jameskills-infra --locked repository_bindings; abrir mismo skill con repos distintos y comparar guidance y provenance.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** pruebas `repository_bindings` core/infra y `repository_policy_runtime` infra; CI requerida Linux/Windows, Commitlint y PR Governance SUCCESS en PR #33.
 
 ## C015 — Checkpoint tras T043–T045
 
-- [ ] **C015 verificado**
+- [x] **C015 verificado**
 
 - Ejecutar pruebas enfocadas y suite acumulada core/infra/CLI; desktop build/tests cuando su entorno esté disponible. Fmt/clippy aplicables sin esconder target fallido.
 - Export/history/tombstones/bindings locales preservan portable bytes y causalidad.
 - Revisar wiring/errores/secret handling/archivos tocados. Actualizar `tasks/RESUME.md` con próxima tarea elegible, evidencia y bloqueos. No requiere aprobación humana de fase.
 
-**Evidencia:** pendiente. Un checkpoint con requisito nativo/account pendiente permanece sin marcar; seguir tareas independientes cuando el DAG lo permite.
+**Evidencia:** PR #31 y #33 integradas con checks remotos verdes; suites enfocadas verificaron export/history/tombstones/bindings. La integración GPUI se cierra por T046.
 
 <a id="t046"></a>
 
 ## T046 — Conectar biblioteca GPUI con catálogo real
 
-- [ ] **T046 completada y verificada**
+- [x] **T046 completada y verificada**
 
-**Módulo:** `desktop-app`. **Dependencias:** T008, T039, T040, T042, T043, T044. **Estado:** pendiente.
+**Módulo:** `desktop-app`. **Dependencias:** T008, T039, T040, T042, T043, T044. **Estado:** completada localmente en `feat/desktop-library-workflows`.
 
 **Implementación y funciones:** LibraryView::new/render, handle_search/create/import/export/delete, reduce_library_event; list virtualizada/paginada y selectors de revision. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2124,13 +2124,13 @@ T040.e2 descompuesta para el límite de 5 archivos:
 - `crates/jameskills-desktop/tests/library_flow.rs`
 
 **Aceptación:**
-- [ ] Lista/empty/search/create/import/export/history/delete son acciones reales con estados documentados.
-- [ ] No leer disco/SQL en render; page/filter requests coalesced y catalog counters actualizados.
-- [ ] Conflicted/deleted items y catálogo vacío permiten recuperar/crear, no CTA sin handler.
+- [x] Lista/empty/search/create/import/export/history/delete son acciones reales con estados documentados.
+- [x] No leer disco/SQL en render; page/filter requests coalesced y catalog counters actualizados.
+- [x] Conflicted/deleted items y catálogo vacío permiten recuperar/crear, no CTA sin handler.
 
-**Verificación:** cargo test -p jameskills-desktop --features test-support --locked library_flow; smoke GUI con biblioteca temporal real: crear/importar/buscar/exportar/delete/restore, verificar disco y DB.
+**Verificación:** `cargo test -p jameskills-desktop --all-targets --features test-support --locked`; `cargo clippy -p jameskills-desktop --all-targets --features test-support --locked -- -D warnings`; `cargo check -p jameskills-desktop --locked`; fmt/diff-check; `dotnet restore tests/native-ui/JameSkills.NativeUiTests.csproj --locked-mode`; `dotnet test tests/native-ui/JameSkills.NativeUiTests.csproj --no-restore`.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** Windows MSVC. GPUI headless + SQLite temporal: 22 unit + 2 lifecycle + 9 `library_flow`; create/import/export/history/delete/restore, digest, stale generation, picker cancellation y DB real pasan. FlaUI UIA3 5.0.0 + MSTest 4.5.1: ventana nativa y raíz temporal aislada; comprueba encabezado/estado accesibles, selección, búsqueda, creación, apertura/cancelación de pickers nativos, tombstone, historial y restore SemVer; 1/1 pasa. No se usa el perfil de usuario para la prueba; los tests de servicio cubren apply de import/export.
 
 <a id="t047"></a>
 
@@ -2270,9 +2270,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T051 — Implementar header binario y KDF limitados
 
-- [ ] **T051 completada y verificada**
+- [x] **T051 completada y verificada**
 
-**Módulo:** `cloud-sync`. **Dependencias:** T007, T012, T038. **Estado:** pendiente.
+**Módulo:** `cloud-sync`. **Dependencias:** T007, T012, T038. **Estado:** completada; integrada con T052 por PR #32 (`7d995ec`).
 
 **Implementación y funciones:** BackupHeaderV1::parse/encode, derive_wrapping_key, validate_crypto_limits; header176 bytes y WrapAAD/PayloadAAD exactos de SPEC-cloud-sync. Header: JSKSBK01, version u16be, cipher/kdf u8, m/t/p u32be, salt16, vaultUUID16, snapshotUUID16, wrapnonce24, payloadnonce24, wrappedmaster48, ciphertext_len u64be. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2286,19 +2286,19 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/tests/crypto_header.rs`
 
 **Descomposición obligatoria y wiring adicional:**
-- [ ] **T051.a — DTOs sync y SecretInput controlado** (5 archivos): `crates/jameskills-core/src/domain/sync.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/ports/secrets.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/secret_input.rs`. SecretInput Debug redacted/no Serialize/zeroize; tipos payload/IDs según contrato, no fake snapshot validation.
-- [ ] **T051.b — CryptoPort/header/KDF** (5 archivos): `crates/jameskills-core/src/ports/crypto.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/crypto.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/crypto_header.rs`. Header parse+limits antes derivación; vectors/tamper y raw byte offsets exactos. CryptoPort síncrono CPU usa spawn_blocking fuera core.
+- [x] **T051.a — DTOs sync y SecretInput controlado** (5 archivos): `crates/jameskills-core/src/domain/sync.rs`; `crates/jameskills-core/src/domain/mod.rs`; `crates/jameskills-core/src/ports/secrets.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-core/tests/secret_input.rs`. SecretInput Debug redacted/no Serialize/zeroize; tipos payload/IDs según contrato, no fake snapshot validation.
+- [x] **T051.b — CryptoPort/header/KDF** (5 archivos): `crates/jameskills-core/src/ports/crypto.rs`; `crates/jameskills-core/src/ports/mod.rs`; `crates/jameskills-infra/src/crypto.rs`; `crates/jameskills-infra/src/lib.rs`; `crates/jameskills-infra/tests/crypto_header.rs`. Header parse+limits antes derivación; vectors/tamper y raw byte offsets exactos. CryptoPort síncrono CPU usa spawn_blocking fuera core.
 
 Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anterior del padre es orientativo; esta descomposición contiene el presupuesto/wiring real. Las subtareas siguientes dependen de la anterior.
 
 **Aceptación:**
-- [ ] Header JSKSBK01 version1: offsets y AAD verificados; params fijos m65536/t3/p1/salt16.
-- [ ] Límites se validan antes Argon2id, IO/decompresión y no dependen de metadata de atacante.
-- [ ] No serde JSON para header crypto, no own cipher/KDF y librerías fijadas/revisadas.
+- [x] Header JSKSBK01 version1: offsets y AAD verificados; params fijos m65536/t3/p1/salt16.
+- [x] Límites se validan antes Argon2id, IO/decompresión y no dependen de metadata de atacante.
+- [x] No serde JSON para header crypto, no own cipher/KDF y librerías fijadas/revisadas.
 
 **Verificación:** cargo test -p jameskills-infra --locked crypto_header; contrastar byte-vector de SECURITY con roundtrip y tamper tests, sin cuentas remotas.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** T051 header/KDF y DTOs integrados con T052 por PR #32; crypto_header/crypto_snapshot y el conjunto de checks remotos Windows/Linux/CI pasaron. Contratos fijados en SPEC-cloud-sync y SECURITY.
 
 ## C017 — Checkpoint tras T049–T051
 
@@ -2314,9 +2314,9 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 
 ## T052 — Cifrar y autenticar snapshots completos
 
-- [ ] **T052 completada y verificada**
+- [x] **T052 completada y verificada**
 
-**Módulo:** `cloud-sync`. **Dependencias:** T051, T014, T038. **Estado:** pendiente.
+**Módulo:** `cloud-sync`. **Dependencias:** T051, T014, T038. **Estado:** completada; integrada por PR #32 (`7d995ec`).
 
 **Implementación y funciones:** CryptoProvider::create_vault/unlock_vault/open_with_vault/seal/open según CryptoPort final. UnlockedVault privado contiene vaultID/master32/wrappingkey32/salt16/params; KDF produce wrappingkey, passphrase zeroized después. Nonces24 fresh, wrapperAAD por snapshot, CSPRNG failure aborta. Las APIs públicas siguen docs/CONTRACTS.md; nombres adicionales son helpers privados.
 
@@ -2329,13 +2329,13 @@ Cerrar cada subtarea con prueba roja/verde y commit/evidencia. El listado anteri
 - `crates/jameskills-infra/Cargo.toml`
 
 **Aceptación:**
-- [ ] WrapAAD=header[0..120]+header[168..176]; PayloadAAD=header176 y master/key-slot vault según SPEC-cloud-sync; rotation crea vault+master nueva.
-- [ ] Passphrase/keys viven mínimo y never log/serialize en DB; nonce24 separado para wrap/payload.
-- [ ] Payload auth failure uniforme/saneado y no plaintext temp persistente antes de validar flujo.
+- [x] WrapAAD=header[0..120]+header[168..176]; PayloadAAD=header176 y master/key-slot vault según SPEC-cloud-sync; rotation crea vault+master nueva.
+- [x] Passphrase/keys viven mínimo y never log/serialize en DB; nonce24 separado para wrap/payload.
+- [x] Payload auth failure uniforme/saneado y no plaintext temp persistente antes de validar flujo.
 
 **Verificación:** cargo test -p jameskills-infra --locked crypto_snapshot; vectores/roundtrips con crypto library real, límite256MiB y memory bound.
 
-**Evidencia al ejecutar:** pendiente. Registrar test rojo (comando/fallo esperado), verde (comando/n.º tests), build/manual, OS, commit y bloqueo saneado.
+**Evidencia al ejecutar:** `crypto_snapshot` autentica con RustCrypto real; tamper/header/RNG/cross-vault y roundtrips pasan; PR #32 y CI requerida Windows/Linux SUCCESS. No se hicieron requests a cuentas cloud.
 
 <a id="t053"></a>
 

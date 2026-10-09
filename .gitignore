@@ -1,4 +1,6 @@
 /target/
+**/bin/
+**/obj/
 *.rs.bk
 # Tooling de gobierno (instalación local, reproducible vía npm ci).
 node_modules/
